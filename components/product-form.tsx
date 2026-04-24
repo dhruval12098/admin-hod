@@ -1,0 +1,1561 @@
+'use client'
+
+import type { Dispatch, FormEvent, ReactNode, SetStateAction } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
+import { ChevronLeft, Plus, Trash2, Upload, Video, X } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
+import { useToast } from '@/hooks/use-toast'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import type {
+  CatalogCategory,
+  CatalogCertificate,
+  CatalogGstSlab,
+  CatalogMetal,
+  CatalogOption,
+  ProductContentRule,
+  CatalogRingSize,
+  CatalogSubcategory,
+  ProductDetailSection,
+  ProductKeyValue,
+} from '@/lib/product-catalog'
+import { formatCategoryPath } from '@/lib/product-catalog'
+
+type BootstrapPayload = {
+  categories?: CatalogCategory[]
+  subcategories?: CatalogSubcategory[]
+  options?: CatalogOption[]
+  metals?: CatalogMetal[]
+  gstSlabs?: CatalogGstSlab[]
+  ringSizes?: CatalogRingSize[]
+  certificates?: CatalogCertificate[]
+  productContentRules?: ProductContentRule[]
+}
+
+type ProductResponse = {
+  item?: {
+    name?: string
+    sku?: string
+    detail_template?: 'standard' | 'hiphop'
+    featured?: boolean
+    description?: string | null
+    tag_line?: string | null
+    base_price?: number | null
+    discount_price?: number | null
+    gst_slab_id?: string | null
+    stock_quantity?: number | null
+    main_category_id?: string | null
+    subcategory_id?: string | null
+    option_id?: string | null
+    metal_ids?: string[]
+    purity_values?: string[]
+    certificate_ids?: string[]
+    ring_size_ids?: string[]
+    fit_options?: string[]
+    fit_label?: string | null
+    gemstone_label?: string | null
+    gemstone_value?: string | null
+    show_purity?: boolean | null
+    engraving_enabled?: boolean | null
+    engraving_label?: string | null
+    shipping_rule_id?: string | null
+    care_warranty_rule_id?: string | null
+    shipping_enabled?: boolean | null
+    care_warranty_enabled?: boolean | null
+    shipping_title_override?: string | null
+    shipping_body_override?: string | null
+    care_warranty_title_override?: string | null
+    care_warranty_body_override?: string | null
+    features?: string[]
+    specifications?: ProductKeyValue[]
+    product_details?: ProductKeyValue[]
+    detail_sections?: ProductDetailSection[]
+    image_1_path?: string | null
+    image_2_path?: string | null
+    image_3_path?: string | null
+    image_4_path?: string | null
+    video_path?: string | null
+    show_image_1?: boolean | null
+    show_image_2?: boolean | null
+    show_image_3?: boolean | null
+    show_image_4?: boolean | null
+    show_video?: boolean | null
+    custom_order_enabled?: boolean | null
+    ready_to_ship?: boolean | null
+    hiphop_badges?: string[]
+    chain_length_options?: string[]
+    hiphop_carat_label?: string | null
+    hiphop_carat_values?: string[]
+    gram_weight_label?: string | null
+    gram_weight_value?: string | null
+  }
+}
+
+const emptyRow = (): ProductKeyValue => ({ key: '', value: '' })
+const emptySection = (): ProductDetailSection => ({
+  id: `section-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+  title: '',
+  rows: [emptyRow()],
+  visible: true,
+})
+
+async function getAccessToken() {
+  const { data } = await supabase.auth.getSession()
+  return data.session?.access_token ?? null
+}
+
+async function authedFetch(url: string, options: RequestInit = {}) {
+  const token = await getAccessToken()
+  const headers = new Headers(options.headers)
+  if (token) headers.set('authorization', `Bearer ${token}`)
+  if (!(options.body instanceof FormData)) headers.set('content-type', 'application/json')
+  return fetch(url, { ...options, headers })
+}
+
+function toggleInArray(items: string[], value: string) {
+  return items.includes(value) ? items.filter((item) => item !== value) : [...items, value]
+}
+
+function sanitizeRows(rows: ProductKeyValue[]) {
+  return rows.filter((row) => row.key.trim() && row.value.trim())
+}
+
+function sanitizeSections(sections: ProductDetailSection[]) {
+  return sections
+    .map((section) => ({
+      ...section,
+      title: section.title.trim(),
+      rows: sanitizeRows(section.rows),
+    }))
+    .filter((section) => section.title && section.rows.length > 0)
+}
+
+function isHipHopCategory(category?: CatalogCategory | null) {
+  const source = `${category?.code ?? ''} ${category?.slug ?? ''} ${category?.name ?? ''}`.toLowerCase()
+  return source.includes('hip')
+}
+
+export function ProductForm({
+  productId,
+  productSlug,
+  forcedTemplate,
+  forceHipHopCategory = false,
+  backHref = '/dashboard/products',
+  pageTitle,
+  pageDescription,
+}: {
+  productId?: number | string
+  productSlug?: string
+  forcedTemplate?: 'standard' | 'hiphop'
+  forceHipHopCategory?: boolean
+  backHref?: string
+  pageTitle?: string
+  pageDescription?: string
+}) {
+  const { toast } = useToast()
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [categories, setCategories] = useState<CatalogCategory[]>([])
+  const [subcategories, setSubcategories] = useState<CatalogSubcategory[]>([])
+  const [options, setOptions] = useState<CatalogOption[]>([])
+  const [metals, setMetals] = useState<CatalogMetal[]>([])
+  const [gstSlabs, setGstSlabs] = useState<CatalogGstSlab[]>([])
+  const [ringSizes, setRingSizes] = useState<CatalogRingSize[]>([])
+  const [certificates, setCertificates] = useState<CatalogCertificate[]>([])
+  const [shippingRules, setShippingRules] = useState<ProductContentRule[]>([])
+  const [careWarrantyRules, setCareWarrantyRules] = useState<ProductContentRule[]>([])
+  const [name, setName] = useState('')
+  const [sku, setSku] = useState('')
+  const [detailTemplate, setDetailTemplate] = useState<'standard' | 'hiphop'>('standard')
+  const [featured, setFeatured] = useState(false)
+  const [basePrice, setBasePrice] = useState('')
+  const [discountPrice, setDiscountPrice] = useState('')
+  const [gstSlabId, setGstSlabId] = useState('')
+  const [stockQuantity, setStockQuantity] = useState('0')
+  const [description, setDescription] = useState('')
+  const [tagLine, setTagLine] = useState('')
+  const [mainCategoryId, setMainCategoryId] = useState('')
+  const [subcategoryId, setSubcategoryId] = useState('')
+  const [optionId, setOptionId] = useState('')
+  const [selectedMetalIds, setSelectedMetalIds] = useState<string[]>([])
+  const [selectedPurities, setSelectedPurities] = useState<string[]>([])
+  const [purityInput, setPurityInput] = useState('')
+  const [selectedCertificateIds, setSelectedCertificateIds] = useState<string[]>([])
+  const [selectedRingSizeIds, setSelectedRingSizeIds] = useState<string[]>([])
+  const [ringSizesEnabled, setRingSizesEnabled] = useState(false)
+  const [fitLabel, setFitLabel] = useState('Fit')
+  const [fitOptions, setFitOptions] = useState<string[]>([])
+  const [fitInput, setFitInput] = useState('')
+  const [fitEnabled, setFitEnabled] = useState(false)
+  const [gemstoneLabel, setGemstoneLabel] = useState('')
+  const [gemstoneValues, setGemstoneValues] = useState<string[]>([])
+  const [gemstoneValueInput, setGemstoneValueInput] = useState('')
+  const [showPurity, setShowPurity] = useState(true)
+  const [engravingEnabled, setEngravingEnabled] = useState(false)
+  const [engravingLabel, setEngravingLabel] = useState('Complimentary Engraving')
+  const [shippingEnabled, setShippingEnabled] = useState(true)
+  const [careWarrantyEnabled, setCareWarrantyEnabled] = useState(true)
+  const [shippingRuleId, setShippingRuleId] = useState('')
+  const [careWarrantyRuleId, setCareWarrantyRuleId] = useState('')
+  const [shippingTitleOverride, setShippingTitleOverride] = useState('')
+  const [shippingBodyOverride, setShippingBodyOverride] = useState('')
+  const [careWarrantyTitleOverride, setCareWarrantyTitleOverride] = useState('')
+  const [careWarrantyBodyOverride, setCareWarrantyBodyOverride] = useState('')
+  const [features, setFeatures] = useState<string[]>([])
+  const [featureInput, setFeatureInput] = useState('')
+  const [specifications, setSpecifications] = useState<ProductKeyValue[]>([emptyRow()])
+  const [productDetails, setProductDetails] = useState<ProductKeyValue[]>([emptyRow()])
+  const [detailSections, setDetailSections] = useState<ProductDetailSection[]>([emptySection()])
+  const [imageSlots, setImageSlots] = useState<string[]>(['', '', '', ''])
+  const [imagePaths, setImagePaths] = useState<(string | null)[]>([null, null, null, null])
+  const [videoFileName, setVideoFileName] = useState('')
+  const [videoPath, setVideoPath] = useState<string | null>(null)
+  const [showImageSlots, setShowImageSlots] = useState([true, true, true, true])
+  const [showVideo, setShowVideo] = useState(true)
+  const [customOrderEnabled, setCustomOrderEnabled] = useState(false)
+  const [readyToShip, setReadyToShip] = useState(false)
+  const [hiphopBadges, setHiphopBadges] = useState<string[]>([])
+  const [hiphopBadgeInput, setHiphopBadgeInput] = useState('')
+  const [chainLengthOptions, setChainLengthOptions] = useState<string[]>([])
+  const [chainLengthInput, setChainLengthInput] = useState('')
+  const [hiphopCaratLabel, setHiphopCaratLabel] = useState('Diamond Carat')
+  const [hiphopCaratValues, setHiphopCaratValues] = useState<string[]>([])
+  const [hiphopCaratInput, setHiphopCaratInput] = useState('')
+  const [gramWeightLabel, setGramWeightLabel] = useState('Gram Weight')
+  const [gramWeightValue, setGramWeightValue] = useState('')
+
+  useEffect(() => {
+    void loadData()
+  }, [productId, productSlug])
+
+  const loadData = async () => {
+    setLoading(true)
+    try {
+      const bootstrapResponse = await authedFetch('/api/catalog/bootstrap')
+      const bootstrapPayload = (await bootstrapResponse.json().catch(() => null)) as BootstrapPayload | null
+      if (bootstrapResponse.ok && bootstrapPayload) {
+        setCategories(bootstrapPayload.categories ?? [])
+        setSubcategories(bootstrapPayload.subcategories ?? [])
+        setOptions(bootstrapPayload.options ?? [])
+        setMetals(bootstrapPayload.metals ?? [])
+        setGstSlabs(bootstrapPayload.gstSlabs ?? [])
+        setRingSizes(bootstrapPayload.ringSizes ?? [])
+        setCertificates(bootstrapPayload.certificates ?? [])
+        setShippingRules((bootstrapPayload.productContentRules ?? []).filter((item) => item.kind === 'shipping'))
+        setCareWarrantyRules((bootstrapPayload.productContentRules ?? []).filter((item) => item.kind === 'care_warranty'))
+      }
+
+      const productLookupUrl = productSlug ? `/api/products/by-slug/${productSlug}` : productId ? `/api/products/${productId}` : null
+
+      if (productLookupUrl) {
+        const productResponse = await authedFetch(productLookupUrl)
+        const productPayload = (await productResponse.json().catch(() => null)) as ProductResponse | null
+        if (productResponse.ok && productPayload?.item) {
+          const item = productPayload.item
+          setName(item.name ?? '')
+          setSku(item.sku ?? '')
+          setDetailTemplate(item.detail_template ?? 'standard')
+          setFeatured(Boolean(item.featured))
+          setBasePrice(item.base_price?.toString() ?? '')
+          setDiscountPrice(item.discount_price?.toString() ?? '')
+          setGstSlabId(item.gst_slab_id ?? '')
+          setStockQuantity(String(item.stock_quantity ?? 0))
+          setDescription(item.description ?? '')
+          setTagLine(item.tag_line ?? '')
+          setMainCategoryId(item.main_category_id ?? '')
+          setSubcategoryId(item.subcategory_id ?? '')
+          setOptionId(item.option_id ?? '')
+          setSelectedMetalIds(item.metal_ids ?? [])
+          setSelectedPurities(item.purity_values ?? [])
+          setSelectedCertificateIds(item.certificate_ids ?? [])
+          setSelectedRingSizeIds(item.ring_size_ids ?? [])
+          setRingSizesEnabled((item.ring_size_ids ?? []).length > 0)
+          setFitLabel(item.fit_label ?? 'Fit')
+          setFitOptions(item.fit_options ?? [])
+          setFitEnabled((item.fit_options ?? []).length > 0)
+          setGemstoneLabel(item.gemstone_label ?? '')
+          setGemstoneValues(
+            item.gemstone_value
+              ? item.gemstone_value
+                  .split(',')
+                  .map((value) => value.trim())
+                  .filter(Boolean)
+              : []
+          )
+          setShowPurity(item.show_purity ?? true)
+          setEngravingEnabled(Boolean(item.engraving_enabled))
+          setEngravingLabel(item.engraving_label ?? 'Complimentary Engraving')
+          setShippingEnabled(item.shipping_enabled ?? true)
+          setCareWarrantyEnabled(item.care_warranty_enabled ?? true)
+          setShippingRuleId(item.shipping_rule_id ?? '')
+          setCareWarrantyRuleId(item.care_warranty_rule_id ?? '')
+          setShippingTitleOverride(item.shipping_title_override ?? '')
+          setShippingBodyOverride(item.shipping_body_override ?? '')
+          setCareWarrantyTitleOverride(item.care_warranty_title_override ?? '')
+          setCareWarrantyBodyOverride(item.care_warranty_body_override ?? '')
+          setFeatures(item.features ?? [])
+          setSpecifications(item.specifications?.length ? item.specifications : [emptyRow()])
+          setProductDetails(item.product_details?.length ? item.product_details : [emptyRow()])
+          setDetailSections(item.detail_sections?.length ? item.detail_sections : [emptySection()])
+          setImagePaths([
+            item.image_1_path ?? null,
+            item.image_2_path ?? null,
+            item.image_3_path ?? null,
+            item.image_4_path ?? null,
+          ])
+          setImageSlots([
+            item.image_1_path ?? '',
+            item.image_2_path ?? '',
+            item.image_3_path ?? '',
+            item.image_4_path ?? '',
+          ])
+          setVideoPath(item.video_path ?? null)
+          setVideoFileName(item.video_path ?? '')
+          setShowImageSlots([
+            item.show_image_1 ?? true,
+            item.show_image_2 ?? true,
+            item.show_image_3 ?? true,
+            item.show_image_4 ?? true,
+          ])
+          setShowVideo(item.show_video ?? true)
+          setCustomOrderEnabled(Boolean(item.custom_order_enabled))
+          setReadyToShip(Boolean(item.ready_to_ship))
+          setHiphopBadges(item.hiphop_badges ?? [])
+          setChainLengthOptions(item.chain_length_options ?? [])
+          setHiphopCaratLabel(item.hiphop_carat_label ?? 'Diamond Carat')
+          setHiphopCaratValues(item.hiphop_carat_values ?? [])
+          setGramWeightLabel(item.gram_weight_label ?? 'Gram Weight')
+          setGramWeightValue(item.gram_weight_value ?? '')
+        }
+      } else if (forceHipHopCategory || forcedTemplate === 'hiphop') {
+        const hiphopCategory = (bootstrapPayload?.categories ?? []).find((entry) => isHipHopCategory(entry))
+        if (hiphopCategory) {
+          setMainCategoryId(hiphopCategory.id)
+          setDetailTemplate('hiphop')
+        }
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const uploadMedia = async (file: File, kind: 'image' | 'video', folder: 'products' | 'hiphop') => {
+    const body = new FormData()
+    body.append('file', file)
+    body.append('kind', kind)
+    body.append('folder', folder)
+
+    const response = await authedFetch('/api/products/media', {
+      method: 'POST',
+      body,
+    })
+
+    const payload = await response.json().catch(() => null)
+    if (!response.ok || !payload?.path) {
+      throw new Error(payload?.error ?? `Unable to upload ${kind}.`)
+    }
+
+    return payload.path as string
+  }
+
+  const mainCategory = categories.find((item) => item.id === mainCategoryId)
+  const isHiphopProduct = detailTemplate === 'hiphop' || isHipHopCategory(mainCategory)
+  const categorySubcategories = useMemo(
+    () => subcategories.filter((item) => item.category_id === mainCategoryId && item.status === 'active'),
+    [subcategories, mainCategoryId]
+  )
+  const selectedSubcategory = subcategories.find((item) => item.id === subcategoryId)
+  const subcategoryOptions = useMemo(
+    () => options.filter((item) => item.subcategory_id === subcategoryId && item.status === 'active'),
+    [options, subcategoryId]
+  )
+
+  const selectedPath = useMemo(() => {
+    const option = options.find((item) => item.id === optionId)
+    return formatCategoryPath({ category: mainCategory, subcategory: selectedSubcategory, option }) || 'No category selected'
+  }, [mainCategory, selectedSubcategory, optionId, options])
+
+  useEffect(() => {
+    if (mainCategory && isHipHopCategory(mainCategory)) {
+      setDetailTemplate('hiphop')
+    }
+  }, [mainCategory])
+
+  useEffect(() => {
+    if (forcedTemplate) {
+      setDetailTemplate(forcedTemplate)
+    }
+  }, [forcedTemplate])
+
+  const addFeature = () => {
+    const next = featureInput.trim()
+    if (!next) return
+    setFeatures((prev) => [...prev, next])
+    setFeatureInput('')
+  }
+
+  const addPurity = () => {
+    const next = purityInput.trim()
+    if (!next) return
+    setSelectedPurities((prev) => (prev.includes(next) ? prev : [...prev, next]))
+    setPurityInput('')
+  }
+
+  const addFitOption = () => {
+    const next = fitInput.trim()
+    if (!next) return
+    setFitOptions((prev) => (prev.includes(next) ? prev : [...prev, next]))
+    setFitInput('')
+  }
+
+  const addGemstoneValue = () => {
+    const next = gemstoneValueInput.trim()
+    if (!next) return
+    setGemstoneValues((prev) => (prev.includes(next) ? prev : [...prev, next]))
+    setGemstoneValueInput('')
+  }
+
+  const addHiphopBadge = () => {
+    const next = hiphopBadgeInput.trim()
+    if (!next) return
+    setHiphopBadges((prev) => (prev.includes(next) ? prev : [...prev, next]))
+    setHiphopBadgeInput('')
+  }
+
+  const addChainLengthOption = () => {
+    const next = chainLengthInput.trim()
+    if (!next) return
+    setChainLengthOptions((prev) => (prev.includes(next) ? prev : [...prev, next]))
+    setChainLengthInput('')
+  }
+
+  const addHiphopCaratValue = () => {
+    const next = hiphopCaratInput.trim()
+    if (!next) return
+    setHiphopCaratValues((prev) => (prev.includes(next) ? prev : [...prev, next]))
+    setHiphopCaratInput('')
+  }
+
+  const applyTestData = () => {
+    const category = categories.find((item) => item.status === 'active')
+    const nextSubcategory = subcategories.find((item) => item.category_id === category?.id && item.status === 'active')
+    const nextOption = options.find((item) => item.subcategory_id === nextSubcategory?.id && item.status === 'active')
+    const defaultMetals = metals.slice(0, 2).map((item) => item.id)
+    const defaultCertificates = certificates.slice(0, 1).map((item) => item.id)
+    const defaultRingSizes = ringSizes.slice(0, 3).map((item) => item.id)
+
+    setName(`${category?.name ?? 'Catalog'} Test Product`)
+    setSku(`TEST-${Date.now().toString().slice(-6)}`)
+    setFeatured(true)
+    setBasePrice('5200')
+    setDiscountPrice('4800')
+    setDescription('A polished test product used to verify the aligned admin and storefront product flow.')
+    setTagLine('A clean test case for aligned product data')
+    setMainCategoryId(category?.id ?? '')
+    setSubcategoryId(nextSubcategory?.id ?? '')
+    setOptionId(nextOption?.id ?? '')
+    setSelectedMetalIds(defaultMetals)
+    setSelectedPurities(['18K', '14K'])
+    setSelectedCertificateIds(defaultCertificates)
+    setSelectedRingSizeIds(defaultRingSizes)
+    setRingSizesEnabled(defaultRingSizes.length > 0)
+    setFitLabel('Fit')
+    setFitOptions(['Standard', 'Comfort Fit'])
+    setFitEnabled(true)
+    setGemstoneLabel('Stone Type')
+    setGemstoneValues(['Natural Diamond'])
+    setShowPurity(true)
+    setEngravingEnabled(true)
+    setEngravingLabel('Complimentary Engraving')
+    setShippingEnabled(true)
+    setCareWarrantyEnabled(true)
+    setShippingRuleId(shippingRules[0]?.id ?? '')
+    setCareWarrantyRuleId(careWarrantyRules[0]?.id ?? '')
+    setShippingTitleOverride('')
+    setShippingBodyOverride('')
+    setCareWarrantyTitleOverride('')
+    setCareWarrantyBodyOverride('')
+    setFeatures(['Made for UI testing', 'Dynamic specifications enabled', 'Admin/storefront sync test'])
+    setSpecifications([
+      { key: 'SKU', value: `TEST-${Date.now().toString().slice(-6)}` },
+      { key: 'Crafted In', value: 'Surat, India' },
+      { key: 'Finish', value: 'High Polish' },
+    ])
+    setProductDetails([
+      { key: 'Style', value: nextOption?.name ?? 'Signature' },
+      { key: 'Wear', value: 'Everyday luxury' },
+    ])
+    setDetailSections([
+      {
+        id: 'diamond-details',
+        title: 'Diamond Details',
+        visible: true,
+        rows: [
+          { key: 'Diamond Type', value: 'Natural' },
+          { key: 'Total Carat Weight', value: '0.66 Ct' },
+        ],
+      },
+    ])
+  }
+
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault()
+    setSaving(true)
+
+    try {
+      const response = await authedFetch(productId ? `/api/products/${productId}` : productSlug ? `/api/products/by-slug/${productSlug}` : '/api/products', {
+        method: productId || productSlug ? 'PATCH' : 'POST',
+        body: JSON.stringify({
+          name,
+          sku,
+          detail_template: detailTemplate,
+          featured,
+          description: description || null,
+          tag_line: tagLine || null,
+          base_price: basePrice ? Number(basePrice) : null,
+          discount_price: discountPrice ? Number(discountPrice) : null,
+          gst_slab_id: gstSlabId || null,
+          stock_quantity: Math.max(0, Number(stockQuantity || 0)),
+          status: 'active',
+          main_category_id: mainCategoryId,
+          subcategory_id: subcategoryId || null,
+          option_id: optionId || null,
+          metal_ids: selectedMetalIds,
+          purity_values: selectedPurities,
+          certificate_ids: selectedCertificateIds,
+          ring_size_ids: ringSizesEnabled ? selectedRingSizeIds : [],
+          fit_options: fitEnabled ? fitOptions : [],
+          fit_label: fitEnabled ? fitLabel || null : null,
+          gemstone_label: gemstoneLabel || null,
+          gemstone_value: gemstoneValues.join(', ') || null,
+          show_purity: showPurity,
+          engraving_enabled: engravingEnabled,
+          engraving_label: engravingEnabled ? engravingLabel || null : null,
+          shipping_enabled: shippingEnabled,
+          care_warranty_enabled: careWarrantyEnabled,
+          shipping_rule_id: shippingEnabled ? shippingRuleId || null : null,
+          care_warranty_rule_id: careWarrantyEnabled ? careWarrantyRuleId || null : null,
+          shipping_title_override: shippingEnabled ? shippingTitleOverride || null : null,
+          shipping_body_override: shippingEnabled ? shippingBodyOverride || null : null,
+          care_warranty_title_override: careWarrantyEnabled ? careWarrantyTitleOverride || null : null,
+          care_warranty_body_override: careWarrantyEnabled ? careWarrantyBodyOverride || null : null,
+          features,
+          specifications: sanitizeRows(specifications),
+          product_details: sanitizeRows(productDetails),
+          detail_sections: sanitizeSections(detailSections),
+          image_1_path: imagePaths[0],
+          image_2_path: imagePaths[1],
+          image_3_path: imagePaths[2],
+          image_4_path: imagePaths[3],
+          video_path: videoPath,
+          show_image_1: showImageSlots[0],
+          show_image_2: showImageSlots[1],
+          show_image_3: showImageSlots[2],
+          show_image_4: showImageSlots[3],
+          show_video: showVideo,
+          custom_order_enabled: customOrderEnabled,
+          ready_to_ship: readyToShip,
+          hiphop_badges: hiphopBadges,
+          chain_length_options: chainLengthOptions,
+          hiphop_carat_label: hiphopCaratLabel || null,
+          hiphop_carat_values: hiphopCaratValues,
+          gram_weight_label: gramWeightLabel || null,
+          gram_weight_value: gramWeightValue || null,
+        }),
+      })
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null)
+        throw new Error(payload?.error ?? 'Unable to save product.')
+      }
+
+      window.location.href = '/dashboard/products'
+    } catch (error) {
+      toast({
+        title: 'Save failed',
+        description: error instanceof Error ? error.message : 'Unable to save product.',
+        variant: 'destructive',
+      })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) {
+    return <div className="rounded-lg border border-border bg-white px-6 py-12 text-sm text-muted-foreground">Loading product flow...</div>
+  }
+
+  return (
+    <div className="flex flex-col gap-8">
+      <div className="flex items-center gap-3">
+        <Link href={backHref} className="rounded p-1.5 hover:bg-secondary transition-colors">
+          <ChevronLeft size={20} />
+        </Link>
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">
+            {pageTitle || (productId || productSlug ? 'Edit Product' : 'Create Product')}
+          </h1>
+          <p className="mt-1 text-muted-foreground">
+            {pageDescription || (productId || productSlug ? 'Update the saved product model and storefront details.' : 'Add a new jewelry product to inventory.')}
+          </p>
+        </div>
+      </div>
+
+      {!productId && !productSlug ? (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={applyTestData}
+            className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary transition-colors"
+          >
+            Autofill Test Data
+          </button>
+        </div>
+      ) : null}
+
+      <form onSubmit={handleSubmit} className="max-w-5xl space-y-8">
+        <section className="rounded-lg border border-border bg-card p-6">
+          <h2 className="mb-6 text-lg font-semibold text-foreground">Basic Information</h2>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <FormField label="Product Name *">
+              <input value={name} onChange={(e) => setName(e.target.value)} className={inputClassName} />
+            </FormField>
+            <FormField label="SKU *">
+              <input value={sku} onChange={(e) => setSku(e.target.value)} className={inputClassName} />
+            </FormField>
+          </div>
+          <div className="mt-4 flex items-center gap-2">
+            <input id="featured" type="checkbox" checked={featured} onChange={(e) => setFeatured(e.target.checked)} className="rounded border-border" />
+            <label htmlFor="featured" className="text-sm font-medium text-foreground">Featured Product</label>
+          </div>
+        </section>
+
+        <section className="rounded-lg border border-border bg-card p-6">
+          <h2 className="mb-6 text-lg font-semibold text-foreground">Category and Classification</h2>
+          <div className="space-y-6">
+            <FormField label="Main Category">
+              <Select
+                value={mainCategoryId}
+                onValueChange={(value) => { setMainCategoryId(value); setSubcategoryId(''); setOptionId('') }}
+                disabled={forceHipHopCategory}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {categories.map((category) => (
+                    <SelectItem key={category.id} value={category.id}>{category.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FormField>
+
+            {categorySubcategories.length > 0 ? (
+              <FormField label="Subcategory">
+                <Select value={subcategoryId} onValueChange={(value) => { setSubcategoryId(value); setOptionId('') }}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select subcategory" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categorySubcategories.map((item) => (
+                      <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </FormField>
+            ) : null}
+
+            {subcategoryId ? (
+              <FormField label="Option">
+                <Select value={optionId} onValueChange={setOptionId}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select option" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {subcategoryOptions.map((item) => (
+                      <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </FormField>
+            ) : null}
+
+            <div className="rounded-lg border border-border bg-secondary/20 px-4 py-4">
+              <p className="text-sm font-semibold text-foreground">Selected Path</p>
+              <p className="mt-2 text-sm text-muted-foreground">{selectedPath}</p>
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-lg border border-border bg-card p-6">
+          <h2 className="mb-6 text-lg font-semibold text-foreground">Pricing</h2>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <FormField label="Base Price *">
+              <input type="number" value={basePrice} onChange={(e) => setBasePrice(e.target.value)} className={inputClassName} />
+            </FormField>
+            <FormField label="Discount Price">
+              <input type="number" value={discountPrice} onChange={(e) => setDiscountPrice(e.target.value)} className={inputClassName} />
+            </FormField>
+            <FormField label="GST Slab">
+              <Select value={gstSlabId || '__none__'} onValueChange={(value) => setGstSlabId(value === '__none__' ? '' : value)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select GST slab" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">No GST slab</SelectItem>
+                  {gstSlabs
+                    .filter((item) => item.status !== 'hidden')
+                    .map((item) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        {item.name} ({item.percentage}%)
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </FormField>
+            <FormField label="Stock Quantity">
+              <input type="number" min="0" value={stockQuantity} onChange={(e) => setStockQuantity(e.target.value)} className={inputClassName} />
+            </FormField>
+          </div>
+        </section>
+
+        <section className="rounded-lg border border-border bg-card p-6">
+          <h2 className="mb-6 text-lg font-semibold text-foreground">Product Experience</h2>
+          <div className="space-y-6">
+            <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-border bg-secondary/10 p-4">
+              <div>
+                <p className="text-sm font-semibold text-foreground">Detail Template</p>
+                <p className="mt-1 text-xs text-muted-foreground">Use Hip Hop mode for premium chain, bracelet, pendant, or grillz presentation and media storage.</p>
+              </div>
+              {forcedTemplate === 'hiphop' ? (
+                <span className="inline-flex rounded-full bg-foreground px-3 py-1.5 text-xs font-semibold text-white">Hip Hop</span>
+              ) : (
+                <PillToggle
+                  value={detailTemplate === 'hiphop'}
+                  onChange={(next) => setDetailTemplate(next ? 'hiphop' : 'standard')}
+                  onLabel="Hip Hop"
+                  offLabel="Standard"
+                />
+              )}
+            </div>
+
+            {isHiphopProduct ? (
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div className="rounded-lg border border-border bg-secondary/10 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">Ready To Ship</p>
+                        <p className="mt-1 text-xs text-muted-foreground">Show the in-stock premium badge on the Hip Hop detail page.</p>
+                      </div>
+                      <PillToggle value={readyToShip} onChange={setReadyToShip} onLabel="Enabled" offLabel="Disabled" />
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-border bg-secondary/10 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">Custom Order</p>
+                        <p className="mt-1 text-xs text-muted-foreground">Show the bespoke / custom-order CTA emphasis for Hip Hop products.</p>
+                      </div>
+                      <PillToggle value={customOrderEnabled} onChange={setCustomOrderEnabled} onLabel="Enabled" offLabel="Disabled" />
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="mb-3 block text-sm font-semibold text-foreground">Hip Hop Badges</label>
+                  <div className="flex gap-2">
+                    <input
+                      value={hiphopBadgeInput}
+                      onChange={(e) => setHiphopBadgeInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          addHiphopBadge()
+                        }
+                      }}
+                      placeholder="Add badge like Bespoke, Ready to Ship, Full Iced..."
+                      className={`${inputClassName} flex-1`}
+                    />
+                    <button type="button" onClick={addHiphopBadge} className={secondaryButtonClassName}>Add</button>
+                  </div>
+                  <TagList items={hiphopBadges} onRemove={(value) => setHiphopBadges((prev) => prev.filter((item) => item !== value))} />
+                </div>
+
+                <div>
+                  <label className="mb-3 block text-sm font-semibold text-foreground">Chain / Length Options</label>
+                  <div className="flex gap-2">
+                    <input
+                      value={chainLengthInput}
+                      onChange={(e) => setChainLengthInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          addChainLengthOption()
+                        }
+                      }}
+                      placeholder='Add chain length like 18", 20", 22"...'
+                      className={`${inputClassName} flex-1`}
+                    />
+                    <button type="button" onClick={addChainLengthOption} className={secondaryButtonClassName}>Add</button>
+                  </div>
+                  <TagList items={chainLengthOptions} onRemove={(value) => setChainLengthOptions((prev) => prev.filter((item) => item !== value))} />
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <FormField label="Carat Label">
+                    <input value={hiphopCaratLabel} onChange={(e) => setHiphopCaratLabel(e.target.value)} placeholder="Diamond Carat" className={inputClassName} />
+                  </FormField>
+                  <FormField label="Gram Weight Label">
+                    <input value={gramWeightLabel} onChange={(e) => setGramWeightLabel(e.target.value)} placeholder="Gram Weight" className={inputClassName} />
+                  </FormField>
+                </div>
+
+                <div>
+                  <label className="mb-3 block text-sm font-semibold text-foreground">Carat Values</label>
+                  <div className="flex gap-2">
+                    <input
+                      value={hiphopCaratInput}
+                      onChange={(e) => setHiphopCaratInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          addHiphopCaratValue()
+                        }
+                      }}
+                      placeholder="Add carat like 0.5 ct, 1.0 ct, 4.0 ct+"
+                      className={`${inputClassName} flex-1`}
+                    />
+                    <button type="button" onClick={addHiphopCaratValue} className={secondaryButtonClassName}>Add</button>
+                  </div>
+                  <TagList items={hiphopCaratValues} onRemove={(value) => setHiphopCaratValues((prev) => prev.filter((item) => item !== value))} />
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <FormField label="Gram Weight Value">
+                    <input value={gramWeightValue} onChange={(e) => setGramWeightValue(e.target.value)} placeholder="148 g" className={inputClassName} />
+                  </FormField>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </section>
+
+        <section className="rounded-lg border border-border bg-card p-6">
+          <h2 className="mb-6 text-lg font-semibold text-foreground">Attributes and Filters</h2>
+          <div className="space-y-6">
+            <TogglePillGroup
+              label="Metals"
+              items={metals.map((item) => ({ id: item.id, label: item.name }))}
+              selected={selectedMetalIds}
+              onToggle={(value) => setSelectedMetalIds((prev) => toggleInArray(prev, value))}
+            />
+
+            <div>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <label className="text-sm font-semibold text-foreground">Purity Values</label>
+                <PillToggle value={showPurity} onChange={setShowPurity} onLabel="Show on storefront" offLabel="Hidden on storefront" />
+              </div>
+              <div className="flex gap-2">
+                <input
+                  value={purityInput}
+                  onChange={(e) => setPurityInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      addPurity()
+                    }
+                  }}
+                  placeholder="Add purity like 18K or Pt 950"
+                  className={`${inputClassName} flex-1`}
+                />
+                <button type="button" onClick={addPurity} className={secondaryButtonClassName}>Add</button>
+              </div>
+              <TagList items={selectedPurities} onRemove={(value) => setSelectedPurities((prev) => prev.filter((item) => item !== value))} />
+            </div>
+
+            {certificates.length > 0 ? (
+              <TogglePillGroup
+                label="Certificates"
+                items={certificates.map((item) => ({ id: item.id, label: item.name }))}
+                selected={selectedCertificateIds}
+                onToggle={(value) => setSelectedCertificateIds((prev) => toggleInArray(prev, value))}
+              />
+            ) : null}
+
+            {ringSizes.length > 0 ? (
+              <div className="rounded-lg border border-border bg-secondary/10 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">Ring Sizes</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Enable this only for products that need ring size selection.</p>
+                  </div>
+                  <PillToggle
+                    value={ringSizesEnabled}
+                    onChange={(next) => {
+                      setRingSizesEnabled(next)
+                      if (!next) setSelectedRingSizeIds([])
+                    }}
+                    onLabel="Enabled"
+                    offLabel="Disabled"
+                  />
+                </div>
+
+                {ringSizesEnabled ? (
+                  <div className="mt-4">
+                    <TogglePillGroup
+                      label="Available Ring Sizes"
+                      items={ringSizes.map((item) => ({ id: item.id, label: item.name }))}
+                      selected={selectedRingSizeIds}
+                      onToggle={(value) => setSelectedRingSizeIds((prev) => toggleInArray(prev, value))}
+                    />
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <FormField label="Generic Stone / Material Label">
+                <input value={gemstoneLabel} onChange={(e) => setGemstoneLabel(e.target.value)} placeholder="Stone Type, Material, Gemstone..." className={inputClassName} />
+              </FormField>
+              <FormField label="Generic Stone / Material Values" className="sm:col-span-2">
+                <div className="flex gap-2">
+                  <input
+                    value={gemstoneValueInput}
+                    onChange={(e) => setGemstoneValueInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        addGemstoneValue()
+                      }
+                    }}
+                    placeholder="Add a value like Natural Diamond, Ruby, Plain Gold..."
+                    className={`${inputClassName} flex-1`}
+                  />
+                  <button type="button" onClick={addGemstoneValue} className={secondaryButtonClassName}>Add</button>
+                </div>
+                <TagList items={gemstoneValues} onRemove={(value) => setGemstoneValues((prev) => prev.filter((item) => item !== value))} />
+              </FormField>
+            </div>
+
+            <div className="rounded-lg border border-border bg-secondary/10 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Fit</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Use this for wear-style options like Comfort Fit, Screw Back, or Chain Length choices.</p>
+                </div>
+                <PillToggle
+                  value={fitEnabled}
+                  onChange={(next) => {
+                    setFitEnabled(next)
+                    if (!next) {
+                      setFitOptions([])
+                      setFitLabel('Fit')
+                    }
+                  }}
+                  onLabel="Enabled"
+                  offLabel="Disabled"
+                />
+              </div>
+
+              {fitEnabled ? (
+                <div className="mt-4 space-y-4">
+                  <FormField label="Fit Label">
+                    <input value={fitLabel} onChange={(e) => setFitLabel(e.target.value)} placeholder="Fit, Backing, Chain Length..." className={inputClassName} />
+                  </FormField>
+                  <div>
+                    <label className="mb-3 block text-sm font-semibold text-foreground">Fit Options</label>
+                    <div className="flex gap-2">
+                      <input
+                        value={fitInput}
+                        onChange={(e) => setFitInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault()
+                            addFitOption()
+                          }
+                        }}
+                        placeholder="Add fit option like Comfort Fit or Screw Back"
+                        className={`${inputClassName} flex-1`}
+                      />
+                      <button type="button" onClick={addFitOption} className={secondaryButtonClassName}>Add</button>
+                    </div>
+                    <TagList items={fitOptions} onRemove={(value) => setFitOptions((prev) => prev.filter((item) => item !== value))} />
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="rounded-lg border border-border bg-secondary/10 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Engraving</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Control whether this product offers engraving on the storefront.</p>
+                </div>
+                <PillToggle value={engravingEnabled} onChange={setEngravingEnabled} onLabel="Enabled" offLabel="Disabled" />
+              </div>
+              {engravingEnabled ? (
+                <div className="mt-4">
+                  <label className="mb-2 block text-sm font-medium text-foreground">Engraving Label</label>
+                  <input value={engravingLabel} onChange={(e) => setEngravingLabel(e.target.value)} className={inputClassName} />
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-lg border border-border bg-card p-6">
+          <h2 className="mb-6 text-lg font-semibold text-foreground">Content</h2>
+          <div className="space-y-4">
+            <FormField label="Description">
+              <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4} className={inputClassName} />
+            </FormField>
+            <FormField label="Tag Line">
+              <input value={tagLine} onChange={(e) => setTagLine(e.target.value)} className={inputClassName} />
+            </FormField>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-foreground">Highlights</label>
+              <div className="flex gap-2">
+                <input
+                  value={featureInput}
+                  onChange={(e) => setFeatureInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      addFeature()
+                    }
+                  }}
+                  className={`${inputClassName} flex-1`}
+                />
+                <button type="button" onClick={addFeature} className={secondaryButtonClassName}>Add</button>
+              </div>
+              <TagList items={features} onRemove={(value) => setFeatures((prev) => prev.filter((item) => item !== value))} />
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-lg border border-border bg-card p-6">
+          <h2 className="mb-6 text-lg font-semibold text-foreground">Store Policies</h2>
+          <div className="space-y-6">
+            <PolicyEditor
+              title="Shipping"
+              description="Select a reusable shipping rule and optionally override it for this product."
+              enabled={shippingEnabled}
+              onEnabledChange={(next) => {
+                setShippingEnabled(next)
+                if (!next) {
+                  setShippingRuleId('')
+                  setShippingTitleOverride('')
+                  setShippingBodyOverride('')
+                }
+              }}
+              rules={shippingRules}
+              selectedRuleId={shippingRuleId}
+              onRuleChange={setShippingRuleId}
+              titleOverride={shippingTitleOverride}
+              onTitleOverrideChange={setShippingTitleOverride}
+              bodyOverride={shippingBodyOverride}
+              onBodyOverrideChange={setShippingBodyOverride}
+            />
+
+            <PolicyEditor
+              title="Care & Warranty"
+              description="Select a reusable care rule and optionally override it for this product."
+              enabled={careWarrantyEnabled}
+              onEnabledChange={(next) => {
+                setCareWarrantyEnabled(next)
+                if (!next) {
+                  setCareWarrantyRuleId('')
+                  setCareWarrantyTitleOverride('')
+                  setCareWarrantyBodyOverride('')
+                }
+              }}
+              rules={careWarrantyRules}
+              selectedRuleId={careWarrantyRuleId}
+              onRuleChange={setCareWarrantyRuleId}
+              titleOverride={careWarrantyTitleOverride}
+              onTitleOverrideChange={setCareWarrantyTitleOverride}
+              bodyOverride={careWarrantyBodyOverride}
+              onBodyOverrideChange={setCareWarrantyBodyOverride}
+            />
+          </div>
+        </section>
+
+        <KeyValueSection
+          title="Specifications"
+          description="Add structured key-value rows for the product detail specifications tab."
+          rows={specifications}
+          onChange={setSpecifications}
+        />
+
+        <KeyValueSection
+          title="Product Details"
+          description="Use this for general product facts that should render separately from specifications."
+          rows={productDetails}
+          onChange={setProductDetails}
+        />
+
+        <section className="rounded-lg border border-border bg-card p-6">
+          <div className="mb-6 flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-semibold text-foreground">Additional Detail Sections</h2>
+              <p className="mt-1 text-sm text-muted-foreground">Create dynamic sections like Diamond Details, Gemstone Details, or Material Details.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setDetailSections((prev) => [...prev, emptySection()])}
+              className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary"
+            >
+              <Plus size={14} />
+              Add Section
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            {detailSections.map((section, sectionIndex) => (
+              <div key={section.id} className="rounded-lg border border-border bg-secondary/10 p-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
+                  <FormField label="Section Title">
+                    <input
+                      value={section.title}
+                      onChange={(e) =>
+                        setDetailSections((prev) =>
+                          prev.map((entry, index) => (index === sectionIndex ? { ...entry, title: e.target.value } : entry))
+                        )
+                      }
+                      className={inputClassName}
+                    />
+                  </FormField>
+                  <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+                    <input
+                      type="checkbox"
+                      checked={section.visible}
+                      onChange={(e) =>
+                        setDetailSections((prev) =>
+                          prev.map((entry, index) => (index === sectionIndex ? { ...entry, visible: e.target.checked } : entry))
+                        )
+                      }
+                      className="rounded border-border"
+                    />
+                    Visible
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setDetailSections((prev) => prev.filter((_, index) => index !== sectionIndex))}
+                    className="inline-flex items-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
+                  >
+                    <Trash2 size={14} />
+                    Remove
+                  </button>
+                </div>
+
+                <div className="mt-4 space-y-3">
+                  {section.rows.map((row, rowIndex) => (
+                    <div key={`${section.id}-${rowIndex}`} className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                      <input
+                        value={row.key}
+                        onChange={(e) =>
+                          setDetailSections((prev) =>
+                            prev.map((entry, index) =>
+                              index === sectionIndex
+                                ? {
+                                    ...entry,
+                                    rows: entry.rows.map((sectionRow, sectionRowIndex) =>
+                                      sectionRowIndex === rowIndex ? { ...sectionRow, key: e.target.value } : sectionRow
+                                    ),
+                                  }
+                                : entry
+                            )
+                          )
+                        }
+                        placeholder="Label"
+                        className={inputClassName}
+                      />
+                      <input
+                        value={row.value}
+                        onChange={(e) =>
+                          setDetailSections((prev) =>
+                            prev.map((entry, index) =>
+                              index === sectionIndex
+                                ? {
+                                    ...entry,
+                                    rows: entry.rows.map((sectionRow, sectionRowIndex) =>
+                                      sectionRowIndex === rowIndex ? { ...sectionRow, value: e.target.value } : sectionRow
+                                    ),
+                                  }
+                                : entry
+                            )
+                          )
+                        }
+                        placeholder="Value"
+                        className={inputClassName}
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDetailSections((prev) =>
+                            prev.map((entry, index) =>
+                              index === sectionIndex
+                                ? {
+                                    ...entry,
+                                    rows: entry.rows.length > 1 ? entry.rows.filter((_, sectionRowIndex) => sectionRowIndex !== rowIndex) : entry.rows,
+                                  }
+                                : entry
+                            )
+                          )
+                        }
+                        className="inline-flex items-center justify-center rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground hover:bg-secondary"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDetailSections((prev) =>
+                      prev.map((entry, index) => (index === sectionIndex ? { ...entry, rows: [...entry.rows, emptyRow()] } : entry))
+                    )
+                  }
+                  className="mt-4 inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary"
+                >
+                  <Plus size={14} />
+                  Add Row
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="rounded-lg border border-border bg-card p-6">
+          <h2 className="mb-6 text-lg font-semibold text-foreground">Media</h2>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {['Image 1', 'Image 2', 'Image 3', 'Image 4'].map((label, index) => (
+              <div key={label} className="rounded-lg border border-border bg-secondary/10 p-4">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                  <label className="text-sm font-medium text-foreground">{label}</label>
+                  <PillToggle
+                    value={showImageSlots[index]}
+                    onChange={(next) => setShowImageSlots((prev) => prev.map((entry, slotIndex) => (slotIndex === index ? next : entry)))}
+                    onLabel="Show"
+                    offLabel="Hide"
+                  />
+                </div>
+                <label className="flex cursor-pointer flex-col items-center justify-center rounded border-2 border-dashed border-border p-6 text-center hover:border-primary transition-colors">
+                  <Upload size={20} className="text-muted-foreground" />
+                  <p className="mt-3 text-sm text-muted-foreground">Upload {label.toLowerCase()}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {isHiphopProduct ? 'Saved into hiphop media folder as optimized WEBP/SVG' : 'Saved into products media folder as optimized WEBP/SVG'}
+                  </p>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0]
+                      if (!file) return
+                      try {
+                        const path = await uploadMedia(file, 'image', isHiphopProduct ? 'hiphop' : 'products')
+                        setImageSlots((prev) => prev.map((entry, slotIndex) => (slotIndex === index ? path : entry)))
+                        setImagePaths((prev) => prev.map((entry, slotIndex) => (slotIndex === index ? path : entry)))
+                        toast({ title: 'Uploaded', description: `${label} uploaded successfully.` })
+                      } catch (error) {
+                        toast({
+                          title: 'Upload failed',
+                          description: error instanceof Error ? error.message : `Unable to upload ${label.toLowerCase()}.`,
+                          variant: 'destructive',
+                        })
+                      }
+                    }}
+                  />
+                  <span className="mt-3 text-xs text-muted-foreground">{imageSlots[index] || 'No file selected'}</span>
+                </label>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-4 rounded-lg border border-border bg-secondary/10 p-4">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <label className="text-sm font-medium text-foreground">Video Upload</label>
+              <PillToggle value={showVideo} onChange={setShowVideo} onLabel="Show" offLabel="Hide" />
+            </div>
+            <label className="flex cursor-pointer flex-col items-center justify-center rounded border-2 border-dashed border-border p-6 text-center hover:border-primary transition-colors">
+              <Video size={20} className="text-muted-foreground" />
+              <p className="mt-3 text-sm text-muted-foreground">Upload product video</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {isHiphopProduct ? 'Saved into hiphop video folder' : 'Saved into products video folder'}
+              </p>
+              <input
+                type="file"
+                accept="video/*"
+                className="hidden"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0]
+                  if (!file) return
+                  try {
+                    const path = await uploadMedia(file, 'video', isHiphopProduct ? 'hiphop' : 'products')
+                    setVideoFileName(path)
+                    setVideoPath(path)
+                    toast({ title: 'Uploaded', description: 'Product video uploaded successfully.' })
+                  } catch (error) {
+                    toast({
+                      title: 'Upload failed',
+                      description: error instanceof Error ? error.message : 'Unable to upload video.',
+                      variant: 'destructive',
+                    })
+                  }
+                }}
+              />
+              <span className="mt-3 text-xs text-muted-foreground">{videoFileName || 'No video selected'}</span>
+            </label>
+          </div>
+        </section>
+
+        <div className="flex items-center gap-4">
+          <button type="submit" disabled={saving} className="rounded bg-primary px-6 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors disabled:opacity-60">
+            {saving ? 'Saving...' : productId || productSlug ? 'Update Product' : 'Create Product'}
+          </button>
+          <Link href={backHref} className="rounded border border-border px-6 py-2 text-sm font-medium text-foreground hover:bg-secondary transition-colors">
+            Cancel
+          </Link>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+function FormField({ label, children, className = '' }: { label: string; children: ReactNode; className?: string }) {
+  return (
+    <div className={className}>
+      <label className="mb-2 block text-sm font-medium text-foreground">{label}</label>
+      {children}
+    </div>
+  )
+}
+
+function TagList({ items, onRemove }: { items: string[]; onRemove: (value: string) => void }) {
+  if (items.length === 0) return null
+
+  return (
+    <div className="mt-3 flex flex-wrap gap-2">
+      {items.map((item) => (
+        <div key={item} className="inline-flex items-center gap-2 rounded bg-secondary px-3 py-1 text-sm">
+          <span>{item}</span>
+          <button type="button" onClick={() => onRemove(item)} className="hover:text-destructive">
+            <X size={14} />
+          </button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function PillToggle({
+  value,
+  onChange,
+  onLabel,
+  offLabel,
+}: {
+  value: boolean
+  onChange: (next: boolean) => void
+  onLabel: string
+  offLabel: string
+}) {
+  return (
+    <div className="inline-flex rounded-full border border-border bg-white p-1">
+      <button
+        type="button"
+        onClick={() => onChange(true)}
+        className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${value ? 'bg-foreground text-white' : 'text-muted-foreground hover:bg-secondary'}`}
+      >
+        {onLabel}
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange(false)}
+        className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${!value ? 'bg-foreground text-white' : 'text-muted-foreground hover:bg-secondary'}`}
+      >
+        {offLabel}
+      </button>
+    </div>
+  )
+}
+
+function TogglePillGroup({
+  label,
+  items,
+  selected,
+  onToggle,
+}: {
+  label: string
+  items: { id: string; label: string }[]
+  selected: string[]
+  onToggle: (value: string) => void
+}) {
+  return (
+    <div>
+      <label className="mb-3 block text-sm font-semibold text-foreground">{label}</label>
+      <div className="flex flex-wrap gap-2">
+        {items.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => onToggle(item.id)}
+            className={`rounded px-3 py-2 text-sm font-medium transition-colors ${selected.includes(item.id) ? 'bg-primary text-white' : 'border border-border hover:bg-secondary'}`}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function KeyValueSection({
+  title,
+  description,
+  rows,
+  onChange,
+}: {
+  title: string
+  description: string
+  rows: ProductKeyValue[]
+  onChange: Dispatch<SetStateAction<ProductKeyValue[]>>
+}) {
+  return (
+    <section className="rounded-lg border border-border bg-card p-6">
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-semibold text-foreground">{title}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => onChange((prev) => [...prev, emptyRow()])}
+          className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary"
+        >
+          <Plus size={14} />
+          Add Row
+        </button>
+      </div>
+
+      <div className="space-y-3">
+        {rows.map((row, index) => (
+          <div key={`${title}-${index}`} className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+            <input
+              value={row.key}
+              onChange={(e) => onChange((prev) => prev.map((entry, rowIndex) => (rowIndex === index ? { ...entry, key: e.target.value } : entry)))}
+              placeholder="Label"
+              className={inputClassName}
+            />
+            <input
+              value={row.value}
+              onChange={(e) => onChange((prev) => prev.map((entry, rowIndex) => (rowIndex === index ? { ...entry, value: e.target.value } : entry)))}
+              placeholder="Value"
+              className={inputClassName}
+            />
+            <button
+              type="button"
+              onClick={() => onChange((prev) => (prev.length > 1 ? prev.filter((_, rowIndex) => rowIndex !== index) : prev))}
+              className="inline-flex items-center justify-center rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground hover:bg-secondary"
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function PolicyEditor({
+  title,
+  description,
+  enabled,
+  onEnabledChange,
+  rules,
+  selectedRuleId,
+  onRuleChange,
+  titleOverride,
+  onTitleOverrideChange,
+  bodyOverride,
+  onBodyOverrideChange,
+}: {
+  title: string
+  description: string
+  enabled: boolean
+  onEnabledChange: (value: boolean) => void
+  rules: ProductContentRule[]
+  selectedRuleId: string
+  onRuleChange: (value: string) => void
+  titleOverride: string
+  onTitleOverrideChange: Dispatch<SetStateAction<string>>
+  bodyOverride: string
+  onBodyOverrideChange: Dispatch<SetStateAction<string>>
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-secondary/10 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <p className="text-sm font-semibold text-foreground">{title}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+        </div>
+        <PillToggle value={enabled} onChange={onEnabledChange} onLabel="Enabled" offLabel="Disabled" />
+      </div>
+
+      {enabled ? (
+        <div className="mt-4 space-y-4">
+          <FormField label={`${title} Rule`}>
+            <Select value={selectedRuleId || '__none__'} onValueChange={(value) => onRuleChange(value === '__none__' ? '' : value)}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={`Select ${title.toLowerCase()} rule`} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">No linked rule</SelectItem>
+                {rules.map((rule) => (
+                  <SelectItem key={rule.id} value={rule.id}>
+                    {rule.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </FormField>
+
+          <div className="grid grid-cols-1 gap-4">
+            <FormField label={`${title} Title Override`}>
+              <input
+                value={titleOverride}
+                onChange={(e) => onTitleOverrideChange(e.target.value)}
+                placeholder={`Leave blank to use the selected ${title.toLowerCase()} rule title`}
+                className={inputClassName}
+              />
+            </FormField>
+            <FormField label={`${title} Body Override`}>
+              <textarea
+                value={bodyOverride}
+                onChange={(e) => onBodyOverrideChange(e.target.value)}
+                rows={4}
+                placeholder={`Leave blank to use the selected ${title.toLowerCase()} rule body`}
+                className={inputClassName}
+              />
+            </FormField>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+const inputClassName =
+  'w-full rounded border border-border bg-white px-4 py-2 text-sm transition-colors hover:border-input focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring'
+
+const secondaryButtonClassName =
+  'rounded bg-secondary px-4 py-2 text-sm font-medium text-foreground hover:bg-secondary/80 transition-colors'

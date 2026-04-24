@@ -1,0 +1,50 @@
+import { NextResponse } from 'next/server'
+import { assertAdmin } from '@/lib/cms-auth'
+
+export async function GET(request: Request) {
+  const access = await assertAdmin(request)
+  if ('error' in access) return access.error
+
+  const { data, error } = await access.adminClient
+    .from('promotion_popup')
+    .select('*')
+    .eq('section_key', 'global_promotion_popup')
+    .maybeSingle()
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ item: data })
+}
+
+export async function POST(request: Request) {
+  const access = await assertAdmin(request)
+  if ('error' in access) return access.error
+
+  const body = await request.json().catch(() => null)
+  if (!body) {
+    return NextResponse.json({ error: 'Invalid payload.' }, { status: 400 })
+  }
+
+  const payload = {
+    section_key: 'global_promotion_popup',
+    label: typeof body.label === 'string' ? body.label : '',
+    title: typeof body.title === 'string' ? body.title : '',
+    description: typeof body.description === 'string' ? body.description : '',
+    cta_text: typeof body.cta_text === 'string' ? body.cta_text : '',
+    cta_link: typeof body.cta_link === 'string' ? body.cta_link : '',
+    is_active: Boolean(body.is_active),
+    show_once_per_session: body.show_once_per_session !== false,
+  }
+
+  const { error } = await access.adminClient
+    .from('promotion_popup')
+    .upsert(payload, { onConflict: 'section_key' })
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ success: true })
+}
