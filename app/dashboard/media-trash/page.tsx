@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronDown, RefreshCcw, Trash2 } from 'lucide-react'
+import { RefreshCcw, Trash2 } from 'lucide-react'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
 
@@ -26,13 +27,19 @@ async function getAccessToken() {
   return data.session?.access_token ?? null
 }
 
+function isImageFile(path: string) {
+  return /\.(png|jpe?g|webp|avif|gif|svg)$/i.test(path)
+}
+
 export default function MediaTrashPage() {
   const { toast } = useToast()
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [sections, setSections] = useState<MediaSection[]>([])
-  const [openSections, setOpenSections] = useState<Record<string, boolean>>({})
+  const [activeSectionName, setActiveSectionName] = useState<string>('')
+  const [showUnusedOnly, setShowUnusedOnly] = useState(true)
   const [deletingPath, setDeletingPath] = useState<string | null>(null)
+  const [pendingDeletePath, setPendingDeletePath] = useState<string | null>(null)
 
   const totals = useMemo(() => {
     return sections.reduce(
@@ -45,6 +52,16 @@ export default function MediaTrashPage() {
       { total: 0, used: 0, unused: 0 }
     )
   }, [sections])
+
+  const activeSection = useMemo(
+    () => sections.find((section) => section.name === activeSectionName) ?? sections[0] ?? null,
+    [activeSectionName, sections]
+  )
+
+  const visibleItems = useMemo(() => {
+    if (!activeSection) return []
+    return showUnusedOnly ? activeSection.items.filter((item) => item.status === 'unused') : activeSection.items
+  }, [activeSection, showUnusedOnly])
 
   const loadData = async (mode: 'initial' | 'refresh' = 'initial') => {
     if (mode === 'initial') setLoading(true)
@@ -65,14 +82,9 @@ export default function MediaTrashPage() {
 
       const nextSections = Array.isArray(payload?.sections) ? payload.sections : []
       setSections(nextSections)
-      setOpenSections((current) => {
-        const next = { ...current }
-        for (const section of nextSections) {
-          if (!(section.name in next)) {
-            next[section.name] = false
-          }
-        }
-        return next
+      setActiveSectionName((current) => {
+        if (current && nextSections.some((section: MediaSection) => section.name === current)) return current
+        return nextSections[0]?.name ?? ''
       })
     } catch (error) {
       toast({
@@ -91,9 +103,6 @@ export default function MediaTrashPage() {
   }, [])
 
   const handleDelete = async (path: string) => {
-    const confirmed = window.confirm('This will permanently delete the file from the Supabase bucket. This cannot be undone. Continue?')
-    if (!confirmed) return
-
     setDeletingPath(path)
     try {
       const accessToken = await getAccessToken()
@@ -123,6 +132,7 @@ export default function MediaTrashPage() {
       })
     } finally {
       setDeletingPath(null)
+      setPendingDeletePath(null)
     }
   }
 
@@ -131,7 +141,7 @@ export default function MediaTrashPage() {
       <div className="mb-10 flex items-start justify-between gap-4">
         <div>
           <h1 className="font-jakarta text-3xl font-semibold text-foreground">Media Trash</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Review bucket assets, see where they are used, and permanently delete files marked unused.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Review bucket assets, grouped by folder, and permanently delete files marked unused.</p>
           <p className="mt-3 text-xs text-muted-foreground">
             Total files: {totals.total} · Used: {totals.used} · Unused: {totals.unused}
           </p>
@@ -151,83 +161,178 @@ export default function MediaTrashPage() {
       {loading ? (
         <div className="rounded-lg border border-border bg-white px-6 py-10 text-sm text-muted-foreground">Scanning storage bucket...</div>
       ) : (
-        <div className="space-y-5">
-          {sections.map((section) => (
-            <section key={section.name} className="overflow-hidden rounded-2xl border border-border bg-white shadow-xs">
-              <button
-                type="button"
-                onClick={() => setOpenSections((current) => ({ ...current, [section.name]: !current[section.name] }))}
-                className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left"
-              >
-                <div>
-                  <div className="font-jakarta text-lg font-semibold text-foreground">{section.name}</div>
-                  <div className="mt-1 text-sm text-muted-foreground">
-                    {section.total} files · {section.used} used · {section.unused} unused
+        <div className="space-y-8">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {sections.map((section) => {
+              const isActive = activeSection?.name === section.name
+
+              return (
+                <button
+                  key={section.name}
+                  type="button"
+                  onClick={() => setActiveSectionName(section.name)}
+                  className={`rounded-2xl border p-6 text-left transition-all ${
+                    isActive
+                      ? 'border-primary bg-secondary/30 shadow-sm'
+                      : 'border-border bg-white hover:border-primary/40 hover:bg-secondary/10'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h2 className="font-jakarta text-xl font-semibold text-foreground">{section.name}</h2>
+                      <p className="mt-2 text-sm text-muted-foreground">{section.total} files in this folder block</p>
+                    </div>
+                    <span
+                      className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${
+                        isActive ? 'bg-primary text-white' : 'bg-secondary text-foreground'
+                      }`}
+                    >
+                      Open
+                    </span>
                   </div>
+
+                  <div className="mt-5 flex flex-wrap gap-2">
+                    <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
+                      Used: {section.used}
+                    </span>
+                    <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-700">
+                      Unused: {section.unused}
+                    </span>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+
+          {activeSection ? (
+            <section className="overflow-hidden rounded-2xl border border-border bg-white shadow-xs">
+              <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border px-6 py-5">
+                <div>
+                  <h3 className="font-jakarta text-xl font-semibold text-foreground">{activeSection.name}</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {showUnusedOnly
+                      ? `${activeSection.unused} unused image${activeSection.unused === 1 ? '' : 's'} in this section`
+                      : `${activeSection.total} total file${activeSection.total === 1 ? '' : 's'} in this section`}
+                  </p>
                 </div>
-                <ChevronDown size={18} className={`transition-transform ${openSections[section.name] ? 'rotate-180' : ''}`} />
-              </button>
 
-              {openSections[section.name] ? (
-                <div className="border-t border-border px-5 py-5">
-                  <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                    {section.items.map((item) => {
-                      const isImage = /\.(png|jpe?g|webp|avif|gif|svg)$/i.test(item.path)
-                      return (
-                        <article key={item.path} className="overflow-hidden rounded-2xl border border-border bg-secondary/10">
-                          <div className="relative aspect-[4/3] bg-white">
-                            {isImage ? (
-                              <img src={item.url} alt={item.name} className="h-full w-full object-cover" />
-                            ) : (
-                              <div className="flex h-full items-center justify-center px-4 text-center text-sm text-muted-foreground">
-                                Preview not available
-                              </div>
-                            )}
-                          </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowUnusedOnly(true)}
+                    className={`rounded-lg px-4 py-2 text-sm font-semibold ${
+                      showUnusedOnly ? 'bg-primary text-white' : 'border border-border text-foreground hover:bg-secondary'
+                    }`}
+                  >
+                    Show Unused
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowUnusedOnly(false)}
+                    className={`rounded-lg px-4 py-2 text-sm font-semibold ${
+                      !showUnusedOnly ? 'bg-primary text-white' : 'border border-border text-foreground hover:bg-secondary'
+                    }`}
+                  >
+                    Show All Images
+                  </button>
+                </div>
+              </div>
 
-                          <div className="space-y-3 px-4 py-4">
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="min-w-0">
-                                <div className="truncate text-sm font-semibold text-foreground">{item.name}</div>
-                                <div className="mt-1 truncate text-xs text-muted-foreground">{item.path}</div>
-                              </div>
-                              <span
-                                className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] ${
-                                  item.status === 'used'
-                                    ? 'bg-green-100 text-green-700'
-                                    : 'bg-red-100 text-red-700'
-                                }`}
-                              >
-                                {item.status}
-                              </span>
+              <div className="overflow-x-auto">
+                <table className="min-w-full border-collapse">
+                  <thead>
+                    <tr className="border-b border-border bg-secondary/10">
+                      <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Preview</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">File</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Status</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Used In</th>
+                      <th className="px-6 py-4 text-right text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleItems.length > 0 ? (
+                      visibleItems.map((item) => (
+                        <tr key={item.path} className="border-b border-border last:border-b-0">
+                          <td className="px-6 py-4 align-top">
+                            <div className="h-16 w-16 overflow-hidden rounded-xl border border-border bg-secondary/10">
+                              {isImageFile(item.path) ? (
+                                <img src={item.url} alt={item.name} className="h-full w-full object-cover" />
+                              ) : (
+                                <div className="flex h-full items-center justify-center px-2 text-center text-[11px] text-muted-foreground">
+                                  No preview
+                                </div>
+                              )}
                             </div>
-
-                            <div className="text-xs leading-5 text-muted-foreground">
-                              {item.referencedBy.length > 0 ? `Referenced by: ${item.referencedBy.join(', ')}` : 'No database references found.'}
+                          </td>
+                          <td className="px-6 py-4 align-top">
+                            <div className="max-w-[420px]">
+                              <div className="text-sm font-semibold text-foreground">{item.name}</div>
+                              <div className="mt-1 break-all text-xs text-muted-foreground">{item.path}</div>
                             </div>
-
+                          </td>
+                          <td className="px-6 py-4 align-top">
+                            <span
+                              className={`inline-flex rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${
+                                item.status === 'used'
+                                  ? 'bg-green-100 text-green-700'
+                                  : 'bg-red-100 text-red-700'
+                              }`}
+                            >
+                              {item.status}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 align-top">
+                            <div className="max-w-[320px] text-sm text-muted-foreground">
+                              {item.referencedBy.length > 0 ? item.referencedBy.join(', ') : 'No database references found'}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 align-top text-right">
                             {item.status === 'unused' ? (
                               <button
                                 type="button"
-                                onClick={() => void handleDelete(item.path)}
+                                onClick={() => setPendingDeletePath(item.path)}
                                 disabled={deletingPath === item.path}
                                 className="inline-flex items-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
                               >
                                 <Trash2 size={15} />
-                                {deletingPath === item.path ? 'Deleting...' : 'Delete Permanently'}
+                                {deletingPath === item.path ? 'Deleting...' : 'Delete'}
                               </button>
-                            ) : null}
-                          </div>
-                        </article>
-                      )
-                    })}
-                  </div>
-                </div>
-              ) : null}
+                            ) : (
+                              <span className="text-xs text-muted-foreground">Protected</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={5} className="px-6 py-10 text-center text-sm text-muted-foreground">
+                          No files found for this view.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </section>
-          ))}
+          ) : null}
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={Boolean(pendingDeletePath)}
+        title="Delete file permanently?"
+        description="This will permanently delete the file from the Supabase bucket. This action cannot be undone."
+        confirmText="Delete"
+        cancelText="Cancel"
+        type="delete"
+        isLoading={Boolean(deletingPath)}
+        onConfirm={() => {
+          if (pendingDeletePath) void handleDelete(pendingDeletePath)
+        }}
+        onCancel={() => {
+          if (!deletingPath) setPendingDeletePath(null)
+        }}
+      />
     </div>
   )
 }

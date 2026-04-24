@@ -14,13 +14,15 @@ type SlideItem = {
   id?: number
   sort_order: number
   image_path: string
+  mobile_image_path: string
+  mobile_image_alt?: string
   button_text: string
   button_link: string
 }
 
 type Payload = {
   section?: { eyebrow: string; headline: string; subtitle: string; slider_enabled: boolean }
-  items?: Array<{ id: number; sort_order: number; image_path: string; button_text: string; button_link: string }>
+  items?: Array<{ id: number; sort_order: number; image_path: string; mobile_image_path?: string; button_text: string; button_link: string }>
   error?: string
 }
 
@@ -28,6 +30,7 @@ const emptySlide = (sortOrder: number): SlideItem => ({
   clientId: `draft-${Date.now()}-${sortOrder}`,
   sort_order: sortOrder,
   image_path: '',
+  mobile_image_path: '',
   button_text: '',
   button_link: '',
 })
@@ -69,7 +72,7 @@ export default function HeroEditor() {
       }
 
       if (payload?.section) setFormData(payload.section)
-      setSlides((payload?.items ?? []).map((item) => ({ clientId: `id-${item.id}`, ...item })))
+      setSlides((payload?.items ?? []).map((item) => ({ clientId: `id-${item.id}`, ...item, mobile_image_path: item.mobile_image_path ?? '' })))
       setStatus('Hero content loaded')
     }
 
@@ -154,9 +157,10 @@ export default function HeroEditor() {
       },
       body: JSON.stringify({
         ...formData,
-        items: sortedSlides.map(({ sort_order, image_path, button_text, button_link }) => ({
+        items: sortedSlides.map(({ sort_order, image_path, mobile_image_path, button_text, button_link }) => ({
           sort_order,
           image_path,
+          mobile_image_path,
           button_text,
           button_link,
         })),
@@ -273,7 +277,8 @@ export default function HeroEditor() {
                 <thead>
                   <tr className="border-b border-border bg-secondary/40">
                     <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground">Order</th>
-                    <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground">Image</th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground">Desktop Image</th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground">Mobile Image</th>
                     <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground">Button Text</th>
                     <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground">Link</th>
                     <th className="px-5 py-3 text-right text-xs font-semibold uppercase tracking-wider text-foreground">Actions</th>
@@ -284,6 +289,7 @@ export default function HeroEditor() {
                     <tr key={item.clientId} className="border-b border-border last:border-b-0">
                       <td className="px-5 py-4 text-sm">{item.sort_order}</td>
                       <td className="px-5 py-4 text-sm">{item.image_path}</td>
+                      <td className="px-5 py-4 text-sm">{item.mobile_image_path || '—'}</td>
                       <td className="px-5 py-4 text-sm">{item.button_text}</td>
                       <td className="px-5 py-4 text-sm">{item.button_link}</td>
                       <td className="px-5 py-4 text-right">
@@ -304,9 +310,9 @@ export default function HeroEditor() {
                   ))}
                   {sortedSlides.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="px-5 py-8 text-center text-sm text-muted-foreground">
-                        No slides added yet.
-                      </td>
+                        <td colSpan={6} className="px-5 py-8 text-center text-sm text-muted-foreground">
+                          No slides added yet.
+                        </td>
                     </tr>
                   )}
                 </tbody>
@@ -333,7 +339,7 @@ export default function HeroEditor() {
           <DialogContent className="sm:max-w-2xl">
             <DialogHeader>
               <DialogTitle>Edit Hero Slide</DialogTitle>
-              <DialogDescription>Upload an image and define the button label and link.</DialogDescription>
+              <DialogDescription>Upload a desktop image, add an optional mobile image, and define the button label and link.</DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4">
@@ -348,7 +354,7 @@ export default function HeroEditor() {
               </div>
 
               <div>
-                <label className="mb-2 block text-sm font-semibold text-foreground">Image</label>
+                <label className="mb-2 block text-sm font-semibold text-foreground">Desktop Image</label>
                 <div className="flex items-center gap-3">
                   <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary">
                     <Upload size={14} />
@@ -366,6 +372,20 @@ export default function HeroEditor() {
                   </label>
                   <span className="text-xs text-muted-foreground">{editorItem.image_path || 'No image uploaded yet'}</span>
                 </div>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-foreground">Mobile Image Path</label>
+                <input
+                  type="text"
+                  value={editorItem.mobile_image_path}
+                  onChange={(e) => setEditorItem((prev) => ({ ...prev, mobile_image_path: e.target.value }))}
+                  placeholder="Optional smaller-screen image path"
+                  className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm"
+                />
+                <p className="mt-2 text-xs text-muted-foreground">
+                  If empty, mobile will use the same desktop hero image.
+                </p>
               </div>
 
               <div>

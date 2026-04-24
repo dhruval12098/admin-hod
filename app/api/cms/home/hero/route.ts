@@ -9,6 +9,7 @@ const sectionKey = 'home_hero'
 type HeroSlide = {
   sort_order: number
   image_path: string
+  mobile_image_path?: string
   button_text: string
   button_link: string
 }
@@ -72,7 +73,7 @@ export async function GET(request: Request) {
 
   const { data: items, error: itemsError } = await adminClient
     .from('homepage_hero_slider_items')
-    .select('id, sort_order, image_path, button_text, button_link')
+    .select('id, sort_order, image_path, mobile_image_path, button_text, button_link')
     .eq('hero_id', section.id)
     .order('sort_order', { ascending: true })
 
@@ -137,26 +138,29 @@ export async function POST(request: Request) {
   }
 
   const items: HeroSlide[] = body.items
-    .filter((item: HeroSlide) =>
-      typeof item.image_path === 'string' &&
-      typeof item.button_text === 'string' &&
-      typeof item.button_link === 'string'
-    )
-    .map((item: HeroSlide, index: number) => ({
-      sort_order: Number.isFinite(Number(item.sort_order)) ? Number(item.sort_order) : index + 1,
-      image_path: item.image_path,
-      button_text: item.button_text,
-      button_link: item.button_link,
-    }))
+      .filter((item: HeroSlide) =>
+        typeof item.image_path === 'string' &&
+        (typeof item.mobile_image_path === 'string' || typeof item.mobile_image_path === 'undefined') &&
+        typeof item.button_text === 'string' &&
+        typeof item.button_link === 'string'
+      )
+      .map((item: HeroSlide, index: number) => ({
+        sort_order: Number.isFinite(Number(item.sort_order)) ? Number(item.sort_order) : index + 1,
+        image_path: item.image_path,
+        mobile_image_path: item.mobile_image_path ?? '',
+        button_text: item.button_text,
+        button_link: item.button_link,
+      }))
 
   if (items.length > 0) {
-    const rows = items.map((item) => ({
-      hero_id: hero.id,
-      sort_order: item.sort_order,
-      image_path: item.image_path,
-      button_text: item.button_text,
-      button_link: item.button_link,
-    }))
+      const rows = items.map((item) => ({
+        hero_id: hero.id,
+        sort_order: item.sort_order,
+        image_path: item.image_path,
+        mobile_image_path: item.mobile_image_path ?? '',
+        button_text: item.button_text,
+        button_link: item.button_link,
+      }))
 
     const { error: insertError } = await adminClient.from('homepage_hero_slider_items').insert(rows)
     if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 })
