@@ -1,49 +1,236 @@
 'use client'
 
-import { useState } from 'react'
-import { Save, Key, Bell, Shield, Users, Building2 } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { KeyRound, MessageCircle, Save } from 'lucide-react'
+import { ConfirmDialog } from '@/components/confirm-dialog'
+import { useToast } from '@/hooks/use-toast'
+import { supabase } from '@/lib/supabase'
+
+type SettingsTab = 'general' | 'security'
+
+type SiteSettings = {
+  whatsapp_number: string
+}
+
+type WhatsappForm = {
+  countryCode: string
+  localNumber: string
+}
+
+type PasswordForm = {
+  currentPassword: string
+  newPassword: string
+  confirmPassword: string
+}
+
+const emptyPasswordForm: PasswordForm = {
+  currentPassword: '',
+  newPassword: '',
+  confirmPassword: '',
+}
+
+const whatsappCountryCodes = [
+  { label: 'India', value: '+91' },
+  { label: 'United States', value: '+1' },
+  { label: 'United Kingdom', value: '+44' },
+  { label: 'United Arab Emirates', value: '+971' },
+  { label: 'Australia', value: '+61' },
+  { label: 'Canada', value: '+1' },
+  { label: 'Singapore', value: '+65' },
+]
+
+async function getAccessToken() {
+  const { data } = await supabase.auth.getSession()
+  return data.session?.access_token ?? null
+}
+
+function normalizeWhatsappNumber(value: string) {
+  return value.replace(/[^\d]/g, '')
+}
+
+function splitWhatsappNumber(value: string): WhatsappForm {
+  const digits = normalizeWhatsappNumber(value)
+  const matchedCode = whatsappCountryCodes
+    .map((item) => item.value.replace('+', ''))
+    .sort((a, b) => b.length - a.length)
+    .find((code) => digits.startsWith(code))
+
+  if (matchedCode) {
+    return {
+      countryCode: `+${matchedCode}`,
+      localNumber: digits.slice(matchedCode.length),
+    }
+  }
+
+  return {
+    countryCode: '+91',
+    localNumber: digits,
+  }
+}
+
+function buildStoredWhatsappNumber(form: WhatsappForm) {
+  const countryDigits = form.countryCode.replace(/[^\d]/g, '')
+  const localDigits = normalizeWhatsappNumber(form.localNumber)
+  return `${countryDigits}${localDigits}`
+}
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<'general' | 'api' | 'notifications' | 'security' | 'team'>('general')
-  const [settings, setSettings] = useState({
-    storeName: 'House of Diams',
-    storeEmail: 'contact@houseofdiams.com',
-    timezone: 'UTC-5',
-    currency: 'USD',
-    language: 'English',
-  })
+  const { toast } = useToast()
+  const [activeTab, setActiveTab] = useState<SettingsTab>('general')
+  const [loading, setLoading] = useState(true)
+  const [savingSettings, setSavingSettings] = useState(false)
+  const [changingPassword, setChangingPassword] = useState(false)
+  const [settings, setSettings] = useState<SiteSettings>({ whatsapp_number: '' })
+  const [whatsappForm, setWhatsappForm] = useState<WhatsappForm>({ countryCode: '+91', localNumber: '' })
+  const [passwordForm, setPasswordForm] = useState<PasswordForm>(emptyPasswordForm)
+  const [settingsConfirmOpen, setSettingsConfirmOpen] = useState(false)
+  const [passwordConfirmOpen, setPasswordConfirmOpen] = useState(false)
 
-  const [apiKeys, setApiKeys] = useState([
-    { id: 1, name: 'Stripe Live Key', value: 'pk_live_*****', created: '2024-01-01', status: 'active' },
-    { id: 2, name: 'Development Key', value: 'sk_test_*****', created: '2023-12-15', status: 'active' },
-  ])
+  useEffect(() => {
+    let ignore = false
 
-  const handleSettingChange = (key: string, value: string) => {
-    setSettings((prev) => ({ ...prev, [key]: value }))
+    const load = async () => {
+      try {
+        const accessToken = await getAccessToken()
+        if (!accessToken) throw new Error('Missing access token.')
+
+        const response = await fetch('/api/settings', {
+          headers: { authorization: `Bearer ${accessToken}` },
+        })
+
+        const payload = await response.json().catch(() => null)
+        if (!response.ok) {
+          throw new Error(payload?.error ?? 'Unable to load settings.')
+        }
+
+        if (ignore) return
+        const whatsappNumber = payload?.item?.whatsapp_number ?? ''
+        setSettings({
+          whatsapp_number: whatsappNumber,
+        })
+        setWhatsappForm(splitWhatsappNumber(whatsappNumber))
+      } catch (error) {
+        toast({
+          title: 'Load failed',
+          description: error instanceof Error ? error.message : 'Unable to load settings.',
+          variant: 'destructive',
+        })
+      } finally {
+        if (!ignore) setLoading(false)
+      }
+    }
+
+    void load()
+    return () => {
+      ignore = true
+    }
+  }, [toast])
+
+  const whatsappPreviewLink = useMemo(() => {
+    const digits = normalizeWhatsappNumber(buildStoredWhatsappNumber(whatsappForm))
+    return digits
+      ? `https://wa.me/${digits}?text=${encodeURIComponent("Hi, I'd like to enquire about House of Diams")}`
+      : ''
+  }, [whatsappForm])
+
+  const saveSettings = async () => {
+    setSavingSettings(true)
+    try {
+      const accessToken = await getAccessToken()
+      if (!accessToken) throw new Error('Missing access token.')
+
+      const nextSettings = {
+        whatsapp_number: buildStoredWhatsappNumber(whatsappForm),
+      }
+
+      const response = await fetch('/api/settings', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify(nextSettings),
+      })
+
+      const payload = await response.json().catch(() => null)
+      if (!response.ok) {
+        throw new Error(payload?.error ?? 'Unable to save settings.')
+      }
+
+      setSettings(nextSettings)
+
+      toast({
+        title: 'Saved',
+        description: 'WhatsApp number updated successfully.',
+      })
+    } catch (error) {
+      toast({
+        title: 'Save failed',
+        description: error instanceof Error ? error.message : 'Unable to save settings.',
+        variant: 'destructive',
+      })
+    } finally {
+      setSavingSettings(false)
+      setSettingsConfirmOpen(false)
+    }
+  }
+
+  const changePassword = async () => {
+    setChangingPassword(true)
+    try {
+      const accessToken = await getAccessToken()
+      if (!accessToken) throw new Error('Missing access token.')
+
+      const response = await fetch('/api/settings/password', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify(passwordForm),
+      })
+
+      const payload = await response.json().catch(() => null)
+      if (!response.ok) {
+        throw new Error(payload?.error ?? 'Unable to change password.')
+      }
+
+      setPasswordForm(emptyPasswordForm)
+      toast({
+        title: 'Password changed',
+        description: payload?.message ?? 'Password updated successfully. Please sign in again for a fresh session.',
+      })
+    } catch (error) {
+      toast({
+        title: 'Password change failed',
+        description: error instanceof Error ? error.message : 'Unable to change password.',
+        variant: 'destructive',
+      })
+    } finally {
+      setChangingPassword(false)
+      setPasswordConfirmOpen(false)
+    }
   }
 
   return (
     <div className="p-8">
       <div className="mb-10">
         <h1 className="font-jakarta text-3xl font-semibold text-foreground">Settings</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Manage your dashboard and store settings</p>
+        <p className="mt-1 text-sm text-muted-foreground">Manage live store support details and your admin account security.</p>
       </div>
 
-      {/* Tabs */}
-      <div className="mb-8 flex gap-2 border-b border-border overflow-x-auto">
+      <div className="mb-8 flex gap-2 overflow-x-auto border-b border-border">
         {[
-          { id: 'general', label: 'General', icon: Building2 },
-          { id: 'api', label: 'API Keys', icon: Key },
-          { id: 'notifications', label: 'Notifications', icon: Bell },
-          { id: 'security', label: 'Security', icon: Shield },
-          { id: 'team', label: 'Team', icon: Users },
+          { id: 'general', label: 'General', icon: MessageCircle },
+          { id: 'security', label: 'Security', icon: KeyRound },
         ].map((tab) => {
           const Icon = tab.icon
           return (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as typeof activeTab)}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-semibold border-b-2 transition-colors duration-150 ${
+              type="button"
+              onClick={() => setActiveTab(tab.id as SettingsTab)}
+              className={`flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-semibold transition-colors duration-150 ${
                 activeTab === tab.id
                   ? 'border-primary text-primary'
                   : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -56,230 +243,162 @@ export default function SettingsPage() {
         })}
       </div>
 
-      {/* General Settings */}
-      {activeTab === 'general' && (
-        <div className="space-y-6 max-w-2xl">
-          <div className="rounded-lg border border-border bg-card p-6">
-            <h2 className="text-lg font-semibold text-foreground mb-4">Store Information</h2>
+      {loading ? (
+        <div className="max-w-3xl rounded-2xl border border-border bg-card px-6 py-10 text-sm text-muted-foreground">
+          Loading settings...
+        </div>
+      ) : null}
+
+      {!loading && activeTab === 'general' ? (
+        <div className="max-w-3xl space-y-6">
+          <div className="rounded-2xl border border-border bg-card p-6">
+            <div className="mb-6">
+              <h2 className="font-jakarta text-lg font-semibold text-foreground">Floating WhatsApp Number</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                This number is used by the floating WhatsApp icon on the live storefront.
+              </p>
+            </div>
+
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-foreground mb-2">Store Name</label>
-                <input
-                  type="text"
-                  value={settings.storeName}
-                  onChange={(e) => handleSettingChange('storeName', e.target.value)}
-                  className="w-full rounded border border-border bg-white px-4 py-2 text-sm transition-colors hover:border-input focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">Store Email</label>
-                <input
-                  type="email"
-                  value={settings.storeEmail}
-                  onChange={(e) => handleSettingChange('storeEmail', e.target.value)}
-                  className="w-full rounded border border-border bg-white px-4 py-2 text-sm transition-colors hover:border-input focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
-                />
-              </div>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">Timezone</label>
+                <label className="mb-2 block text-sm font-semibold text-foreground">WhatsApp Number</label>
+                <div className="grid gap-3 sm:grid-cols-[180px_minmax(0,1fr)]">
                   <select
-                    value={settings.timezone}
-                    onChange={(e) => handleSettingChange('timezone', e.target.value)}
-                    className="w-full rounded border border-border bg-white px-4 py-2 text-sm transition-colors hover:border-input focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+                    value={whatsappForm.countryCode}
+                    onChange={(e) => setWhatsappForm((prev) => ({ ...prev, countryCode: e.target.value }))}
+                    className="rounded-lg border border-border bg-white px-4 py-2.5 text-sm transition-colors hover:border-input focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
                   >
-                    <option>UTC-8</option>
-                    <option>UTC-5</option>
-                    <option>UTC-0</option>
-                    <option>UTC+5:30</option>
-                    <option>UTC+8</option>
+                    {whatsappCountryCodes.map((item, index) => (
+                      <option key={`${item.value}-${item.label}-${index}`} value={item.value}>
+                        {item.label} ({item.value})
+                      </option>
+                    ))}
                   </select>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={whatsappForm.localNumber}
+                    onChange={(e) => setWhatsappForm((prev) => ({ ...prev, localNumber: e.target.value }))}
+                    placeholder="Enter WhatsApp number"
+                    className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm transition-colors hover:border-input focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+                  />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">Currency</label>
-                  <select
-                    value={settings.currency}
-                    onChange={(e) => handleSettingChange('currency', e.target.value)}
-                    className="w-full rounded border border-border bg-white px-4 py-2 text-sm transition-colors hover:border-input focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
-                  >
-                    <option>USD</option>
-                    <option>EUR</option>
-                    <option>GBP</option>
-                    <option>JPY</option>
-                    <option>AUD</option>
-                  </select>
-                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Choose the country code first, then enter the rest of the number. We will save one clean WhatsApp number for the live floating button.
+                </p>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">Language</label>
-                <select
-                  value={settings.language}
-                  onChange={(e) => handleSettingChange('language', e.target.value)}
-                  className="w-full rounded border border-border bg-white px-4 py-2 text-sm transition-colors hover:border-input focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
-                >
-                  <option>English</option>
-                  <option>Spanish</option>
-                  <option>French</option>
-                  <option>German</option>
-                  <option>Chinese</option>
-                </select>
+
+              <div className="rounded-xl border border-border bg-secondary/20 p-4">
+                <p className="text-sm font-semibold text-foreground">Live Preview</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {whatsappPreviewLink || 'Enter a WhatsApp number to generate the live floating button link.'}
+                </p>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Saved format: {buildStoredWhatsappNumber(whatsappForm) || 'No number yet'}
+                </p>
               </div>
             </div>
-            <button className="mt-6 flex items-center gap-2 rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors">
+
+            <button
+              type="button"
+              onClick={() => setSettingsConfirmOpen(true)}
+              disabled={savingSettings}
+              className="mt-6 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+            >
               <Save size={16} />
-              Save Changes
+              Save WhatsApp Number
             </button>
           </div>
         </div>
-      )}
+      ) : null}
 
-      {/* API Keys */}
-      {activeTab === 'api' && (
-        <div className="space-y-6 max-w-2xl">
-          <div className="rounded-lg border border-border bg-card p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-lg font-semibold text-foreground">API Keys</h2>
-              <button className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors">
-                Generate New Key
-              </button>
+      {!loading && activeTab === 'security' ? (
+        <div className="max-w-3xl space-y-6">
+          <div className="rounded-2xl border border-border bg-card p-6">
+            <div className="mb-6">
+              <h2 className="font-jakarta text-lg font-semibold text-foreground">Change Password</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Your current password is required first. Changing your password keeps the same admin account and role, but you should sign in again after changing it.
+              </p>
             </div>
 
-            <div className="space-y-3">
-              {apiKeys.map((key) => (
-                <div key={key.id} className="flex items-center justify-between rounded border border-border p-4">
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-foreground">{key.name}</p>
-                    <p className="text-xs text-muted-foreground font-mono mt-1">{key.value}</p>
-                    <p className="text-xs text-muted-foreground mt-2">Created: {key.created}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="inline-flex rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-700">
-                      {key.status}
-                    </span>
-                    <button className="rounded px-3 py-1 text-xs font-medium border border-red-200 text-red-600 hover:bg-red-50 transition-colors">
-                      Revoke
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Notifications */}
-      {activeTab === 'notifications' && (
-        <div className="space-y-6 max-w-2xl">
-          <div className="rounded-lg border border-border bg-card p-6">
-            <h2 className="text-lg font-semibold text-foreground mb-6">Notification Preferences</h2>
             <div className="space-y-4">
-              {[
-                { label: 'Order Notifications', description: 'Get notified when new orders arrive' },
-                { label: 'Customer Messages', description: 'Alerts for customer inquiries' },
-                { label: 'Weekly Reports', description: 'Receive weekly sales reports' },
-                { label: 'Inventory Alerts', description: 'Low stock warnings' },
-              ].map((item) => (
-                <div key={item.label} className="flex items-center justify-between border-b border-border pb-4 last:border-0">
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{item.label}</p>
-                    <p className="text-xs text-muted-foreground mt-1">{item.description}</p>
-                  </div>
-                  <input type="checkbox" defaultChecked className="rounded" />
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-foreground">Current Password</label>
+                <input
+                  type="password"
+                  value={passwordForm.currentPassword}
+                  onChange={(e) => setPasswordForm((prev) => ({ ...prev, currentPassword: e.target.value }))}
+                  className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm transition-colors hover:border-input focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-foreground">New Password</label>
+                  <input
+                    type="password"
+                    value={passwordForm.newPassword}
+                    onChange={(e) => setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value }))}
+                    className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm transition-colors hover:border-input focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+                  />
                 </div>
-              ))}
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-foreground">Confirm Password</label>
+                  <input
+                    type="password"
+                    value={passwordForm.confirmPassword}
+                    onChange={(e) => setPasswordForm((prev) => ({ ...prev, confirmPassword: e.target.value }))}
+                    className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm transition-colors hover:border-input focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+                  />
+                </div>
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                Minimum 8 characters. After a successful password change, sign in again for a clean admin session.
+              </p>
             </div>
-            <button className="mt-6 flex items-center gap-2 rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors">
-              <Save size={16} />
-              Save Preferences
+
+            <button
+              type="button"
+              onClick={() => setPasswordConfirmOpen(true)}
+              disabled={changingPassword}
+              className="mt-6 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <KeyRound size={16} />
+              Update Password
             </button>
           </div>
         </div>
-      )}
+      ) : null}
 
-      {/* Security */}
-      {activeTab === 'security' && (
-        <div className="space-y-6 max-w-2xl">
-          <div className="rounded-lg border border-border bg-card p-6">
-            <h2 className="text-lg font-semibold text-foreground mb-6">Security Settings</h2>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between border-b border-border pb-4">
-                <div>
-                  <p className="text-sm font-medium text-foreground">Two-Factor Authentication</p>
-                  <p className="text-xs text-muted-foreground mt-1">Add an extra layer of security</p>
-                </div>
-                <button className="rounded border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-secondary transition-colors">
-                  Enable
-                </button>
-              </div>
-              <div className="flex items-center justify-between border-b border-border pb-4">
-                <div>
-                  <p className="text-sm font-medium text-foreground">Change Password</p>
-                  <p className="text-xs text-muted-foreground mt-1">Update your account password</p>
-                </div>
-                <button className="rounded border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-secondary transition-colors">
-                  Change
-                </button>
-              </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-foreground">Active Sessions</p>
-                  <p className="text-xs text-muted-foreground mt-1">Manage your active sessions</p>
-                </div>
-                <button className="rounded border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-secondary transition-colors">
-                  View
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        isOpen={settingsConfirmOpen}
+        title="Save WhatsApp number?"
+        description="This will update the floating WhatsApp link used on the live storefront."
+        confirmText="Save"
+        cancelText="Cancel"
+        type="confirm"
+        isLoading={savingSettings}
+        onConfirm={() => void saveSettings()}
+        onCancel={() => {
+          if (!savingSettings) setSettingsConfirmOpen(false)
+        }}
+      />
 
-      {/* Team */}
-      {activeTab === 'team' && (
-        <div className="space-y-6 max-w-2xl">
-          <div className="rounded-lg border border-border bg-card p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-lg font-semibold text-foreground">Team Members</h2>
-              <button className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors">
-                Invite Member
-              </button>
-            </div>
-
-            <div className="space-y-3">
-              {[
-                { name: 'You', email: 'admin@houseofdiams.com', role: 'Owner' },
-                { name: 'John Doe', email: 'john@houseofdiams.com', role: 'Editor' },
-                { name: 'Jane Smith', email: 'jane@houseofdiams.com', role: 'Viewer' },
-              ].map((member) => (
-                <div key={member.email} className="flex items-center justify-between rounded border border-border p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-full bg-secondary" />
-                    <div>
-                      <p className="text-sm font-medium text-foreground">{member.name}</p>
-                      <p className="text-xs text-muted-foreground">{member.email}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <select
-                      defaultValue={member.role.toLowerCase()}
-                      className="rounded border border-border bg-white px-3 py-1 text-xs transition-colors hover:border-input focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
-                    >
-                      <option value="viewer">Viewer</option>
-                      <option value="editor">Editor</option>
-                      <option value="owner">Owner</option>
-                    </select>
-                    {member.name !== 'You' && (
-                      <button className="rounded px-3 py-1 text-xs font-medium text-red-600 border border-red-200 hover:bg-red-50 transition-colors">
-                        Remove
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        isOpen={passwordConfirmOpen}
+        title="Change your admin password?"
+        description="This updates the password for your current admin account. Your role and RLS access stay tied to the same user, but you should sign in again after this change."
+        confirmText="Change Password"
+        cancelText="Cancel"
+        type="warning"
+        isLoading={changingPassword}
+        onConfirm={() => void changePassword()}
+        onCancel={() => {
+          if (!changingPassword) setPasswordConfirmOpen(false)
+        }}
+      />
     </div>
   )
 }

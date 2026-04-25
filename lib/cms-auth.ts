@@ -46,5 +46,5 @@ export async function assertAdmin(request: Request) {
     return { error: NextResponse.json({ error: 'Forbidden.' }, { status: 403 }) }
   }
 
-  return { adminClient }
+  return { adminClient, authClient, accessToken, user: userData.user }
 }
