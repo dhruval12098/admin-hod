@@ -12,6 +12,8 @@ import { useToast } from '@/hooks/use-toast'
 import type { CatalogCategory, CatalogOption, CatalogSubcategory } from '@/lib/product-catalog'
 import { slugify } from '@/lib/product-catalog'
 
+type CatalogDetailTab = 'subcategories' | 'options'
+
 type CategoryDetailPageProps = {
   params: Promise<{
     slug: string
@@ -71,6 +73,7 @@ export default function CategoryDetailPage({ params }: CategoryDetailPageProps) 
   const { toast } = useToast()
   const [categorySlug, setCategorySlug] = useState('')
   const [loading, setLoading] = useState(true)
+  const [activeTab, setActiveTab] = useState<CatalogDetailTab>('subcategories')
   const [category, setCategory] = useState<CatalogCategory | null>(null)
   const [subcategories, setSubcategories] = useState<CatalogSubcategory[]>([])
   const [options, setOptions] = useState<CatalogOption[]>([])
@@ -167,7 +170,7 @@ export default function CategoryDetailPage({ params }: CategoryDetailPageProps) 
         </div>
       </div>
 
-      <Tabs defaultValue="subcategories" className="w-full">
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as CatalogDetailTab)} className="w-full">
         <TabsList className="grid w-full max-w-md grid-cols-2">
           <TabsTrigger value="subcategories">Subcategories</TabsTrigger>
           <TabsTrigger value="options">Options</TabsTrigger>
