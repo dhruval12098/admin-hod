@@ -2,9 +2,21 @@ import { NextResponse } from 'next/server'
 import { assertAdmin } from '@/lib/cms-auth'
 import type { ProductDetailSection, ProductKeyValue, ProductRecord } from '@/lib/product-catalog'
 
+function isMissingRelation(error: { message?: string | null } | null | undefined, table: string) {
+  return (
+    error?.message?.includes(`relation "${table}" does not exist`) ||
+    error?.message?.includes(`Could not find the table 'public.${table}' in the schema cache`)
+  ) ?? false
+}
+
+function isMissingProductColumn(error: { message?: string | null } | null | undefined, column: string) {
+  return error?.message?.includes(`Could not find the '${column}' column of 'products'`) ?? false
+}
+
 type ProductPayload = {
   name: string
   sku: string
+  product_lane?: 'standard' | 'hiphop' | 'collection'
   detail_template?: 'standard' | 'hiphop'
   featured: boolean
   description: string | null
@@ -13,18 +25,24 @@ type ProductPayload = {
   discount_price: number | null
   gst_slab_id?: string | null
   stock_quantity?: number | null
+  allow_checkout?: boolean | null
   status: string
   main_category_id: string
   subcategory_id: string | null
   option_id: string | null
+  style_id?: string | null
   metal_ids: string[]
   purity_values: string[]
   certificate_ids: string[]
   ring_size_ids: string[]
+  ring_enabled?: boolean
+  ring_category_id?: string | null
   fit_options: string[]
   fit_label: string | null
   gemstone_label: string | null
   gemstone_value: string | null
+  shapes_enabled?: boolean
+  shape_ids?: string[]
   show_purity: boolean
   engraving_enabled: boolean
   engraving_label: string | null
@@ -32,6 +50,8 @@ type ProductPayload = {
   care_warranty_rule_id: string | null
   shipping_enabled: boolean
   care_warranty_enabled: boolean
+  shipping_override_enabled?: boolean
+  care_warranty_override_enabled?: boolean
   shipping_title_override: string | null
   shipping_body_override: string | null
   care_warranty_title_override: string | null
@@ -85,10 +105,16 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
 
   if (productResult.error) return NextResponse.json({ error: productResult.error.message }, { status: 500 })
 
+  const shapeResult = await adminClient.from('product_stone_shapes').select('shape_id').eq('product_id', id)
+  const shapeIds = shapeResult.error && isMissingRelation(shapeResult.error, 'product_stone_shapes')
+    ? []
+    : (shapeResult.data ?? []).map((item) => item.shape_id)
+
   return NextResponse.json({
     item: {
       ...(productResult.data as ProductRecord),
       metal_ids: (metalsResult.data ?? []).map((item) => item.metal_id),
+      shape_ids: shapeIds,
     },
   })
 }
@@ -111,27 +137,101 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ sl
     return NextResponse.json({ error: 'Invalid payload.' }, { status: 400 })
   }
 
-  const { data: product, error } = await adminClient
+  let { data: product, error } = await adminClient
     .from('products')
     .update({
       name: body.name,
       sku: body.sku,
+      product_lane: body.product_lane ?? 'standard',
       detail_template: body.detail_template ?? 'standard',
       main_category_id: body.main_category_id,
       subcategory_id: body.subcategory_id,
       option_id: body.option_id,
+      style_id: body.style_id ?? null,
       description: body.description,
       tag_line: body.tag_line,
       base_price: body.base_price,
       discount_price: body.discount_price,
       gst_slab_id: body.gst_slab_id ?? null,
       stock_quantity: Math.max(0, Number(body.stock_quantity ?? 0)),
+      allow_checkout: body.allow_checkout ?? false,
       featured: body.featured,
       status: body.status || 'draft',
       features: body.features ?? [],
       purity_values: body.purity_values ?? [],
       certificate_ids: body.certificate_ids ?? [],
       ring_size_ids: body.ring_size_ids ?? [],
+      ring_enabled: body.ring_enabled ?? false,
+      ring_category_id: body.ring_enabled ? body.ring_category_id ?? null : null,
+      fit_options: body.fit_options ?? [],
+      fit_label: body.fit_label,
+      gemstone_label: body.gemstone_label,
+      gemstone_value: body.gemstone_value,
+      shapes_enabled: body.shapes_enabled ?? false,
+      show_purity: body.show_purity,
+      engraving_enabled: body.engraving_enabled,
+      engraving_label: body.engraving_label,
+      shipping_rule_id: body.shipping_rule_id,
+      care_warranty_rule_id: body.care_warranty_rule_id,
+      shipping_enabled: body.shipping_enabled,
+      care_warranty_enabled: body.care_warranty_enabled,
+      shipping_override_enabled: body.shipping_override_enabled ?? false,
+      care_warranty_override_enabled: body.care_warranty_override_enabled ?? false,
+      shipping_title_override: body.shipping_title_override,
+      shipping_body_override: body.shipping_body_override,
+      care_warranty_title_override: body.care_warranty_title_override,
+      care_warranty_body_override: body.care_warranty_body_override,
+      specifications: body.specifications ?? [],
+      product_details: body.product_details ?? [],
+      detail_sections: body.detail_sections ?? [],
+      image_1_path: body.image_1_path ?? null,
+      image_2_path: body.image_2_path ?? null,
+      image_3_path: body.image_3_path ?? null,
+      image_4_path: body.image_4_path ?? null,
+      video_path: body.video_path ?? null,
+      show_image_1: body.show_image_1 ?? true,
+      show_image_2: body.show_image_2 ?? true,
+      show_image_3: body.show_image_3 ?? true,
+      show_image_4: body.show_image_4 ?? true,
+      show_video: body.show_video ?? true,
+      custom_order_enabled: body.custom_order_enabled ?? false,
+      ready_to_ship: body.ready_to_ship ?? false,
+      hiphop_badges: body.hiphop_badges ?? [],
+      chain_length_options: body.chain_length_options ?? [],
+      hiphop_carat_label: body.hiphop_carat_label ?? null,
+      hiphop_carat_values: body.hiphop_carat_values ?? [],
+      gram_weight_label: body.gram_weight_label ?? null,
+      gram_weight_value: body.gram_weight_value ?? null,
+    })
+    .eq('id', id)
+    .select('*')
+    .single()
+
+  if (error && (isMissingProductColumn(error, 'shapes_enabled') || isMissingProductColumn(error, 'shipping_override_enabled') || isMissingProductColumn(error, 'care_warranty_override_enabled'))) {
+    const retryPayload: Record<string, unknown> = {
+      name: body.name,
+      sku: body.sku,
+      product_lane: body.product_lane ?? 'standard',
+      detail_template: body.detail_template ?? 'standard',
+      main_category_id: body.main_category_id,
+      subcategory_id: body.subcategory_id,
+      option_id: body.option_id,
+      style_id: body.style_id ?? null,
+      description: body.description,
+      tag_line: body.tag_line,
+      base_price: body.base_price,
+      discount_price: body.discount_price,
+      gst_slab_id: body.gst_slab_id ?? null,
+      stock_quantity: Math.max(0, Number(body.stock_quantity ?? 0)),
+      allow_checkout: body.allow_checkout ?? false,
+      featured: body.featured,
+      status: body.status || 'draft',
+      features: body.features ?? [],
+      purity_values: body.purity_values ?? [],
+      certificate_ids: body.certificate_ids ?? [],
+      ring_size_ids: body.ring_size_ids ?? [],
+      ring_enabled: body.ring_enabled ?? false,
+      ring_category_id: body.ring_enabled ? body.ring_category_id ?? null : null,
       fit_options: body.fit_options ?? [],
       fit_label: body.fit_label,
       gemstone_label: body.gemstone_label,
@@ -168,10 +268,19 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ sl
       hiphop_carat_values: body.hiphop_carat_values ?? [],
       gram_weight_label: body.gram_weight_label ?? null,
       gram_weight_value: body.gram_weight_value ?? null,
-    })
-    .eq('id', id)
-    .select('*')
-    .single()
+    }
+    if (!isMissingProductColumn(error, 'shapes_enabled')) {
+      retryPayload.shapes_enabled = body.shapes_enabled ?? false
+    }
+    if (!isMissingProductColumn(error, 'shipping_override_enabled')) {
+      retryPayload.shipping_override_enabled = body.shipping_override_enabled ?? false
+    }
+    if (!isMissingProductColumn(error, 'care_warranty_override_enabled')) {
+      retryPayload.care_warranty_override_enabled = body.care_warranty_override_enabled ?? false
+    }
+
+    ;({ data: product, error } = await adminClient.from('products').update(retryPayload).eq('id', id).select('*').single())
+  }
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
@@ -182,6 +291,20 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ sl
       (body.metal_ids ?? []).map((metalId, index) => ({ product_id: id, metal_id: metalId, sort_order: index + 1 }))
     )
     if (metalError) return NextResponse.json({ error: metalError.message }, { status: 500 })
+  }
+
+  const deleteShapesResult = await adminClient.from('product_stone_shapes').delete().eq('product_id', id)
+  if (deleteShapesResult.error && !isMissingRelation(deleteShapesResult.error, 'product_stone_shapes')) {
+    return NextResponse.json({ error: deleteShapesResult.error.message }, { status: 500 })
+  }
+
+  if ((body.shape_ids ?? []).length > 0) {
+    const { error: shapeError } = await adminClient.from('product_stone_shapes').insert(
+      (body.shape_ids ?? []).map((shapeId) => ({ product_id: id, shape_id: shapeId }))
+    )
+    if (shapeError && !isMissingRelation(shapeError, 'product_stone_shapes')) {
+      return NextResponse.json({ error: shapeError.message }, { status: 500 })
+    }
   }
 
   return NextResponse.json({ item: product })

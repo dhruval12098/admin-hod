@@ -1,6 +1,8 @@
 import Link from 'next/link'
 import { TrendingUp, Package, Users, ShoppingCart, ArrowRight } from 'lucide-react'
+import { formatUsd } from '@/lib/money'
 import { createSupabaseAdminClient } from '@/lib/admin-supabase'
+import { getAdminCustomerUsers } from '@/lib/admin-users'
 
 type DashboardStat = {
   label: string
@@ -24,12 +26,14 @@ type TopSeller = {
   revenue: number
 }
 
+type SalesBarPoint = {
+  label: string
+  revenue: number
+  orders: number
+}
+
 function formatCurrency(value: number) {
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    maximumFractionDigits: 0,
-  }).format(value)
+  return formatUsd(value)
 }
 
 function formatDate(value: string) {
@@ -56,14 +60,12 @@ async function getDashboardData() {
   const [
     productsCount,
     ordersCount,
-    customersCount,
     revenueResult,
     recentOrdersResult,
     orderItemsResult,
   ] = await Promise.all([
     supabase.from('products').select('id', { count: 'exact', head: true }),
     supabase.from('orders').select('id', { count: 'exact', head: true }),
-    supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('role', 'customer'),
     supabase.from('orders').select('total_amount, status'),
     supabase
       .from('orders')
@@ -72,6 +74,8 @@ async function getDashboardData() {
       .limit(5),
     supabase.from('order_items').select('product_name, quantity, line_total'),
   ])
+
+  const customers = await getAdminCustomerUsers()
 
   const revenueRows = revenueResult.data ?? []
   const paidStatuses = new Set(['paid', 'confirmed', 'processing', 'shipped', 'delivered'])
@@ -114,6 +118,19 @@ async function getDashboardData() {
     })
     .slice(0, 3)
 
+  const monthlyMap = new Map<string, SalesBarPoint>()
+  for (const order of recentOrdersResult.data ?? []) {
+    const date = new Date(order.created_at)
+    if (Number.isNaN(date.getTime())) continue
+    const label = new Intl.DateTimeFormat('en-IN', { month: 'short' }).format(date)
+    const current = monthlyMap.get(label) ?? { label, revenue: 0, orders: 0 }
+    current.revenue += Number(order.total_amount ?? 0)
+    current.orders += 1
+    monthlyMap.set(label, current)
+  }
+  const salesBars = Array.from(monthlyMap.values())
+  const maxRevenue = Math.max(...salesBars.map((item) => item.revenue), 1)
+
   const stats: DashboardStat[] = [
     {
       label: 'Total Products',
@@ -129,9 +146,9 @@ async function getDashboardData() {
     },
     {
       label: 'Customers',
-      value: String(customersCount.count ?? 0),
+      value: String(customers.length),
       icon: Users,
-      note: 'Customer profiles',
+      note: 'Signed-up auth users',
     },
     {
       label: 'Revenue',
@@ -141,11 +158,11 @@ async function getDashboardData() {
     },
   ]
 
-  return { stats, recentOrders, topSellers }
+  return { stats, recentOrders, topSellers, salesBars, maxRevenue }
 }
 
 export default async function DashboardPage() {
-  const { stats, recentOrders, topSellers } = await getDashboardData()
+  const { stats, recentOrders, topSellers, salesBars, maxRevenue } = await getDashboardData()
 
   return (
     <div className="p-8">
@@ -265,6 +282,37 @@ export default async function DashboardPage() {
             )}
           </div>
         </div>
+      </div>
+
+      <div className="mt-8 rounded-lg border border-border bg-white p-8 shadow-xs">
+        <div className="mb-6">
+          <h2 className="font-jakarta text-lg font-semibold text-foreground">Revenue Snapshot</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Simple month-wise bar view from recent order totals.</p>
+        </div>
+
+        {salesBars.length > 0 ? (
+          <div className="flex items-end gap-4 overflow-x-auto pt-4">
+            {salesBars.map((point) => (
+              <div key={point.label} className="flex min-w-24 flex-col items-center gap-3">
+                <div className="flex h-48 w-full items-end rounded-md bg-secondary/30 px-3 py-3">
+                  <div
+                    className="w-full rounded-sm bg-primary transition-all"
+                    style={{ height: `${Math.max(10, (point.revenue / maxRevenue) * 100)}%` }}
+                  />
+                </div>
+                <div className="text-center">
+                  <div className="text-xs font-semibold text-foreground">{point.label}</div>
+                  <div className="mt-1 text-[11px] text-muted-foreground">{formatCurrency(point.revenue)}</div>
+                  <div className="text-[11px] text-muted-foreground">{point.orders} orders</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
+            Not enough order data for the chart yet.
+          </div>
+        )}
       </div>
     </div>
   )

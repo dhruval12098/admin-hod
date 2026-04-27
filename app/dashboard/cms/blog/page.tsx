@@ -1,10 +1,11 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Plus, Edit2 } from 'lucide-react'
 import { CMSTabs } from '@/components/cms-tabs'
 import { supabase } from '@/lib/supabase'
+import { TablePagination } from '@/components/table-pagination'
 
 type BlogListItem = {
   id: number
@@ -18,10 +19,12 @@ type BlogListItem = {
   sort_order: number
   updated_at: string
 }
+const PAGE_SIZE = 20
 
 export default function BlogCMSPage() {
   const [items, setItems] = useState<BlogListItem[]>([])
   const [status, setStatus] = useState('Loading blogs...')
+  const [page, setPage] = useState(1)
 
   useEffect(() => {
     const load = async () => {
@@ -34,11 +37,17 @@ export default function BlogCMSPage() {
       if (!response.ok) return setStatus(payload?.error ?? 'Unable to load blogs.')
 
       setItems(payload?.items ?? [])
+      setPage(1)
       setStatus('Blogs loaded')
     }
 
     load()
   }, [])
+
+  const visibleItems = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE
+    return items.slice(start, start + PAGE_SIZE)
+  }, [items, page])
 
   return (
     <div>
@@ -69,7 +78,7 @@ export default function BlogCMSPage() {
               </tr>
             </thead>
             <tbody>
-              {items.map((item) => (
+              {visibleItems.map((item) => (
                 <tr key={item.id} className="border-b border-border last:border-b-0">
                   <td className="px-5 py-4 text-sm">{item.sort_order}</td>
                   <td className="px-5 py-4 text-sm">{item.title}</td>
@@ -87,6 +96,9 @@ export default function BlogCMSPage() {
             </tbody>
           </table>
         </div>
+        {items.length > PAGE_SIZE ? (
+          <TablePagination page={page} totalItems={items.length} pageSize={PAGE_SIZE} onPageChange={setPage} />
+        ) : null}
       </div>
     </div>
   )

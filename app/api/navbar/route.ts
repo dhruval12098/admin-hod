@@ -5,18 +5,31 @@ import {
   buildNavbarItemsFromRows,
   mapSectionTypeToDb,
   normalizeNavbarItemForSave,
+  syncNavbarItemsWithCatalog,
+  type NavbarBuilderPayload,
   type NavbarItem,
 } from '@/lib/navbar'
+import type { CatalogCategory } from '@/lib/product-catalog'
+
+function getNavbarSaveErrorMessage(error: { message?: string | null; code?: string | null } | null | undefined) {
+  if (!error) return 'Failed to save navbar section.'
+
+  if (error.message?.includes('navbar_sections_source_chk')) {
+    return 'The database rules for navbar sections are out of date for this section type. Run the latest navbar SQL migration to update the navbar_sections_source_chk constraint.'
+  }
+
+  return error.message ?? 'Failed to save navbar section.'
+}
 
 async function loadCatalogSources(adminClient: any) {
-  const [categoriesResult, subcategoriesResult, optionsResult, metalsResult, stoneShapesResult, ringSizesResult, certificatesResult] = await Promise.all([
+  const [categoriesResult, subcategoriesResult, optionsResult, metalsResult, stoneShapesResult, certificatesResult, stylesResult] = await Promise.all([
     adminClient.from('catalog_categories').select('*').order('display_order', { ascending: true }),
     adminClient.from('catalog_subcategories').select('*').order('display_order', { ascending: true }),
     adminClient.from('catalog_options').select('*').order('display_order', { ascending: true }),
     adminClient.from('catalog_metals').select('*').order('display_order', { ascending: true }),
     adminClient.from('catalog_stone_shapes').select('*').order('display_order', { ascending: true }),
-    adminClient.from('catalog_ring_sizes').select('*').order('display_order', { ascending: true }),
     adminClient.from('catalog_certificates').select('*').order('display_order', { ascending: true }),
+    adminClient.from('catalog_styles').select('*').order('display_order', { ascending: true }),
   ])
 
   const error =
@@ -31,13 +44,13 @@ async function loadCatalogSources(adminClient: any) {
   }
 
   return {
-    categories: categoriesResult.data ?? [],
+    categories: (categoriesResult.data ?? []) as CatalogCategory[],
     subcategories: subcategoriesResult.data ?? [],
     options: optionsResult.data ?? [],
     metals: metalsResult.data ?? [],
     stoneShapes: stoneShapesResult.data ?? [],
-    ringSizes: ringSizesResult.error ? [] : ringSizesResult.data ?? [],
     certificates: certificatesResult.error ? [] : certificatesResult.data ?? [],
+    styles: stylesResult.error ? [] : stylesResult.data ?? [],
   }
 }
 
@@ -69,7 +82,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  const items =
+  const builtItems =
     (itemsResult.data?.length ?? 0) > 0
       ? buildNavbarItemsFromRows({
           items: itemsResult.data ?? [],
@@ -81,11 +94,13 @@ export async function GET(request: Request) {
           subcategories: sources.subcategories,
           metals: sources.metals,
           stoneShapes: sources.stoneShapes,
-          ringSizes: sources.ringSizes,
           certificates: sources.certificates,
+          styles: sources.styles,
           options: sources.options,
         })
       : buildFallbackNavbarItems(sources.categories, sources.subcategories)
+
+  const items = syncNavbarItemsWithCatalog(builtItems, sources.categories, sources.subcategories)
 
   return NextResponse.json({
     items,
@@ -94,8 +109,8 @@ export async function GET(request: Request) {
     options: sources.options,
     metals: sources.metals,
     stoneShapes: sources.stoneShapes,
-    ringSizes: sources.ringSizes,
     certificates: sources.certificates,
+    styles: sources.styles,
   })
 }
 
@@ -113,6 +128,13 @@ export async function PUT(request: Request) {
   const itemsToSave = incomingItems
     .map(normalizeNavbarItemForSave)
     .filter((item) => item.label.trim())
+
+  const sources = await loadCatalogSources(access.adminClient)
+  if ('error' in sources) {
+    return NextResponse.json({ error: sources.error.message }, { status: 500 })
+  }
+
+  const categoryBySlug = new Map<string, CatalogCategory>(sources.categories.map((entry: CatalogCategory) => [entry.slug, entry]))
 
   const { data: existingItems, error: existingItemsError } = await access.adminClient
     .from('navbar_items')
@@ -191,6 +213,7 @@ export async function PUT(request: Request) {
         label: item.label,
         slug: item.slug,
         item_type: item.type === 'mega' ? 'mega_menu' : 'direct_link',
+        linked_category_id: categoryBySlug.get(item.slug)?.id ?? item.linkedCategoryId ?? null,
         direct_link_url: item.type === 'direct' ? item.url ?? '/' : null,
         display_order: itemIndex + 1,
         status: item.visible ? 'active' : 'hidden',
@@ -204,14 +227,19 @@ export async function PUT(request: Request) {
 
     if (item.type === 'mega') {
       for (const [sectionIndex, section] of (item.sections ?? []).entries()) {
+        const sectionType = mapSectionTypeToDb(section.type)
+        const sourceSubcategoryId = sectionType === 'category_list' ? section.sourceSubcategoryId : null
+        const sourceCategorySlug = sectionType === 'category_link' ? section.sourceCategorySlug ?? null : null
+
         const { data: insertedSection, error: insertSectionError } = await access.adminClient
           .from('navbar_sections')
           .insert({
             navbar_item_id: insertedItem.id,
             title: section.title,
-            section_type: mapSectionTypeToDb(section.type),
-            source_subcategory_id: section.sourceSubcategoryId,
-            source_category_slug: section.sourceCategorySlug ?? null,
+            icon_svg_path: section.iconSvgPath ?? null,
+            section_type: sectionType,
+            source_subcategory_id: sourceSubcategoryId,
+            source_category_slug: sourceCategorySlug,
             enable_category_link: section.enableCategoryLink ?? false,
             linked_category_id: section.linkedCategoryId ?? null,
             column_number: section.column,
@@ -223,7 +251,7 @@ export async function PUT(request: Request) {
           .single()
 
         if (insertSectionError || !insertedSection) {
-          return NextResponse.json({ error: insertSectionError?.message ?? 'Failed to save navbar section.' }, { status: 500 })
+          return NextResponse.json({ error: getNavbarSaveErrorMessage(insertSectionError) }, { status: 500 })
         }
 
         if ((section.selectedSourceItems?.length ?? 0) > 0) {

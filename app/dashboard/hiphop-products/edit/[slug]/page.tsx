@@ -11,6 +11,7 @@ export default async function EditHipHopProductPage({
     <div className="p-8">
       <ProductForm
         productSlug={slug}
+        forcedLane="hiphop"
         forcedTemplate="hiphop"
         backHref="/dashboard/hiphop-products"
         pageTitle="Edit Hip Hop Product"

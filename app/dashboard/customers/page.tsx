@@ -1,7 +1,7 @@
-import { Mail, User, CalendarDays, ShieldCheck } from 'lucide-react'
-import { createSupabaseAdminClient } from '@/lib/admin-supabase'
+import { getAdminCustomerUsers } from '@/lib/admin-users'
+import { CustomersClient } from './customers-client'
 
-type CustomerRow = {
+export type CustomerRow = {
   id: string
   name: string
   email: string
@@ -9,116 +9,19 @@ type CustomerRow = {
   status: 'active' | 'invited'
 }
 
-function formatDate(dateValue: string) {
-  return new Intl.DateTimeFormat('en-IN', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  }).format(new Date(dateValue))
-}
-
 async function getCustomers(): Promise<CustomerRow[]> {
-  const supabase = createSupabaseAdminClient()
-  const { data, error } = await supabase.auth.admin.listUsers()
+  const users = await getAdminCustomerUsers()
 
-  if (error) {
-    throw new Error(error.message)
-  }
-
-  return (data.users ?? []).map((user) => {
-    const metadata = user.user_metadata ?? {}
-    const rawUsername = typeof metadata.username === 'string' ? metadata.username.trim() : ''
-
-    return {
-      id: user.id,
-      name: rawUsername || user.email?.split('@')[0] || 'Unnamed user',
-      email: user.email ?? 'No email',
-      joinDate: user.created_at ?? new Date().toISOString(),
-      status: user.email_confirmed_at ? 'active' : 'invited',
-    }
-  })
+  return users.map((user) => ({
+    id: user.id,
+    name: user.name,
+    email: user.email ?? 'No email',
+    joinDate: user.createdAt,
+    status: user.confirmed ? 'active' : 'invited',
+  }))
 }
 
 export default async function CustomersPage() {
   const customers = await getCustomers()
-
-  return (
-    <div className="p-8">
-      <div className="mb-10 flex items-center justify-between">
-        <div>
-          <h1 className="font-jakarta text-3xl font-semibold text-foreground">Customers</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Signed-up users from Supabase authentication
-          </p>
-        </div>
-        <div className="rounded-lg border border-border bg-white px-4 py-2 text-sm text-muted-foreground shadow-xs">
-          Total users: <span className="font-semibold text-foreground">{customers.length}</span>
-        </div>
-      </div>
-
-      <div className="rounded-lg border border-border bg-white overflow-hidden shadow-xs">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-border bg-secondary">
-                <th className="px-6 py-3 text-left text-xs font-medium text-foreground">User</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-foreground">Email</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-foreground">Joined</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-foreground">Status</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-foreground">User ID</th>
-              </tr>
-            </thead>
-            <tbody>
-              {customers.map((customer) => (
-                <tr key={customer.id} className="border-b border-border hover:bg-secondary/50 transition-colors">
-                  <td className="px-6 py-4 text-sm text-foreground">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-secondary text-foreground">
-                        <User size={16} />
-                      </div>
-                      <div>
-                        <div className="font-medium">{customer.name}</div>
-                        <div className="text-xs text-muted-foreground">Signed up user</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-sm">
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <Mail size={14} />
-                      <span>{customer.email}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-muted-foreground">
-                    <div className="flex items-center gap-2">
-                      <CalendarDays size={14} />
-                      <span>{formatDate(customer.joinDate)}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-sm">
-                    <span
-                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                        customer.status === 'active'
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-amber-100 text-amber-700'
-                      }`}
-                    >
-                      <ShieldCheck size={12} />
-                      {customer.status === 'active' ? 'Confirmed' : 'Pending confirmation'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-xs text-muted-foreground">{customer.id}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {customers.length === 0 && (
-        <div className="mt-12 rounded-lg border border-dashed border-border bg-white p-10 text-center">
-          <p className="text-muted-foreground">No signed-up users found yet.</p>
-        </div>
-      )}
-    </div>
-  )
+  return <CustomersClient initialCustomers={customers} />
 }

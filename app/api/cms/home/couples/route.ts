@@ -45,7 +45,7 @@ export async function GET(request: Request) {
   const items = section
     ? await adminClient
         .from('couples_items')
-        .select('id, sort_order, names, location, story, product_name, product_detail, image_path')
+        .select('id, sort_order, names, location, story, product_name, product_link, product_detail, image_path')
         .eq('section_id', section.id)
         .order('sort_order', { ascending: true })
     : { data: [], error: null }
@@ -89,6 +89,7 @@ export async function POST(request: Request) {
       typeof item.location === 'string' &&
       typeof item.story === 'string' &&
       typeof item.product_name === 'string' &&
+      typeof item.product_link === 'string' &&
       typeof item.product_detail === 'string' &&
       typeof item.image_path === 'string'
     )
@@ -99,6 +100,7 @@ export async function POST(request: Request) {
       location: item.location,
       story: item.story,
       product_name: item.product_name,
+      product_link: item.product_link,
       product_detail: item.product_detail,
       image_path: item.image_path,
     }))

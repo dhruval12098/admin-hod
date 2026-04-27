@@ -1,17 +1,20 @@
 import { NextResponse } from 'next/server'
 import { buildAdminClient, buildAuthClient } from '@/lib/cms-auth'
 
-const sectionKey = 'home_hiphop_showcase'
+const sectionKey = 'hiphop_hero'
 
 type HipHopSection = {
   eyebrow: string
-  heading_line_1: string
-  heading_line_2: string
-  heading_emphasis: string
-  cta_label: string
-  cta_link: string
-  image_path: string
-  image_alt: string
+  headline: string
+  subtitle: string
+  slider_enabled: boolean
+  items: Array<{
+    sort_order: number
+    image_path: string
+    mobile_image_path?: string
+    button_text: string
+    button_link: string
+  }>
 }
 
 async function assertAdmin(request: Request) {
@@ -51,25 +54,42 @@ export async function GET(request: Request) {
   if ('error' in access) return access.error
 
   const { adminClient } = access
-  const { data, error } = await adminClient
-    .from('hiphop_showcase_section')
-    .select('eyebrow, heading_line_1, heading_line_2, heading_emphasis, cta_label, cta_link, image_path, image_alt')
+  const { data: section, error } = await adminClient
+    .from('hiphop_hero_content')
+    .select('*')
     .eq('section_key', sectionKey)
     .maybeSingle()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
+  if (!section) {
+    return NextResponse.json({
+      section: {
+        eyebrow: 'Hip Hop',
+        headline: 'Hip Hop Jewellery',
+        subtitle: 'Fully iced chains, grillz, pendants and statement rings - handcrafted with CVD diamonds in 14K and 18K gold.',
+        slider_enabled: false,
+      },
+      items: [],
+    })
+  }
+
+  const { data: items, error: itemsError } = await adminClient
+    .from('hiphop_hero_slider_items')
+    .select('id, sort_order, image_path, mobile_image_path, button_text, button_link')
+    .eq('hero_id', section.id)
+    .order('sort_order', { ascending: true })
+
+  if (itemsError) return NextResponse.json({ error: itemsError.message }, { status: 500 })
+
   return NextResponse.json({
-    section: data ?? {
-      eyebrow: 'Hip Hop Collection · House of Diams',
-      heading_line_1: 'Ice That',
-      heading_line_2: 'Speaks',
-      heading_emphasis: 'Louder.',
-      cta_label: 'Shop Iced Pieces',
-      cta_link: '/hiphop',
-      image_path: '',
-      image_alt: 'House of Diams Hip Hop Collection',
+    section: {
+      eyebrow: section.eyebrow ?? 'Hip Hop',
+      headline: section.headline ?? 'Hip Hop Jewellery',
+      subtitle: section.subtitle ?? '',
+      slider_enabled: section.slider_enabled ?? false,
     },
+    items: items ?? [],
   })
 }
 
@@ -81,35 +101,48 @@ export async function POST(request: Request) {
   if (
     !body ||
     typeof body.eyebrow !== 'string' ||
-    typeof body.heading_line_1 !== 'string' ||
-    typeof body.heading_line_2 !== 'string' ||
-    typeof body.heading_emphasis !== 'string' ||
-    typeof body.cta_label !== 'string' ||
-    typeof body.cta_link !== 'string' ||
-    typeof body.image_path !== 'string' ||
-    typeof body.image_alt !== 'string'
+    typeof body.headline !== 'string' ||
+    typeof body.subtitle !== 'string' ||
+    typeof body.slider_enabled !== 'boolean' ||
+    !Array.isArray(body.items)
   ) {
     return NextResponse.json({ error: 'Invalid payload.' }, { status: 400 })
   }
 
   const { adminClient } = access
-  const { error } = await adminClient.from('hiphop_showcase_section').upsert(
+  const { data: section, error } = await adminClient.from('hiphop_hero_content').upsert(
     {
       section_key: sectionKey,
       eyebrow: body.eyebrow,
-      heading_line_1: body.heading_line_1,
-      heading_line_2: body.heading_line_2,
-      heading_emphasis: body.heading_emphasis,
-      cta_label: body.cta_label,
-      cta_link: body.cta_link,
-      image_path: body.image_path,
-      image_alt: body.image_alt,
+      headline: body.headline,
+      subtitle: body.subtitle,
+      slider_enabled: body.slider_enabled,
+      is_active: true,
       updated_at: new Date().toISOString(),
     },
     { onConflict: 'section_key' }
-  )
+  ).select('id').single()
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error || !section) return NextResponse.json({ error: error?.message ?? 'Unable to save hero.' }, { status: 500 })
+
+  const { error: deleteError } = await adminClient.from('hiphop_hero_slider_items').delete().eq('hero_id', section.id)
+  if (deleteError) return NextResponse.json({ error: deleteError.message }, { status: 500 })
+
+  const items = body.items
+    .filter((item: any) => typeof item.image_path === 'string' && typeof item.button_text === 'string' && typeof item.button_link === 'string')
+    .map((item: any, index: number) => ({
+      hero_id: section.id,
+      sort_order: Number.isFinite(Number(item.sort_order)) ? Number(item.sort_order) : index + 1,
+      image_path: item.image_path,
+      mobile_image_path: typeof item.mobile_image_path === 'string' ? item.mobile_image_path : '',
+      button_text: item.button_text,
+      button_link: item.button_link,
+    }))
+
+  if (items.length > 0) {
+    const { error: insertError } = await adminClient.from('hiphop_hero_slider_items').insert(items)
+    if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 })
+  }
 
   return NextResponse.json({ ok: true })
 }

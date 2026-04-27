@@ -13,8 +13,6 @@ import {
   ChevronLeft,
   ChevronDown,
   Tag,
-  Layers,
-  ListTree,
   Grid3x3,
   BookText,
   PanelsTopLeft,
@@ -26,36 +24,38 @@ import {
   TicketPercent,
   BadgeAlert,
   Trash,
+  SwatchBook,
+  Inbox,
 } from 'lucide-react'
 
 const NAVIGATION = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Products', href: '/dashboard/products', icon: Package },
+  { name: 'Hip Hop Products', href: '/dashboard/hiphop-products', icon: Gem },
+  { name: 'Collection Products', href: '/dashboard/collection-products', icon: Package },
+  { name: 'Bespoke Products', href: '/dashboard/bespoke', icon: Sparkles },
   { name: 'Inventory', href: '/dashboard/inventory', icon: Package },
   { name: 'CMS', href: '/dashboard/cms', icon: FileText },
   { name: 'Docs', href: '/dashboard/cms/docs', icon: BookText },
   { name: 'Customers', href: '/dashboard/customers', icon: Users },
   { name: 'Orders', href: '/dashboard/orders', icon: ShoppingCart },
+  { name: 'Enquiries', href: '/dashboard/enquiries', icon: Inbox },
   { name: 'Coupons', href: '/dashboard/coupons', icon: TicketPercent },
   { name: 'Navbar Builder', href: '/dashboard/navbar-builder', icon: PanelsTopLeft },
   { name: 'Promotion', href: '/dashboard/cms/promotion', icon: BadgeAlert },
-  { name: 'Media Trash', href: '/dashboard/media-trash', icon: Trash },
-  { name: 'Hip Hop Products', href: '/dashboard/hiphop-products', icon: Gem },
-  { name: 'Bespoke', href: '/dashboard/bespoke', icon: Sparkles },
 ]
 
 const CATALOG_ITEMS = [
   { name: 'Categories', href: '/dashboard/catalog#categories', icon: Tag },
-  { name: 'Subcategories', href: '/dashboard/catalog#subcategories', icon: Layers },
-  { name: 'Options', href: '/dashboard/catalog#options', icon: ListTree },
   { name: 'Metals', href: '/dashboard/catalog/metals', icon: Grid3x3 },
+  { name: 'Styles', href: '/dashboard/catalog/styles', icon: SwatchBook },
   { name: 'Stone Shapes', href: '/dashboard/catalog/stone-shapes', icon: Gem },
-  { name: 'Ring Sizes', href: '/dashboard/catalog/ring-sizes', icon: Ruler },
+  { name: 'Ring Categories', href: '/dashboard/catalog/ring-sizes', icon: Ruler },
   { name: 'Certificates', href: '/dashboard/catalog/certificates', icon: BadgeCheck },
   { name: 'GST', href: '/dashboard/catalog/gst', icon: Receipt },
 ]
 
-export function Sidebar() {
+export function Sidebar({ customerCount }: { customerCount?: number }) {
   const [collapsed, setCollapsed] = useState(false)
   const [catalogOpen, setCatalogOpen] = useState(false)
   const pathname = usePathname()
@@ -90,6 +90,7 @@ export function Sidebar() {
           const isExactMatch = pathname === item.href
           const isChildRoute = item.href !== '/dashboard' && pathname.startsWith(item.href + '/')
           const isActive = isExactMatch || isChildRoute
+          const showBadge = item.name === 'Customers' && typeof customerCount === 'number'
           
           return (
             <Link
@@ -103,7 +104,16 @@ export function Sidebar() {
               title={collapsed ? item.name : undefined}
             >
               <Icon size={18} className="flex-shrink-0" />
-              {!collapsed && <span className="truncate">{item.name}</span>}
+              {!collapsed && (
+                <>
+                  <span className="truncate">{item.name}</span>
+                  {showBadge ? (
+                    <span className="ml-auto inline-flex min-w-7 items-center justify-center rounded-full bg-secondary px-2 py-0.5 text-[11px] font-semibold text-foreground">
+                      {customerCount}
+                    </span>
+                  ) : null}
+                </>
+              )}
             </Link>
           )
         })}
@@ -169,6 +179,19 @@ export function Sidebar() {
         >
           <Settings size={18} className="flex-shrink-0" />
           {!collapsed && <span className="truncate">Settings</span>}
+        </Link>
+
+        <Link
+          href="/dashboard/media-trash"
+          className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+            pathname === '/dashboard/media-trash'
+              ? 'bg-secondary text-foreground border-l-2 border-primary pl-2.5'
+              : 'text-foreground hover:bg-secondary'
+          }`}
+          title={collapsed ? 'Media Trash' : undefined}
+        >
+          <Trash size={18} className="flex-shrink-0" />
+          {!collapsed && <span className="truncate">Media Trash</span>}
         </Link>
       </nav>
 

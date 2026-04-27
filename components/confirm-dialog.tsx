@@ -1,6 +1,7 @@
 'use client'
 
-import { AlertCircle, CheckCircle, Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { AlertCircle, CheckCircle, Loader2, Trash2 } from 'lucide-react'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,7 +20,7 @@ interface ConfirmDialogProps {
   confirmText?: string
   cancelText?: string
   type?: 'confirm' | 'delete' | 'warning'
-  onConfirm: () => void
+  onConfirm: () => void | Promise<void>
   onCancel: () => void
   isLoading?: boolean
 }
@@ -46,6 +47,51 @@ export function ConfirmDialog({
       : 'bg-primary hover:bg-primary/90'
 
   const Icon = type === 'delete' ? Trash2 : type === 'warning' ? AlertCircle : CheckCircle
+  const [fallbackLoading, setFallbackLoading] = useState(false)
+  const loading = Boolean(isLoading || fallbackLoading)
+
+  useEffect(() => {
+    if (!isOpen) {
+      setFallbackLoading(false)
+    }
+  }, [isOpen])
+
+  const loadingText = useMemo(() => {
+    const normalized = confirmText.trim().toLowerCase()
+    if (normalized.includes('delete')) return 'Deleting...'
+    if (normalized.includes('save')) return 'Saving...'
+    if (normalized.includes('update')) return 'Updating...'
+    if (normalized.includes('create')) return 'Creating...'
+    return 'Processing...'
+  }, [confirmText])
+
+  const handleConfirm = () => {
+    if (isLoading) {
+      onConfirm()
+      return
+    }
+
+    try {
+      const result = onConfirm()
+      if (result && typeof (result as Promise<unknown>).then === 'function') {
+        setFallbackLoading(true)
+        void (result as Promise<unknown>).finally(() => {
+          setTimeout(() => {
+            setFallbackLoading(false)
+          }, 300)
+        })
+        return
+      }
+    } catch (error) {
+      setFallbackLoading(false)
+      throw error
+    }
+
+    setFallbackLoading(true)
+    setTimeout(() => {
+      setFallbackLoading(false)
+    }, 900)
+  }
 
   return (
     <AlertDialog open={isOpen} onOpenChange={(open) => (!open ? onCancel() : undefined)}>
@@ -64,17 +110,18 @@ export function ConfirmDialog({
           <AlertDialogFooter className="mt-6 flex-row justify-end gap-3">
             <AlertDialogCancel
               onClick={onCancel}
-              disabled={isLoading}
+              disabled={loading}
               className="mt-0 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary"
             >
               {cancelText}
             </AlertDialogCancel>
             <AlertDialogAction
-              onClick={onConfirm}
-              disabled={isLoading}
-              className={`${buttonColor} rounded-lg px-4 py-2 text-sm font-semibold text-white`}
+              onClick={handleConfirm}
+              disabled={loading}
+              className={`${buttonColor} inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white`}
             >
-              {isLoading ? 'Processing...' : confirmText}
+              {loading ? <Loader2 className="animate-spin" size={14} /> : null}
+              {loading ? loadingText : confirmText}
             </AlertDialogAction>
           </AlertDialogFooter>
         </div>

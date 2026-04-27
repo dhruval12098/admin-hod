@@ -80,6 +80,7 @@ export async function PATCH(request: Request, context: RouteContext) {
   }
 
   if (existingOrderResult.data.status !== status) {
+    let emailStatus: 'sent' | 'failed' = 'sent'
     try {
       await sendOrderStatusUpdateEmail({
         customerEmail: data.customer_email || '',
@@ -95,9 +96,12 @@ export async function PATCH(request: Request, context: RouteContext) {
         })),
       })
     } catch (emailError) {
+      emailStatus = 'failed'
       console.error('Order status email failed:', emailError)
+      return NextResponse.json({ item: data, emailStatus, emailError: emailError instanceof Error ? emailError.message : 'Email failed.' })
     }
+    return NextResponse.json({ item: data, emailStatus })
   }
 
-  return NextResponse.json({ item: data })
+  return NextResponse.json({ item: data, emailStatus: 'unchanged' })
 }

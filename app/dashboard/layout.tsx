@@ -1,23 +1,35 @@
+import { redirect } from 'next/navigation'
 import { Sidebar } from '@/components/sidebar'
 import { Topbar } from '@/components/topbar'
-import { AdminGate } from '@/components/admin-gate'
+import { getAdminServerSession } from '@/lib/admin-server'
+import { getAdminCustomerUsers } from '@/lib/admin-users'
+import { getNotificationCount } from '@/lib/notifications'
 
-export default function DashboardLayout({
+export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
+  const admin = await getAdminServerSession()
+
+  if (!admin) {
+    redirect('/login')
+  }
+
+  const [customers, notificationCount] = await Promise.all([
+    getAdminCustomerUsers(),
+    getNotificationCount(admin.userId),
+  ])
+
   return (
-    <AdminGate>
-      <div className="flex h-screen bg-background">
-        <Sidebar />
-        <div className="flex flex-1 flex-col overflow-hidden bg-background">
-          <Topbar />
-          <main className="flex-1 overflow-auto bg-background">
-            {children}
-          </main>
-        </div>
+    <div className="flex h-screen bg-background">
+      <Sidebar customerCount={customers.length} />
+      <div className="flex flex-1 flex-col overflow-hidden bg-background">
+        <Topbar notificationCount={notificationCount} />
+        <main className="flex-1 overflow-auto bg-background">
+          {children}
+        </main>
       </div>
-    </AdminGate>
+    </div>
   )
 }

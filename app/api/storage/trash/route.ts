@@ -15,15 +15,19 @@ const SECTION_SOURCES: SectionSource[] = [
   { key: 'products', label: 'Products', table: 'products', columns: ['image_1_path', 'image_2_path', 'image_3_path', 'image_4_path', 'video_path'] },
   { key: 'hero', label: 'Hero Slider', table: 'homepage_hero_slider_items', columns: ['image_path'] },
   { key: 'collection', label: 'Collection', table: 'collection_items', columns: ['image_path'] },
+  { key: 'collection-page-config', label: 'Collection Page', table: 'collection_page_config', columns: ['showcase_image_path', 'showcase_mobile_image_path'] },
   { key: 'hiphop', label: 'Hip Hop Showcase', table: 'hiphop_showcase_section', columns: ['image_path'] },
+  { key: 'hiphop-hero', label: 'Hip Hop Hero Slider', table: 'hiphop_hero_slider_items', columns: ['image_path', 'mobile_image_path'] },
   { key: 'couples', label: 'Couples', table: 'couples_items', columns: ['image_path'] },
   { key: 'certifications', label: 'Certifications', table: 'certifications_items', columns: ['icon_path'] },
   { key: 'material-strip', label: 'Material Strip', table: 'material_strip_items', columns: ['icon_path'] },
+  { key: 'diamond-info', label: 'Diamond Info', table: 'diamond_info_config', columns: ['video_path', 'video_poster_path'] },
   { key: 'about-values', label: 'About Values', table: 'about_values', columns: ['icon_path'] },
   { key: 'contact-info', label: 'Contact Info', table: 'contact_info', columns: ['icon_path'] },
   { key: 'founders', label: 'Founders', table: 'about_founders', columns: ['image_path'] },
   { key: 'blog', label: 'Blog Posts', table: 'blog_posts', columns: ['hero_image_path'] },
   { key: 'bespoke-process', label: 'Bespoke Manufacturing', table: 'bespoke_process_steps', columns: ['image_path'] },
+  { key: 'bespoke-hero', label: 'Bespoke Hero Slider', table: 'bespoke_hero_slider_items', columns: ['image_path', 'mobile_image_path'] },
   { key: 'navbar-featured', label: 'Navbar Featured Cards', table: 'navbar_featured_cards', columns: ['image_path'] },
 ]
 
@@ -75,6 +79,14 @@ async function collectReferencedPaths(adminClient: any) {
   for (const source of SECTION_SOURCES) {
     const { data, error } = await adminClient.from(source.table).select(source.columns.join(', '))
     if (error) {
+      const isMissingRelation =
+        error.code === 'PGRST205' ||
+        error.message?.includes(`Could not find the table 'public.${source.table}'`)
+
+      if (isMissingRelation) {
+        continue
+      }
+
       throw new Error(`${source.label}: ${error.message}`)
     }
 

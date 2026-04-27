@@ -9,6 +9,21 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const body = await request.json().catch(() => null)
   if (!body) return NextResponse.json({ error: 'Invalid payload.' }, { status: 400 })
 
+  const { data: existingCategory, error: existingCategoryError } = await access.adminClient
+    .from('catalog_categories')
+    .select('id, name, is_system_locked')
+    .eq('id', id)
+    .single()
+
+  if (existingCategoryError) return NextResponse.json({ error: existingCategoryError.message }, { status: 500 })
+
+  if (existingCategory?.is_system_locked) {
+    return NextResponse.json(
+      { error: `${existingCategory.name} is a protected system category and cannot be edited here.` },
+      { status: 403 }
+    )
+  }
+
   const { data, error } = await access.adminClient
     .from('catalog_categories')
     .update({
@@ -34,6 +49,21 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   if ('error' in access) return access.error
 
   const { id } = await params
+  const { data: existingCategory, error: existingCategoryError } = await access.adminClient
+    .from('catalog_categories')
+    .select('id, name, is_system_locked')
+    .eq('id', id)
+    .single()
+
+  if (existingCategoryError) return NextResponse.json({ error: existingCategoryError.message }, { status: 500 })
+
+  if (existingCategory?.is_system_locked) {
+    return NextResponse.json(
+      { error: `${existingCategory.name} is a protected system category and cannot be deleted.` },
+      { status: 403 }
+    )
+  }
+
   const { error } = await access.adminClient.from('catalog_categories').delete().eq('id', id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true })

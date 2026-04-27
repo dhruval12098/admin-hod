@@ -1,338 +1,149 @@
-'use client'
+import { createSupabaseAdminClient } from '@/lib/admin-supabase'
+import { MediaTrashClient, type MediaSection } from './media-trash-client'
 
-import { useEffect, useMemo, useState } from 'react'
-import { RefreshCcw, Trash2 } from 'lucide-react'
-import { ConfirmDialog } from '@/components/confirm-dialog'
-import { useToast } from '@/hooks/use-toast'
-import { supabase } from '@/lib/supabase'
+const collectionBucket = process.env.SUPABASE_COLLECTION_BUCKET ?? 'hod'
+const PUBLIC_PREFIX = '/storage/v1/object/public/'
 
-type MediaItem = {
-  path: string
-  name: string
-  url: string
-  status: 'used' | 'unused'
-  referencedBy: string[]
+type SectionSource = {
+  key: string
+  label: string
+  table: string
+  columns: string[]
 }
 
-type MediaSection = {
-  name: string
-  total: number
-  used: number
-  unused: number
-  items: MediaItem[]
+const SECTION_SOURCES: SectionSource[] = [
+  { key: 'products', label: 'Products', table: 'products', columns: ['image_1_path', 'image_2_path', 'image_3_path', 'image_4_path', 'video_path'] },
+  { key: 'hero', label: 'Hero Slider', table: 'homepage_hero_slider_items', columns: ['image_path'] },
+  { key: 'collection', label: 'Collection', table: 'collection_items', columns: ['image_path'] },
+  { key: 'collection-page-config', label: 'Collection Page', table: 'collection_page_config', columns: ['showcase_image_path', 'showcase_mobile_image_path'] },
+  { key: 'hiphop', label: 'Hip Hop Showcase', table: 'hiphop_showcase_section', columns: ['image_path'] },
+  { key: 'hiphop-hero', label: 'Hip Hop Hero Slider', table: 'hiphop_hero_slider_items', columns: ['image_path', 'mobile_image_path'] },
+  { key: 'couples', label: 'Couples', table: 'couples_items', columns: ['image_path'] },
+  { key: 'certifications', label: 'Certifications', table: 'certifications_items', columns: ['icon_path'] },
+  { key: 'material-strip', label: 'Material Strip', table: 'material_strip_items', columns: ['icon_path'] },
+  { key: 'diamond-info', label: 'Diamond Info', table: 'diamond_info_config', columns: ['video_path', 'video_poster_path'] },
+  { key: 'about-values', label: 'About Values', table: 'about_values', columns: ['icon_path'] },
+  { key: 'contact-info', label: 'Contact Info', table: 'contact_info', columns: ['icon_path'] },
+  { key: 'founders', label: 'Founders', table: 'about_founders', columns: ['image_path'] },
+  { key: 'blog', label: 'Blog Posts', table: 'blog_posts', columns: ['hero_image_path'] },
+  { key: 'bespoke-process', label: 'Bespoke Manufacturing', table: 'bespoke_process_steps', columns: ['image_path'] },
+  { key: 'bespoke-hero', label: 'Bespoke Hero Slider', table: 'bespoke_hero_slider_items', columns: ['image_path', 'mobile_image_path'] },
+  { key: 'navbar-featured', label: 'Navbar Featured Cards', table: 'navbar_featured_cards', columns: ['image_path'] },
+]
+
+function normalizePath(value: unknown) {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    const marker = `${PUBLIC_PREFIX}${collectionBucket}/`
+    const index = trimmed.indexOf(marker)
+    if (index >= 0) {
+      return decodeURIComponent(trimmed.slice(index + marker.length))
+    }
+    return null
+  }
+
+  return trimmed.replace(/^\/+/, '')
 }
 
-async function getAccessToken() {
-  const { data } = await supabase.auth.getSession()
-  return data.session?.access_token ?? null
-}
+async function listAllFiles(adminClient: any, folder = ''): Promise<Array<{ name: string; path: string }>> {
+  const { data, error } = await adminClient.storage.from(collectionBucket).list(folder || undefined, {
+    limit: 1000,
+    sortBy: { column: 'name', order: 'asc' },
+  })
 
-function isImageFile(path: string) {
-  return /\.(png|jpe?g|webp|avif|gif|svg)$/i.test(path)
-}
+  if (error) {
+    throw new Error(error.message)
+  }
 
-export default function MediaTrashPage() {
-  const { toast } = useToast()
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [sections, setSections] = useState<MediaSection[]>([])
-  const [activeSectionName, setActiveSectionName] = useState<string>('')
-  const [showUnusedOnly, setShowUnusedOnly] = useState(true)
-  const [deletingPath, setDeletingPath] = useState<string | null>(null)
-  const [pendingDeletePath, setPendingDeletePath] = useState<string | null>(null)
+  const results: Array<{ name: string; path: string }> = []
 
-  const totals = useMemo(() => {
-    return sections.reduce(
-      (acc, section) => {
-        acc.total += section.total
-        acc.used += section.used
-        acc.unused += section.unused
-        return acc
-      },
-      { total: 0, used: 0, unused: 0 }
-    )
-  }, [sections])
-
-  const activeSection = useMemo(
-    () => sections.find((section) => section.name === activeSectionName) ?? sections[0] ?? null,
-    [activeSectionName, sections]
-  )
-
-  const visibleItems = useMemo(() => {
-    if (!activeSection) return []
-    return showUnusedOnly ? activeSection.items.filter((item) => item.status === 'unused') : activeSection.items
-  }, [activeSection, showUnusedOnly])
-
-  const loadData = async (mode: 'initial' | 'refresh' = 'initial') => {
-    if (mode === 'initial') setLoading(true)
-    if (mode === 'refresh') setRefreshing(true)
-
-    try {
-      const accessToken = await getAccessToken()
-      if (!accessToken) throw new Error('Missing access token.')
-
-      const response = await fetch('/api/storage/trash', {
-        headers: { authorization: `Bearer ${accessToken}` },
-      })
-
-      const payload = await response.json().catch(() => null)
-      if (!response.ok) {
-        throw new Error(payload?.error ?? 'Unable to scan storage bucket.')
-      }
-
-      const nextSections = Array.isArray(payload?.sections) ? payload.sections : []
-      setSections(nextSections)
-      setActiveSectionName((current) => {
-        if (current && nextSections.some((section: MediaSection) => section.name === current)) return current
-        return nextSections[0]?.name ?? ''
-      })
-    } catch (error) {
-      toast({
-        title: 'Load failed',
-        description: error instanceof Error ? error.message : 'Unable to scan storage bucket.',
-        variant: 'destructive',
-      })
-    } finally {
-      setLoading(false)
-      setRefreshing(false)
+  for (const item of data ?? []) {
+    const currentPath = folder ? `${folder}/${item.name}` : item.name
+    if (item.id) {
+      results.push({ name: item.name, path: currentPath })
+    } else {
+      const nested = await listAllFiles(adminClient, currentPath)
+      results.push(...nested)
     }
   }
 
-  useEffect(() => {
-    void loadData('initial')
-  }, [])
+  return results
+}
 
-  const handleDelete = async (path: string) => {
-    setDeletingPath(path)
-    try {
-      const accessToken = await getAccessToken()
-      if (!accessToken) throw new Error('Missing access token.')
+async function collectReferencedPaths(adminClient: any) {
+  const referencedByPath = new Map<string, Set<string>>()
 
-      const response = await fetch('/api/storage/trash', {
-        method: 'DELETE',
-        headers: {
-          'content-type': 'application/json',
-          authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ path }),
-      })
+  for (const source of SECTION_SOURCES) {
+    const { data, error } = await adminClient.from(source.table).select(source.columns.join(', '))
+    if (error) {
+      const isMissingRelation =
+        error.code === 'PGRST205' ||
+        error.message?.includes(`Could not find the table 'public.${source.table}'`)
 
-      const payload = await response.json().catch(() => null)
-      if (!response.ok) {
-        throw new Error(payload?.error ?? 'Unable to delete file.')
+      if (isMissingRelation) {
+        continue
       }
 
-      toast({ title: 'Deleted', description: 'Unused file deleted permanently.' })
-      await loadData('refresh')
-    } catch (error) {
-      toast({
-        title: 'Delete failed',
-        description: error instanceof Error ? error.message : 'Unable to delete file.',
-        variant: 'destructive',
-      })
-    } finally {
-      setDeletingPath(null)
-      setPendingDeletePath(null)
+      throw new Error(`${source.label}: ${error.message}`)
+    }
+
+    for (const row of data ?? []) {
+      for (const column of source.columns) {
+        const normalized = normalizePath(row[column])
+        if (!normalized) continue
+        const existing = referencedByPath.get(normalized) ?? new Set<string>()
+        existing.add(source.label)
+        referencedByPath.set(normalized, existing)
+      }
     }
   }
 
-  return (
-    <div className="p-8">
-      <div className="mb-10 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="font-jakarta text-3xl font-semibold text-foreground">Media Trash</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Review bucket assets, grouped by folder, and permanently delete files marked unused.</p>
-          <p className="mt-3 text-xs text-muted-foreground">
-            Total files: {totals.total} · Used: {totals.used} · Unused: {totals.unused}
-          </p>
-        </div>
+  return referencedByPath
+}
 
-        <button
-          type="button"
-          onClick={() => void loadData('refresh')}
-          disabled={refreshing || loading}
-          className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-semibold text-foreground hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          <RefreshCcw size={16} className={refreshing ? 'animate-spin' : ''} />
-          Refresh
-        </button>
-      </div>
+function getSectionLabelForPath(path: string) {
+  const topLevel = path.split('/')[0] || 'root'
+  return topLevel.replace(/[-_]+/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase())
+}
 
-      {loading ? (
-        <div className="rounded-lg border border-border bg-white px-6 py-10 text-sm text-muted-foreground">Scanning storage bucket...</div>
-      ) : (
-        <div className="space-y-8">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {sections.map((section) => {
-              const isActive = activeSection?.name === section.name
+async function getInitialSections(): Promise<MediaSection[]> {
+  const adminClient = createSupabaseAdminClient()
+  const referencedByPath = await collectReferencedPaths(adminClient)
+  const files = await listAllFiles(adminClient)
+  const sectionsMap = new Map<string, MediaSection['items']>()
 
-              return (
-                <button
-                  key={section.name}
-                  type="button"
-                  onClick={() => setActiveSectionName(section.name)}
-                  className={`rounded-2xl border p-6 text-left transition-all ${
-                    isActive
-                      ? 'border-primary bg-secondary/30 shadow-sm'
-                      : 'border-border bg-white hover:border-primary/40 hover:bg-secondary/10'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <h2 className="font-jakarta text-xl font-semibold text-foreground">{section.name}</h2>
-                      <p className="mt-2 text-sm text-muted-foreground">{section.total} files in this folder block</p>
-                    </div>
-                    <span
-                      className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${
-                        isActive ? 'bg-primary text-white' : 'bg-secondary text-foreground'
-                      }`}
-                    >
-                      Open
-                    </span>
-                  </div>
+  for (const file of files) {
+    const publicUrl = adminClient.storage.from(collectionBucket).getPublicUrl(file.path).data.publicUrl
+    const references = Array.from(referencedByPath.get(file.path) ?? [])
+    const sectionLabel = getSectionLabelForPath(file.path)
+    const bucket = sectionsMap.get(sectionLabel) ?? []
 
-                  <div className="mt-5 flex flex-wrap gap-2">
-                    <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
-                      Used: {section.used}
-                    </span>
-                    <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-700">
-                      Unused: {section.unused}
-                    </span>
-                  </div>
-                </button>
-              )
-            })}
-          </div>
+    bucket.push({
+      path: file.path,
+      name: file.name,
+      url: publicUrl,
+      status: references.length > 0 ? 'used' : 'unused',
+      referencedBy: references,
+    })
 
-          {activeSection ? (
-            <section className="overflow-hidden rounded-2xl border border-border bg-white shadow-xs">
-              <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border px-6 py-5">
-                <div>
-                  <h3 className="font-jakarta text-xl font-semibold text-foreground">{activeSection.name}</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {showUnusedOnly
-                      ? `${activeSection.unused} unused image${activeSection.unused === 1 ? '' : 's'} in this section`
-                      : `${activeSection.total} total file${activeSection.total === 1 ? '' : 's'} in this section`}
-                  </p>
-                </div>
+    sectionsMap.set(sectionLabel, bucket)
+  }
 
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowUnusedOnly(true)}
-                    className={`rounded-lg px-4 py-2 text-sm font-semibold ${
-                      showUnusedOnly ? 'bg-primary text-white' : 'border border-border text-foreground hover:bg-secondary'
-                    }`}
-                  >
-                    Show Unused
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowUnusedOnly(false)}
-                    className={`rounded-lg px-4 py-2 text-sm font-semibold ${
-                      !showUnusedOnly ? 'bg-primary text-white' : 'border border-border text-foreground hover:bg-secondary'
-                    }`}
-                  >
-                    Show All Images
-                  </button>
-                </div>
-              </div>
+  return Array.from(sectionsMap.entries())
+    .map(([name, items]) => ({
+      name,
+      total: items.length,
+      used: items.filter((item) => item.status === 'used').length,
+      unused: items.filter((item) => item.status === 'unused').length,
+      items: items.sort((a, b) => a.name.localeCompare(b.name)),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+}
 
-              <div className="overflow-x-auto">
-                <table className="min-w-full border-collapse">
-                  <thead>
-                    <tr className="border-b border-border bg-secondary/10">
-                      <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Preview</th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">File</th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Status</th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Used In</th>
-                      <th className="px-6 py-4 text-right text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visibleItems.length > 0 ? (
-                      visibleItems.map((item) => (
-                        <tr key={item.path} className="border-b border-border last:border-b-0">
-                          <td className="px-6 py-4 align-top">
-                            <div className="h-16 w-16 overflow-hidden rounded-xl border border-border bg-secondary/10">
-                              {isImageFile(item.path) ? (
-                                <img src={item.url} alt={item.name} className="h-full w-full object-cover" />
-                              ) : (
-                                <div className="flex h-full items-center justify-center px-2 text-center text-[11px] text-muted-foreground">
-                                  No preview
-                                </div>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 align-top">
-                            <div className="max-w-[420px]">
-                              <div className="text-sm font-semibold text-foreground">{item.name}</div>
-                              <div className="mt-1 break-all text-xs text-muted-foreground">{item.path}</div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 align-top">
-                            <span
-                              className={`inline-flex rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${
-                                item.status === 'used'
-                                  ? 'bg-green-100 text-green-700'
-                                  : 'bg-red-100 text-red-700'
-                              }`}
-                            >
-                              {item.status}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 align-top">
-                            <div className="max-w-[320px] text-sm text-muted-foreground">
-                              {item.referencedBy.length > 0 ? item.referencedBy.join(', ') : 'No database references found'}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 align-top text-right">
-                            {item.status === 'unused' ? (
-                              <button
-                                type="button"
-                                onClick={() => setPendingDeletePath(item.path)}
-                                disabled={deletingPath === item.path}
-                                className="inline-flex items-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
-                              >
-                                <Trash2 size={15} />
-                                {deletingPath === item.path ? 'Deleting...' : 'Delete'}
-                              </button>
-                            ) : (
-                              <span className="text-xs text-muted-foreground">Protected</span>
-                            )}
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={5} className="px-6 py-10 text-center text-sm text-muted-foreground">
-                          No files found for this view.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          ) : null}
-        </div>
-      )}
-
-      <ConfirmDialog
-        isOpen={Boolean(pendingDeletePath)}
-        title="Delete file permanently?"
-        description="This will permanently delete the file from the Supabase bucket. This action cannot be undone."
-        confirmText="Delete"
-        cancelText="Cancel"
-        type="delete"
-        isLoading={Boolean(deletingPath)}
-        onConfirm={() => {
-          if (pendingDeletePath) void handleDelete(pendingDeletePath)
-        }}
-        onCancel={() => {
-          if (!deletingPath) setPendingDeletePath(null)
-        }}
-      />
-    </div>
-  )
+export default async function MediaTrashPage() {
+  const initialSections = await getInitialSections()
+  return <MediaTrashClient initialSections={initialSections} />
 }

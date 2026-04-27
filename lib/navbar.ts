@@ -4,8 +4,8 @@ import {
   type CatalogCertificate,
   type CatalogMetal,
   type CatalogOption,
-  type CatalogRingSize,
   type CatalogStoneShape,
+  type CatalogStyle,
   type CatalogSubcategory,
 } from '@/lib/product-catalog'
 
@@ -15,8 +15,8 @@ export type NavbarSectionType =
   | 'Manual Links'
   | 'Metal Swatches'
   | 'Stone Shapes'
-  | 'Ring Sizes'
   | 'Certificates'
+  | 'Styles'
   | 'Category Link'
 
 export type NavbarManualLink = {
@@ -24,7 +24,7 @@ export type NavbarManualLink = {
   url: string
 }
 
-export type NavbarSectionSourceKind = 'subcategory_option' | 'metal' | 'stone_shape' | 'ring_size' | 'certificate'
+export type NavbarSectionSourceKind = 'subcategory_option' | 'metal' | 'stone_shape' | 'certificate' | 'style'
 
 export type NavbarSectionSourceItem = {
   sourceKind: NavbarSectionSourceKind
@@ -37,6 +37,7 @@ export type NavbarSectionSourceItem = {
 export type NavbarSection = {
   id: string
   title: string
+  iconSvgPath?: string | null
   type: NavbarSectionType
   sourceLabel: string
   sourceSubcategoryId: string | null
@@ -54,6 +55,7 @@ export type NavbarItem = {
   label: string
   slug: string
   type: NavbarItemType
+  linkedCategoryId?: string | null
   visible: boolean
   url?: string
   columns?: number
@@ -74,8 +76,8 @@ export type NavbarBuilderPayload = {
   options: CatalogOption[]
   metals: CatalogMetal[]
   stoneShapes: CatalogStoneShape[]
-  ringSizes?: CatalogRingSize[]
-  certificates?: CatalogCertificate[]
+  certificates: CatalogCertificate[]
+  styles: CatalogStyle[]
 }
 
 type RawNavbarItem = {
@@ -93,7 +95,8 @@ type RawNavbarSection = {
   id: string
   navbar_item_id: string
   title: string
-  section_type: 'category_list' | 'manual_links' | 'metal_swatches' | 'stone_shapes' | 'ring_sizes' | 'certificates' | 'category_link'
+  icon_svg_path?: string | null
+  section_type: 'category_list' | 'manual_links' | 'metal_swatches' | 'stone_shapes' | 'certificates' | 'styles' | 'category_link'
   source_subcategory_id: string | null
   source_category_slug?: string | null
   enable_category_link?: boolean | null
@@ -134,8 +137,8 @@ export function mapSectionTypeFromDb(type: RawNavbarSection['section_type']): Na
   if (type === 'category_list') return 'Subcategory Options'
   if (type === 'manual_links') return 'Manual Links'
   if (type === 'metal_swatches') return 'Metal Swatches'
-  if (type === 'ring_sizes') return 'Ring Sizes'
   if (type === 'certificates') return 'Certificates'
+  if (type === 'styles') return 'Styles'
   if (type === 'category_link') return 'Category Link'
   return 'Stone Shapes'
 }
@@ -144,8 +147,8 @@ export function mapSectionTypeToDb(type: NavbarSectionType): RawNavbarSection['s
   if (type === 'Subcategory Options') return 'category_list'
   if (type === 'Manual Links') return 'manual_links'
   if (type === 'Metal Swatches') return 'metal_swatches'
-  if (type === 'Ring Sizes') return 'ring_sizes'
   if (type === 'Certificates') return 'certificates'
+  if (type === 'Styles') return 'styles'
   if (type === 'Category Link') return 'category_link'
   return 'stone_shapes'
 }
@@ -173,6 +176,7 @@ export function buildFallbackNavbarItems(categories: CatalogCategory[], subcateg
         id: `fallback-${category.id}`,
         label: category.name,
         slug: category.slug,
+        linkedCategoryId: category.id,
         type: category.nav_type === 'direct_link' ? 'direct' : 'mega',
         visible: true,
         url: category.direct_link_url ?? undefined,
@@ -199,8 +203,8 @@ export function buildNavbarItemsFromRows(args: {
   subcategories: CatalogSubcategory[]
   metals: CatalogMetal[]
   stoneShapes: CatalogStoneShape[]
-  ringSizes?: CatalogRingSize[]
   certificates?: CatalogCertificate[]
+  styles?: CatalogStyle[]
   options?: CatalogOption[]
 }): NavbarItem[] {
   const {
@@ -213,8 +217,8 @@ export function buildNavbarItemsFromRows(args: {
     subcategories,
     metals,
     stoneShapes,
-    ringSizes = [],
     certificates = [],
+    styles = [],
     options = [],
   } = args
 
@@ -223,8 +227,8 @@ export function buildNavbarItemsFromRows(args: {
     subcategory_option: new Map(options.map((entry) => [entry.id, entry.name])),
     metal: new Map(metals.map((entry) => [entry.id, entry.name])),
     stone_shape: new Map(stoneShapes.map((entry) => [entry.id, entry.name])),
-    ring_size: new Map(ringSizes.map((entry) => [entry.id, entry.name])),
     certificate: new Map(certificates.map((entry) => [entry.id, entry.name])),
+    style: new Map(styles.map((entry) => [entry.id, entry.name])),
   } as const
 
   return items
@@ -238,6 +242,7 @@ export function buildNavbarItemsFromRows(args: {
           return {
             id: section.id,
             title: section.title,
+            iconSvgPath: section.icon_svg_path ?? null,
             type: mapSectionTypeFromDb(section.section_type),
             sourceLabel: sourceSubcategory?.name ?? section.source_category_slug ?? '',
             sourceSubcategoryId: sourceSubcategory?.id ?? null,
@@ -272,6 +277,7 @@ export function buildNavbarItemsFromRows(args: {
         id: item.id,
         label: item.label,
         slug: item.slug,
+        linkedCategoryId: item.linked_category_id,
         type: item.item_type === 'mega_menu' ? 'mega' : 'direct',
         visible: item.status === 'active',
         url: item.direct_link_url ?? undefined,
@@ -295,16 +301,15 @@ export function buildSectionPreviewItems(args: {
   options: CatalogOption[]
   metals: CatalogMetal[]
   stoneShapes: CatalogStoneShape[]
-  ringSizes?: CatalogRingSize[]
   certificates?: CatalogCertificate[]
+  styles?: CatalogStyle[]
 }): string[] {
-  const { section, categories, options, metals, stoneShapes, ringSizes = [], certificates = [] } = args
+  const { section, categories, options, metals, stoneShapes, certificates = [], styles = [] } = args
 
   const selectedIds = new Set((section.selectedSourceItems ?? []).filter((entry) => entry.isActive).map((entry) => entry.sourceItemId))
 
   if (section.type === 'Metal Swatches') {
     const metalItems = metals
-      .filter((entry) => entry.status === 'active')
       .filter((entry) => selectedIds.size === 0 || selectedIds.has(entry.id))
       .sort((left, right) => left.display_order - right.display_order)
       .map((entry) => entry.name)
@@ -319,7 +324,6 @@ export function buildSectionPreviewItems(args: {
 
   if (section.type === 'Stone Shapes') {
     const shapeItems = stoneShapes
-      .filter((entry) => entry.status === 'active')
       .filter((entry) => selectedIds.size === 0 || selectedIds.has(entry.id))
       .sort((left, right) => left.display_order - right.display_order)
       .map((entry) => entry.name)
@@ -332,24 +336,8 @@ export function buildSectionPreviewItems(args: {
     return shapeItems
   }
 
-  if (section.type === 'Ring Sizes') {
-    const sizeItems = ringSizes
-      .filter((entry) => entry.status === 'active')
-      .filter((entry) => selectedIds.size === 0 || selectedIds.has(entry.id))
-      .sort((left, right) => left.display_order - right.display_order)
-      .map((entry) => entry.name)
-
-    if (section.enableCategoryLink && section.linkedCategoryId) {
-      const category = categories.find((entry) => entry.id === section.linkedCategoryId)
-      if (category) sizeItems.push(category.name)
-    }
-
-    return sizeItems
-  }
-
   if (section.type === 'Certificates') {
     const certificateItems = certificates
-      .filter((entry) => !entry.status || entry.status === 'active')
       .filter((entry) => selectedIds.size === 0 || selectedIds.has(entry.id))
       .sort((left, right) => (left.display_order ?? 0) - (right.display_order ?? 0))
       .map((entry) => entry.name)
@@ -362,9 +350,23 @@ export function buildSectionPreviewItems(args: {
     return certificateItems
   }
 
+  if (section.type === 'Styles') {
+    const styleItems = styles
+      .filter((entry) => selectedIds.size === 0 || selectedIds.has(entry.id))
+      .sort((left, right) => left.display_order - right.display_order)
+      .map((entry) => entry.name)
+
+    if (section.enableCategoryLink && section.linkedCategoryId) {
+      const category = categories.find((entry) => entry.id === section.linkedCategoryId)
+      if (category) styleItems.push(category.name)
+    }
+
+    return styleItems
+  }
+
   if (section.type === 'Subcategory Options' && section.sourceSubcategoryId) {
     const optionItems = options
-      .filter((entry) => entry.subcategory_id === section.sourceSubcategoryId && entry.status === 'active')
+      .filter((entry) => entry.subcategory_id === section.sourceSubcategoryId)
       .filter((entry) => selectedIds.size === 0 || selectedIds.has(entry.id))
       .sort((left, right) => left.display_order - right.display_order)
       .map((entry) => entry.name)
@@ -382,7 +384,6 @@ export function buildSectionPreviewItems(args: {
 
 export function getSectionCategoryOptions(subcategories: CatalogSubcategory[]) {
   return subcategories
-    .filter((entry) => entry.status === 'active')
     .sort((left, right) => left.display_order - right.display_order)
     .map((entry) => ({
       id: entry.id,
@@ -398,6 +399,7 @@ export function normalizeNavbarItemForSave(item: NavbarItem): NavbarItem {
     sections: (item.sections ?? []).map((section, index) => ({
       ...section,
       title: section.title.trim(),
+      iconSvgPath: section.iconSvgPath ?? null,
       column: Math.max(1, section.column || 1),
       links:
         section.type === 'Manual Links'
@@ -413,4 +415,37 @@ export function normalizeNavbarItemForSave(item: NavbarItem): NavbarItem {
       id: section.id || `section-${index + 1}`,
     })),
   }
+}
+
+export function syncNavbarItemsWithCatalog(items: NavbarItem[], categories: CatalogCategory[], subcategories: CatalogSubcategory[]): NavbarItem[] {
+  const visibleCategories = categories
+    .filter((category) => category.status === 'active' && category.show_in_nav !== false)
+    .sort((left, right) => left.display_order - right.display_order)
+
+  const itemsByCategoryId = new Map(items.filter((item) => item.linkedCategoryId).map((item) => [item.linkedCategoryId as string, item]))
+  const itemsBySlug = new Map(items.map((item) => [item.slug, item]))
+
+  return visibleCategories.map((category) => {
+    const existingItem = itemsByCategoryId.get(category.id) ?? itemsBySlug.get(category.slug)
+    const fallbackItem = buildFallbackNavbarItems([category], subcategories)[0]
+
+    if (!existingItem) {
+      return fallbackItem
+    }
+
+    return {
+      ...existingItem,
+      label: category.name,
+      slug: category.slug,
+      linkedCategoryId: category.id,
+      type: (category.nav_type === 'direct_link' ? 'direct' : 'mega') as NavbarItemType,
+      url: category.nav_type === 'direct_link' ? category.direct_link_url ?? existingItem.url : undefined,
+      visible: category.status === 'active' && category.show_in_nav !== false ? existingItem.visible : false,
+      sections: category.nav_type === 'mega_menu' ? existingItem.sections ?? fallbackItem.sections : [],
+      featuredImage:
+        category.nav_type === 'mega_menu'
+          ? existingItem.featuredImage ?? fallbackItem.featuredImage
+          : undefined,
+    } satisfies NavbarItem
+  })
 }

@@ -14,7 +14,10 @@ type SearchEntry = {
 const SEARCH_ENTRIES: SearchEntry[] = [
   { title: 'Dashboard', description: 'Overview of store activity and quick actions.', href: '/dashboard', keywords: ['dashboard', 'overview', 'home'] },
   { title: 'Products', description: 'Manage product records, media, and catalog mapping.', href: '/dashboard/products', keywords: ['products', 'product', 'sku', 'catalog'] },
+  { title: 'Collection Products', description: 'Manage collection-only products separately from normal and hip hop products.', href: '/dashboard/collection-products', keywords: ['collection', 'collection products', 'curated', 'enquiry only'] },
   { title: 'Orders', description: 'Review customer orders and update statuses.', href: '/dashboard/orders', keywords: ['orders', 'order', 'shipping', 'status'] },
+  { title: 'Enquiries', description: 'Review bespoke, contact, product, and newsletter leads in one inbox.', href: '/dashboard/enquiries', keywords: ['enquiries', 'inbox', 'leads', 'contact', 'newsletter', 'bespoke'] },
+  { title: 'Notifications', description: 'See pending order alerts and newly submitted forms in one feed.', href: '/dashboard/notifications', keywords: ['notifications', 'alerts', 'pending', 'new orders', 'new submissions'] },
   { title: 'Customers', description: 'Browse customer accounts and activity.', href: '/dashboard/customers', keywords: ['customers', 'customer', 'users', 'accounts'] },
   { title: 'Coupons', description: 'Create and manage discount coupons.', href: '/dashboard/coupons', keywords: ['coupons', 'coupon', 'discount', 'offer'] },
   { title: 'Navbar Builder', description: 'Edit top navigation items and mega menu sections.', href: '/dashboard/navbar-builder', keywords: ['navbar', 'menu', 'navigation', 'mega menu'] },
@@ -24,7 +27,7 @@ const SEARCH_ENTRIES: SearchEntry[] = [
   { title: 'Media Trash', description: 'Review used and unused bucket assets before permanent deletion.', href: '/dashboard/media-trash', keywords: ['media', 'trash', 'storage', 'images', 'bucket'] },
   { title: 'Inventory', description: 'Check stock and inventory levels.', href: '/dashboard/inventory', keywords: ['inventory', 'stock', 'quantity'] },
   { title: 'Bespoke', description: 'Manage bespoke submissions and custom content.', href: '/dashboard/bespoke', keywords: ['bespoke', 'custom', 'submissions'] },
-  { title: 'Hip Hop Products', description: 'Manage the hip hop collection separately.', href: '/dashboard/hiphop-products', keywords: ['hip hop', 'hiphop', 'collection'] },
+  { title: 'Hip Hop Products', description: 'Manage the hip hop collection separately.', href: '/dashboard/hiphop-products', keywords: ['hip hop', 'hiphop', 'chains', 'grillz'] },
   { title: 'Settings', description: 'Admin settings and configuration.', href: '/dashboard/settings', keywords: ['settings', 'config', 'configuration'] },
 ]
 

@@ -57,7 +57,7 @@ function RichTextEditor({ value, onChange }: { value: string; onChange: (value: 
   useEffect(() => {
     if (!editor) return
     const current = editor.getHTML()
-    if (value !== current) editor.commands.setContent(value || '<p></p>', false)
+    if (value !== current) editor.commands.setContent(value || '<p></p>')
   }, [editor, value])
 
   return (

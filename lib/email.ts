@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer'
+import { formatUsd } from '@/lib/money'
 
 type OrderEmailItem = {
   product_name: string
@@ -20,20 +21,18 @@ const emailHost = process.env.EMAIL_HOST
 const emailPort = Number(process.env.EMAIL_PORT || 587)
 const emailUser = process.env.EMAIL_USER
 const emailPass = process.env.EMAIL_PASS
-const emailFrom = process.env.EMAIL_FROM
+const emailFrom = process.env.EMAIL_FROM || process.env.EMAIL_USER
 
-let cachedTransporter: nodemailer.Transporter | null = null
+let cachedTransporter: ReturnType<typeof nodemailer.createTransport> | null = null
 
 function formatMoney(amount: number) {
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    maximumFractionDigits: 0,
-  }).format(Number(amount || 0))
+  return formatUsd(amount)
 }
 
 function getTransporter() {
-  if (!emailHost || !emailUser || !emailPass || !emailFrom) return null
+  if (!emailHost || !emailUser || !emailPass || !emailFrom) {
+    throw new Error('Order status email is not configured. Missing EMAIL_HOST, EMAIL_USER, EMAIL_PASS, or EMAIL_FROM.')
+  }
 
   if (!cachedTransporter) {
     cachedTransporter = nodemailer.createTransport({
@@ -52,7 +51,12 @@ function getTransporter() {
 
 export async function sendOrderStatusUpdateEmail(input: OrderStatusUpdateInput) {
   const transporter = getTransporter()
-  if (!transporter || !emailFrom || !input.customerEmail) return
+  if (!emailFrom) {
+    throw new Error('EMAIL_FROM is not configured for order status emails.')
+  }
+  if (!input.customerEmail) {
+    throw new Error('Customer email is missing for order status update.')
+  }
 
   const customerName = input.customerName || 'Client'
   const statusLabel = input.status.replace(/_/g, ' ')

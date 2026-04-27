@@ -9,7 +9,7 @@ export async function GET(request: Request) {
 
   const { data, error } = await access.adminClient
     .from('site_settings')
-    .select('settings_key, whatsapp_number')
+    .select('*')
     .eq('settings_key', settingsKey)
     .maybeSingle()
 
@@ -21,6 +21,7 @@ export async function GET(request: Request) {
     item: {
       settings_key: settingsKey,
       whatsapp_number: data?.whatsapp_number ?? '',
+      default_gst_slab_id: data?.default_gst_slab_id ?? '',
     },
   })
 }
@@ -37,6 +38,9 @@ export async function POST(request: Request) {
   const payload = {
     settings_key: settingsKey,
     whatsapp_number: typeof body.whatsapp_number === 'string' ? body.whatsapp_number.trim() : '',
+    default_gst_slab_id: typeof body.default_gst_slab_id === 'string' && body.default_gst_slab_id.trim().length > 0
+      ? body.default_gst_slab_id.trim()
+      : null,
   }
 
   const { error } = await access.adminClient

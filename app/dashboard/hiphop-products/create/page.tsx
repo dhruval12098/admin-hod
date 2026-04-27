@@ -4,6 +4,7 @@ export default function CreateHipHopProductPage() {
   return (
     <div className="p-8">
       <ProductForm
+        forcedLane="hiphop"
         forcedTemplate="hiphop"
         forceHipHopCategory
         backHref="/dashboard/hiphop-products"

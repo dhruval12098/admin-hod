@@ -1,6 +1,6 @@
 'use client'
 
-import { Save } from 'lucide-react'
+import { Loader2, Save } from 'lucide-react'
 
 type CmsSaveActionProps = {
   onClick: () => void
@@ -30,7 +30,7 @@ export function CmsSaveAction({
         position === 'inline' ? 'inline-flex' : 'fixed'
       } ${positionClass} ${position === 'inline' ? '' : 'z-40'} flex items-center gap-2 rounded-lg bg-primary px-5 py-3 text-sm font-semibold text-white shadow-lg transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60`}
     >
-      <Save size={16} />
+      {isSaving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
       {isSaving ? 'Saving...' : label}
     </button>
   )

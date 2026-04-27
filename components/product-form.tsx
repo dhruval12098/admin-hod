@@ -19,8 +19,11 @@ import type {
   CatalogGstSlab,
   CatalogMetal,
   CatalogOption,
+  CatalogRingCategory,
+  CatalogRingCategorySize,
+  CatalogStoneShape,
   ProductContentRule,
-  CatalogRingSize,
+  CatalogStyle,
   CatalogSubcategory,
   ProductDetailSection,
   ProductKeyValue,
@@ -32,9 +35,12 @@ type BootstrapPayload = {
   subcategories?: CatalogSubcategory[]
   options?: CatalogOption[]
   metals?: CatalogMetal[]
+  stoneShapes?: CatalogStoneShape[]
   gstSlabs?: CatalogGstSlab[]
-  ringSizes?: CatalogRingSize[]
+  ringCategories?: CatalogRingCategory[]
+  ringCategorySizes?: CatalogRingCategorySize[]
   certificates?: CatalogCertificate[]
+  styles?: CatalogStyle[]
   productContentRules?: ProductContentRule[]
 }
 
@@ -42,6 +48,7 @@ type ProductResponse = {
   item?: {
     name?: string
     sku?: string
+    product_lane?: 'standard' | 'hiphop' | 'collection'
     detail_template?: 'standard' | 'hiphop'
     featured?: boolean
     description?: string | null
@@ -50,9 +57,13 @@ type ProductResponse = {
     discount_price?: number | null
     gst_slab_id?: string | null
     stock_quantity?: number | null
+    allow_checkout?: boolean | null
+    ring_enabled?: boolean | null
+    ring_category_id?: string | null
     main_category_id?: string | null
     subcategory_id?: string | null
     option_id?: string | null
+    style_id?: string | null
     metal_ids?: string[]
     purity_values?: string[]
     certificate_ids?: string[]
@@ -61,6 +72,8 @@ type ProductResponse = {
     fit_label?: string | null
     gemstone_label?: string | null
     gemstone_value?: string | null
+    shapes_enabled?: boolean | null
+    shape_ids?: string[]
     show_purity?: boolean | null
     engraving_enabled?: boolean | null
     engraving_label?: string | null
@@ -68,6 +81,8 @@ type ProductResponse = {
     care_warranty_rule_id?: string | null
     shipping_enabled?: boolean | null
     care_warranty_enabled?: boolean | null
+    shipping_override_enabled?: boolean | null
+    care_warranty_override_enabled?: boolean | null
     shipping_title_override?: string | null
     shipping_body_override?: string | null
     care_warranty_title_override?: string | null
@@ -97,6 +112,188 @@ type ProductResponse = {
   }
 }
 
+function applyBootstrapPayload(
+  payload: BootstrapPayload | null | undefined,
+  setters: {
+    setCategories: Dispatch<SetStateAction<CatalogCategory[]>>
+    setSubcategories: Dispatch<SetStateAction<CatalogSubcategory[]>>
+    setOptions: Dispatch<SetStateAction<CatalogOption[]>>
+    setMetals: Dispatch<SetStateAction<CatalogMetal[]>>
+    setStoneShapes: Dispatch<SetStateAction<CatalogStoneShape[]>>
+    setGstSlabs: Dispatch<SetStateAction<CatalogGstSlab[]>>
+    setRingCategories: Dispatch<SetStateAction<CatalogRingCategory[]>>
+    setRingCategorySizes: Dispatch<SetStateAction<CatalogRingCategorySize[]>>
+    setCertificates: Dispatch<SetStateAction<CatalogCertificate[]>>
+    setStyles: Dispatch<SetStateAction<CatalogStyle[]>>
+    setShippingRules: Dispatch<SetStateAction<ProductContentRule[]>>
+    setCareWarrantyRules: Dispatch<SetStateAction<ProductContentRule[]>>
+  }
+) {
+  if (!payload) return
+
+  setters.setCategories(payload.categories ?? [])
+  setters.setSubcategories(payload.subcategories ?? [])
+  setters.setOptions(payload.options ?? [])
+  setters.setMetals(payload.metals ?? [])
+  setters.setStoneShapes(payload.stoneShapes ?? [])
+  setters.setGstSlabs(payload.gstSlabs ?? [])
+  setters.setRingCategories(payload.ringCategories ?? [])
+  setters.setRingCategorySizes(payload.ringCategorySizes ?? [])
+  setters.setCertificates(payload.certificates ?? [])
+  setters.setStyles(payload.styles ?? [])
+  setters.setShippingRules((payload.productContentRules ?? []).filter((item) => item.kind === 'shipping'))
+  setters.setCareWarrantyRules((payload.productContentRules ?? []).filter((item) => item.kind === 'care_warranty'))
+}
+
+function applyProductPayload(
+  item: ProductResponse['item'] | null | undefined,
+  setters: {
+    setName: Dispatch<SetStateAction<string>>
+    setSku: Dispatch<SetStateAction<string>>
+    setProductLane: Dispatch<SetStateAction<'standard' | 'hiphop' | 'collection'>>
+    setDetailTemplate: Dispatch<SetStateAction<'standard' | 'hiphop'>>
+    setFeatured: Dispatch<SetStateAction<boolean>>
+    setBasePrice: Dispatch<SetStateAction<string>>
+    setDiscountPrice: Dispatch<SetStateAction<string>>
+    setGstSlabId: Dispatch<SetStateAction<string>>
+    setStockQuantity: Dispatch<SetStateAction<string>>
+    setAllowCheckout: Dispatch<SetStateAction<boolean>>
+    setDescription: Dispatch<SetStateAction<string>>
+    setTagLine: Dispatch<SetStateAction<string>>
+    setMainCategoryId: Dispatch<SetStateAction<string>>
+    setSubcategoryId: Dispatch<SetStateAction<string>>
+    setOptionId: Dispatch<SetStateAction<string>>
+    setStyleId: Dispatch<SetStateAction<string>>
+    setSelectedMetalIds: Dispatch<SetStateAction<string[]>>
+    setSelectedPurities: Dispatch<SetStateAction<string[]>>
+    setSelectedCertificateIds: Dispatch<SetStateAction<string[]>>
+    setRingSizesEnabled: Dispatch<SetStateAction<boolean>>
+    setRingCategoryId: Dispatch<SetStateAction<string>>
+    setFitLabel: Dispatch<SetStateAction<string>>
+    setFitOptions: Dispatch<SetStateAction<string[]>>
+    setFitEnabled: Dispatch<SetStateAction<boolean>>
+    setGemstoneLabel: Dispatch<SetStateAction<string>>
+    setGemstoneValues: Dispatch<SetStateAction<string[]>>
+    setShapesEnabled: Dispatch<SetStateAction<boolean>>
+    setSelectedShapeIds: Dispatch<SetStateAction<string[]>>
+    setShowPurity: Dispatch<SetStateAction<boolean>>
+    setEngravingEnabled: Dispatch<SetStateAction<boolean>>
+    setEngravingLabel: Dispatch<SetStateAction<string>>
+    setShippingEnabled: Dispatch<SetStateAction<boolean>>
+    setCareWarrantyEnabled: Dispatch<SetStateAction<boolean>>
+    setShippingOverrideEnabled: Dispatch<SetStateAction<boolean>>
+    setCareWarrantyOverrideEnabled: Dispatch<SetStateAction<boolean>>
+    setShippingRuleId: Dispatch<SetStateAction<string>>
+    setCareWarrantyRuleId: Dispatch<SetStateAction<string>>
+    setShippingTitleOverride: Dispatch<SetStateAction<string>>
+    setShippingBodyOverride: Dispatch<SetStateAction<string>>
+    setCareWarrantyTitleOverride: Dispatch<SetStateAction<string>>
+    setCareWarrantyBodyOverride: Dispatch<SetStateAction<string>>
+    setFeatures: Dispatch<SetStateAction<string[]>>
+    setSpecifications: Dispatch<SetStateAction<ProductKeyValue[]>>
+    setProductDetails: Dispatch<SetStateAction<ProductKeyValue[]>>
+    setDetailSections: Dispatch<SetStateAction<ProductDetailSection[]>>
+    setImagePaths: Dispatch<SetStateAction<(string | null)[]>>
+    setImageSlots: Dispatch<SetStateAction<string[]>>
+    setVideoPath: Dispatch<SetStateAction<string | null>>
+    setVideoFileName: Dispatch<SetStateAction<string>>
+    setShowImageSlots: Dispatch<SetStateAction<boolean[]>>
+    setShowVideo: Dispatch<SetStateAction<boolean>>
+    setCustomOrderEnabled: Dispatch<SetStateAction<boolean>>
+    setReadyToShip: Dispatch<SetStateAction<boolean>>
+    setHiphopBadges: Dispatch<SetStateAction<string[]>>
+    setChainLengthOptions: Dispatch<SetStateAction<string[]>>
+    setHiphopCaratLabel: Dispatch<SetStateAction<string>>
+    setHiphopCaratValues: Dispatch<SetStateAction<string[]>>
+    setGramWeightLabel: Dispatch<SetStateAction<string>>
+    setGramWeightValue: Dispatch<SetStateAction<string>>
+  }
+) {
+  if (!item) return
+
+  setters.setName(item.name ?? '')
+  setters.setSku(item.sku ?? '')
+  setters.setProductLane(item.product_lane ?? 'standard')
+  setters.setDetailTemplate(item.detail_template ?? 'standard')
+  setters.setFeatured(Boolean(item.featured))
+  setters.setBasePrice(item.base_price?.toString() ?? '')
+  setters.setDiscountPrice(item.discount_price?.toString() ?? '')
+  setters.setGstSlabId(item.gst_slab_id ?? '')
+  setters.setStockQuantity(String(item.stock_quantity ?? 0))
+  setters.setAllowCheckout(Boolean(item.allow_checkout))
+  setters.setDescription(item.description ?? '')
+  setters.setTagLine(item.tag_line ?? '')
+  setters.setMainCategoryId(item.main_category_id ?? '')
+  setters.setSubcategoryId(item.subcategory_id ?? '')
+  setters.setOptionId(item.option_id ?? '')
+  setters.setStyleId(item.style_id ?? '')
+  setters.setSelectedMetalIds(item.metal_ids ?? [])
+  setters.setSelectedPurities(item.purity_values ?? [])
+  setters.setSelectedCertificateIds(item.certificate_ids ?? [])
+  setters.setRingSizesEnabled(Boolean(item.ring_enabled))
+  setters.setRingCategoryId(item.ring_category_id ?? '')
+  setters.setFitLabel(item.fit_label ?? 'Fit')
+  setters.setFitOptions(item.fit_options ?? [])
+  setters.setFitEnabled((item.fit_options ?? []).length > 0)
+  setters.setGemstoneLabel(item.gemstone_label ?? '')
+  setters.setGemstoneValues(
+    item.gemstone_value
+      ? item.gemstone_value
+          .split(',')
+          .map((value) => value.trim())
+          .filter(Boolean)
+      : []
+  )
+  setters.setShapesEnabled(Boolean(item.shapes_enabled))
+  setters.setSelectedShapeIds(item.shape_ids ?? [])
+  setters.setShowPurity(item.show_purity ?? true)
+  setters.setEngravingEnabled(Boolean(item.engraving_enabled))
+  setters.setEngravingLabel(item.engraving_label ?? 'Complimentary Engraving')
+  setters.setShippingEnabled(item.shipping_enabled ?? true)
+  setters.setCareWarrantyEnabled(item.care_warranty_enabled ?? true)
+  setters.setShippingOverrideEnabled(Boolean(item.shipping_override_enabled))
+  setters.setCareWarrantyOverrideEnabled(Boolean(item.care_warranty_override_enabled))
+  setters.setShippingRuleId(item.shipping_rule_id ?? '')
+  setters.setCareWarrantyRuleId(item.care_warranty_rule_id ?? '')
+  setters.setShippingTitleOverride(item.shipping_title_override ?? '')
+  setters.setShippingBodyOverride(item.shipping_body_override ?? '')
+  setters.setCareWarrantyTitleOverride(item.care_warranty_title_override ?? '')
+  setters.setCareWarrantyBodyOverride(item.care_warranty_body_override ?? '')
+  setters.setFeatures(item.features ?? [])
+  setters.setSpecifications(item.specifications?.length ? item.specifications : [emptyRow()])
+  setters.setProductDetails(item.product_details?.length ? item.product_details : [emptyRow()])
+  setters.setDetailSections(item.detail_sections?.length ? item.detail_sections : [emptySection()])
+  setters.setImagePaths([
+    item.image_1_path ?? null,
+    item.image_2_path ?? null,
+    item.image_3_path ?? null,
+    item.image_4_path ?? null,
+  ])
+  setters.setImageSlots([
+    item.image_1_path ?? '',
+    item.image_2_path ?? '',
+    item.image_3_path ?? '',
+    item.image_4_path ?? '',
+  ])
+  setters.setVideoPath(item.video_path ?? null)
+  setters.setVideoFileName(item.video_path ?? '')
+  setters.setShowImageSlots([
+    item.show_image_1 ?? true,
+    item.show_image_2 ?? true,
+    item.show_image_3 ?? true,
+    item.show_image_4 ?? true,
+  ])
+  setters.setShowVideo(item.show_video ?? true)
+  setters.setCustomOrderEnabled(Boolean(item.custom_order_enabled))
+  setters.setReadyToShip(Boolean(item.ready_to_ship))
+  setters.setHiphopBadges(item.hiphop_badges ?? [])
+  setters.setChainLengthOptions(item.chain_length_options ?? [])
+  setters.setHiphopCaratLabel(item.hiphop_carat_label ?? 'Diamond Carat')
+  setters.setHiphopCaratValues(item.hiphop_carat_values ?? [])
+  setters.setGramWeightLabel(item.gram_weight_label ?? 'Gram Weight')
+  setters.setGramWeightValue(item.gram_weight_value ?? '')
+}
+
 const emptyRow = (): ProductKeyValue => ({ key: '', value: '' })
 const emptySection = (): ProductDetailSection => ({
   id: `section-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -104,6 +301,17 @@ const emptySection = (): ProductDetailSection => ({
   rows: [emptyRow()],
   visible: true,
 })
+const collectionBucket = process.env.NEXT_PUBLIC_SUPABASE_COLLECTION_BUCKET || 'hod'
+
+type ProductFormStepId = 'basics' | 'attributes' | 'content' | 'details' | 'media'
+
+const PRODUCT_FORM_STEPS: { id: ProductFormStepId; label: string; description: string }[] = [
+  { id: 'basics', label: 'Basics', description: 'Core info, category, pricing, and template setup.' },
+  { id: 'attributes', label: 'Attributes', description: 'Metals, filters, sizing, engraving, and storefront options.' },
+  { id: 'content', label: 'Content', description: 'Description, highlights, and policy content.' },
+  { id: 'details', label: 'Details', description: 'Specifications and detailed content sections.' },
+  { id: 'media', label: 'Media', description: 'Images, video, and final review before save.' },
+]
 
 async function getAccessToken() {
   const { data } = await supabase.auth.getSession()
@@ -136,6 +344,12 @@ function sanitizeSections(sections: ProductDetailSection[]) {
     .filter((section) => section.title && section.rows.length > 0)
 }
 
+function toStoragePreviewUrl(path: string | null | undefined) {
+  if (!path) return ''
+  if (path.startsWith('http://') || path.startsWith('https://')) return path
+  return supabase.storage.from(collectionBucket).getPublicUrl(path).data.publicUrl
+}
+
 function isHipHopCategory(category?: CatalogCategory | null) {
   const source = `${category?.code ?? ''} ${category?.slug ?? ''} ${category?.name ?? ''}`.toLowerCase()
   return source.includes('hip')
@@ -145,6 +359,7 @@ export function ProductForm({
   productId,
   productSlug,
   forcedTemplate,
+  forcedLane,
   forceHipHopCategory = false,
   backHref = '/dashboard/products',
   pageTitle,
@@ -153,6 +368,7 @@ export function ProductForm({
   productId?: number | string
   productSlug?: string
   forcedTemplate?: 'standard' | 'hiphop'
+  forcedLane?: 'standard' | 'hiphop' | 'collection'
   forceHipHopCategory?: boolean
   backHref?: string
   pageTitle?: string
@@ -165,30 +381,37 @@ export function ProductForm({
   const [subcategories, setSubcategories] = useState<CatalogSubcategory[]>([])
   const [options, setOptions] = useState<CatalogOption[]>([])
   const [metals, setMetals] = useState<CatalogMetal[]>([])
+  const [stoneShapes, setStoneShapes] = useState<CatalogStoneShape[]>([])
   const [gstSlabs, setGstSlabs] = useState<CatalogGstSlab[]>([])
-  const [ringSizes, setRingSizes] = useState<CatalogRingSize[]>([])
+  const [ringCategories, setRingCategories] = useState<CatalogRingCategory[]>([])
+  const [ringCategorySizes, setRingCategorySizes] = useState<CatalogRingCategorySize[]>([])
   const [certificates, setCertificates] = useState<CatalogCertificate[]>([])
+  const [styles, setStyles] = useState<CatalogStyle[]>([])
   const [shippingRules, setShippingRules] = useState<ProductContentRule[]>([])
   const [careWarrantyRules, setCareWarrantyRules] = useState<ProductContentRule[]>([])
+  const [activeStep, setActiveStep] = useState<ProductFormStepId>('basics')
   const [name, setName] = useState('')
   const [sku, setSku] = useState('')
+  const [productLane, setProductLane] = useState<'standard' | 'hiphop' | 'collection'>(forcedLane ?? 'standard')
   const [detailTemplate, setDetailTemplate] = useState<'standard' | 'hiphop'>('standard')
   const [featured, setFeatured] = useState(false)
   const [basePrice, setBasePrice] = useState('')
   const [discountPrice, setDiscountPrice] = useState('')
   const [gstSlabId, setGstSlabId] = useState('')
   const [stockQuantity, setStockQuantity] = useState('0')
+  const [allowCheckout, setAllowCheckout] = useState(false)
   const [description, setDescription] = useState('')
   const [tagLine, setTagLine] = useState('')
   const [mainCategoryId, setMainCategoryId] = useState('')
   const [subcategoryId, setSubcategoryId] = useState('')
   const [optionId, setOptionId] = useState('')
+  const [styleId, setStyleId] = useState('')
   const [selectedMetalIds, setSelectedMetalIds] = useState<string[]>([])
   const [selectedPurities, setSelectedPurities] = useState<string[]>([])
   const [purityInput, setPurityInput] = useState('')
   const [selectedCertificateIds, setSelectedCertificateIds] = useState<string[]>([])
-  const [selectedRingSizeIds, setSelectedRingSizeIds] = useState<string[]>([])
   const [ringSizesEnabled, setRingSizesEnabled] = useState(false)
+  const [ringCategoryId, setRingCategoryId] = useState('')
   const [fitLabel, setFitLabel] = useState('Fit')
   const [fitOptions, setFitOptions] = useState<string[]>([])
   const [fitInput, setFitInput] = useState('')
@@ -196,11 +419,15 @@ export function ProductForm({
   const [gemstoneLabel, setGemstoneLabel] = useState('')
   const [gemstoneValues, setGemstoneValues] = useState<string[]>([])
   const [gemstoneValueInput, setGemstoneValueInput] = useState('')
+  const [shapesEnabled, setShapesEnabled] = useState(false)
+  const [selectedShapeIds, setSelectedShapeIds] = useState<string[]>([])
   const [showPurity, setShowPurity] = useState(true)
   const [engravingEnabled, setEngravingEnabled] = useState(false)
   const [engravingLabel, setEngravingLabel] = useState('Complimentary Engraving')
   const [shippingEnabled, setShippingEnabled] = useState(true)
   const [careWarrantyEnabled, setCareWarrantyEnabled] = useState(true)
+  const [shippingOverrideEnabled, setShippingOverrideEnabled] = useState(false)
+  const [careWarrantyOverrideEnabled, setCareWarrantyOverrideEnabled] = useState(false)
   const [shippingRuleId, setShippingRuleId] = useState('')
   const [careWarrantyRuleId, setCareWarrantyRuleId] = useState('')
   const [shippingTitleOverride, setShippingTitleOverride] = useState('')
@@ -230,6 +457,85 @@ export function ProductForm({
   const [gramWeightLabel, setGramWeightLabel] = useState('Gram Weight')
   const [gramWeightValue, setGramWeightValue] = useState('')
 
+  const applyBootstrap = (payload: BootstrapPayload | null | undefined) =>
+    applyBootstrapPayload(payload, {
+      setCategories,
+      setSubcategories,
+      setOptions,
+      setMetals,
+      setStoneShapes,
+      setGstSlabs,
+      setRingCategories,
+      setRingCategorySizes,
+      setCertificates,
+      setStyles,
+      setShippingRules,
+      setCareWarrantyRules,
+    })
+
+  const applyProduct = (item: ProductResponse['item'] | null | undefined) =>
+    applyProductPayload(item, {
+      setName,
+      setSku,
+      setProductLane,
+      setDetailTemplate,
+      setFeatured,
+      setBasePrice,
+      setDiscountPrice,
+      setGstSlabId,
+      setStockQuantity,
+      setAllowCheckout,
+      setDescription,
+      setTagLine,
+      setMainCategoryId,
+      setSubcategoryId,
+      setOptionId,
+      setStyleId,
+      setSelectedMetalIds,
+      setSelectedPurities,
+      setSelectedCertificateIds,
+      setRingSizesEnabled,
+      setRingCategoryId,
+      setFitLabel,
+      setFitOptions,
+      setFitEnabled,
+      setGemstoneLabel,
+      setGemstoneValues,
+      setShapesEnabled,
+      setSelectedShapeIds,
+      setShowPurity,
+      setEngravingEnabled,
+      setEngravingLabel,
+      setShippingEnabled,
+      setCareWarrantyEnabled,
+      setShippingOverrideEnabled,
+      setCareWarrantyOverrideEnabled,
+      setShippingRuleId,
+      setCareWarrantyRuleId,
+      setShippingTitleOverride,
+      setShippingBodyOverride,
+      setCareWarrantyTitleOverride,
+      setCareWarrantyBodyOverride,
+      setFeatures,
+      setSpecifications,
+      setProductDetails,
+      setDetailSections,
+      setImagePaths,
+      setImageSlots,
+      setVideoPath,
+      setVideoFileName,
+      setShowImageSlots,
+      setShowVideo,
+      setCustomOrderEnabled,
+      setReadyToShip,
+      setHiphopBadges,
+      setChainLengthOptions,
+      setHiphopCaratLabel,
+      setHiphopCaratValues,
+      setGramWeightLabel,
+      setGramWeightValue,
+    })
+
   useEffect(() => {
     void loadData()
   }, [productId, productSlug])
@@ -240,15 +546,7 @@ export function ProductForm({
       const bootstrapResponse = await authedFetch('/api/catalog/bootstrap')
       const bootstrapPayload = (await bootstrapResponse.json().catch(() => null)) as BootstrapPayload | null
       if (bootstrapResponse.ok && bootstrapPayload) {
-        setCategories(bootstrapPayload.categories ?? [])
-        setSubcategories(bootstrapPayload.subcategories ?? [])
-        setOptions(bootstrapPayload.options ?? [])
-        setMetals(bootstrapPayload.metals ?? [])
-        setGstSlabs(bootstrapPayload.gstSlabs ?? [])
-        setRingSizes(bootstrapPayload.ringSizes ?? [])
-        setCertificates(bootstrapPayload.certificates ?? [])
-        setShippingRules((bootstrapPayload.productContentRules ?? []).filter((item) => item.kind === 'shipping'))
-        setCareWarrantyRules((bootstrapPayload.productContentRules ?? []).filter((item) => item.kind === 'care_warranty'))
+        applyBootstrap(bootstrapPayload)
       }
 
       const productLookupUrl = productSlug ? `/api/products/by-slug/${productSlug}` : productId ? `/api/products/${productId}` : null
@@ -257,87 +555,7 @@ export function ProductForm({
         const productResponse = await authedFetch(productLookupUrl)
         const productPayload = (await productResponse.json().catch(() => null)) as ProductResponse | null
         if (productResponse.ok && productPayload?.item) {
-          const item = productPayload.item
-          setName(item.name ?? '')
-          setSku(item.sku ?? '')
-          setDetailTemplate(item.detail_template ?? 'standard')
-          setFeatured(Boolean(item.featured))
-          setBasePrice(item.base_price?.toString() ?? '')
-          setDiscountPrice(item.discount_price?.toString() ?? '')
-          setGstSlabId(item.gst_slab_id ?? '')
-          setStockQuantity(String(item.stock_quantity ?? 0))
-          setDescription(item.description ?? '')
-          setTagLine(item.tag_line ?? '')
-          setMainCategoryId(item.main_category_id ?? '')
-          setSubcategoryId(item.subcategory_id ?? '')
-          setOptionId(item.option_id ?? '')
-          setSelectedMetalIds(item.metal_ids ?? [])
-          setSelectedPurities(item.purity_values ?? [])
-          setSelectedCertificateIds(item.certificate_ids ?? [])
-          setSelectedRingSizeIds(item.ring_size_ids ?? [])
-          setRingSizesEnabled((item.ring_size_ids ?? []).length > 0)
-          setFitLabel(item.fit_label ?? 'Fit')
-          setFitOptions(item.fit_options ?? [])
-          setFitEnabled((item.fit_options ?? []).length > 0)
-          setGemstoneLabel(item.gemstone_label ?? '')
-          setGemstoneValues(
-            item.gemstone_value
-              ? item.gemstone_value
-                  .split(',')
-                  .map((value) => value.trim())
-                  .filter(Boolean)
-              : []
-          )
-          setShowPurity(item.show_purity ?? true)
-          setEngravingEnabled(Boolean(item.engraving_enabled))
-          setEngravingLabel(item.engraving_label ?? 'Complimentary Engraving')
-          setShippingEnabled(item.shipping_enabled ?? true)
-          setCareWarrantyEnabled(item.care_warranty_enabled ?? true)
-          setShippingRuleId(item.shipping_rule_id ?? '')
-          setCareWarrantyRuleId(item.care_warranty_rule_id ?? '')
-          setShippingTitleOverride(item.shipping_title_override ?? '')
-          setShippingBodyOverride(item.shipping_body_override ?? '')
-          setCareWarrantyTitleOverride(item.care_warranty_title_override ?? '')
-          setCareWarrantyBodyOverride(item.care_warranty_body_override ?? '')
-          setFeatures(item.features ?? [])
-          setSpecifications(item.specifications?.length ? item.specifications : [emptyRow()])
-          setProductDetails(item.product_details?.length ? item.product_details : [emptyRow()])
-          setDetailSections(item.detail_sections?.length ? item.detail_sections : [emptySection()])
-          setImagePaths([
-            item.image_1_path ?? null,
-            item.image_2_path ?? null,
-            item.image_3_path ?? null,
-            item.image_4_path ?? null,
-          ])
-          setImageSlots([
-            item.image_1_path ?? '',
-            item.image_2_path ?? '',
-            item.image_3_path ?? '',
-            item.image_4_path ?? '',
-          ])
-          setVideoPath(item.video_path ?? null)
-          setVideoFileName(item.video_path ?? '')
-          setShowImageSlots([
-            item.show_image_1 ?? true,
-            item.show_image_2 ?? true,
-            item.show_image_3 ?? true,
-            item.show_image_4 ?? true,
-          ])
-          setShowVideo(item.show_video ?? true)
-          setCustomOrderEnabled(Boolean(item.custom_order_enabled))
-          setReadyToShip(Boolean(item.ready_to_ship))
-          setHiphopBadges(item.hiphop_badges ?? [])
-          setChainLengthOptions(item.chain_length_options ?? [])
-          setHiphopCaratLabel(item.hiphop_carat_label ?? 'Diamond Carat')
-          setHiphopCaratValues(item.hiphop_carat_values ?? [])
-          setGramWeightLabel(item.gram_weight_label ?? 'Gram Weight')
-          setGramWeightValue(item.gram_weight_value ?? '')
-        }
-      } else if (forceHipHopCategory || forcedTemplate === 'hiphop') {
-        const hiphopCategory = (bootstrapPayload?.categories ?? []).find((entry) => isHipHopCategory(entry))
-        if (hiphopCategory) {
-          setMainCategoryId(hiphopCategory.id)
-          setDetailTemplate('hiphop')
+          applyProduct(productPayload.item)
         }
       }
     } finally {
@@ -365,14 +583,21 @@ export function ProductForm({
   }
 
   const mainCategory = categories.find((item) => item.id === mainCategoryId)
+  const effectiveProductLane = forcedLane ?? productLane
+  const isLockedLaneProduct = effectiveProductLane === 'hiphop' || effectiveProductLane === 'collection'
   const isHiphopProduct = detailTemplate === 'hiphop' || isHipHopCategory(mainCategory)
+  const isCollectionProduct = effectiveProductLane === 'collection'
+  const activeStepIndex = PRODUCT_FORM_STEPS.findIndex((step) => step.id === activeStep)
+  const isFirstStep = activeStepIndex <= 0
+  const isLastStep = activeStepIndex === PRODUCT_FORM_STEPS.length - 1
   const categorySubcategories = useMemo(
-    () => subcategories.filter((item) => item.category_id === mainCategoryId && item.status === 'active'),
+    () => subcategories.filter((item) => item.category_id === mainCategoryId),
     [subcategories, mainCategoryId]
   )
+  const selectedStyle = styles.find((item) => item.id === styleId)
   const selectedSubcategory = subcategories.find((item) => item.id === subcategoryId)
   const subcategoryOptions = useMemo(
-    () => options.filter((item) => item.subcategory_id === subcategoryId && item.status === 'active'),
+    () => options.filter((item) => item.subcategory_id === subcategoryId),
     [options, subcategoryId]
   )
 
@@ -392,6 +617,54 @@ export function ProductForm({
       setDetailTemplate(forcedTemplate)
     }
   }, [forcedTemplate])
+
+  useEffect(() => {
+    if (forcedLane) {
+      setProductLane(forcedLane)
+    }
+  }, [forcedLane])
+
+  useEffect(() => {
+    if ((productId || productSlug) || mainCategoryId || !(forceHipHopCategory || forcedTemplate === 'hiphop')) {
+      return
+    }
+
+    const hiphopCategory = categories.find((entry) => isHipHopCategory(entry))
+    if (hiphopCategory) {
+      setMainCategoryId(hiphopCategory.id)
+      setDetailTemplate('hiphop')
+    }
+  }, [categories, forceHipHopCategory, forcedTemplate, mainCategoryId, productId, productSlug])
+
+  useEffect(() => {
+    if ((productId || productSlug) || mainCategoryId || !forcedLane) {
+      return
+    }
+
+    const lockedCategory = categories.find(
+      (entry) => (entry as CatalogCategory & { category_lane?: 'standard' | 'hiphop' | 'collection' | null }).category_lane === forcedLane
+    )
+    if (lockedCategory) {
+      setMainCategoryId(lockedCategory.id)
+      setSubcategoryId('')
+      setOptionId('')
+      if (forcedLane === 'hiphop') {
+        setDetailTemplate('hiphop')
+      }
+    }
+  }, [categories, forcedLane, mainCategoryId, productId, productSlug])
+
+  useEffect(() => {
+    if (isCollectionProduct && allowCheckout) {
+      setAllowCheckout(false)
+    }
+  }, [allowCheckout, isCollectionProduct])
+
+  useEffect(() => {
+    if (isCollectionProduct && detailTemplate !== 'standard') {
+      setDetailTemplate('standard')
+    }
+  }, [detailTemplate, isCollectionProduct])
 
   const addFeature = () => {
     const next = featureInput.trim()
@@ -443,13 +716,12 @@ export function ProductForm({
   }
 
   const applyTestData = () => {
-    const category = categories.find((item) => item.status === 'active')
-    const nextSubcategory = subcategories.find((item) => item.category_id === category?.id && item.status === 'active')
-    const nextOption = options.find((item) => item.subcategory_id === nextSubcategory?.id && item.status === 'active')
+    const category = categories[0]
+    const nextSubcategory = subcategories.find((item) => item.category_id === category?.id)
+    const nextOption = options.find((item) => item.subcategory_id === nextSubcategory?.id)
+    const nextStyle = styles[0]
     const defaultMetals = metals.slice(0, 2).map((item) => item.id)
     const defaultCertificates = certificates.slice(0, 1).map((item) => item.id)
-    const defaultRingSizes = ringSizes.slice(0, 3).map((item) => item.id)
-
     setName(`${category?.name ?? 'Catalog'} Test Product`)
     setSku(`TEST-${Date.now().toString().slice(-6)}`)
     setFeatured(true)
@@ -460,22 +732,27 @@ export function ProductForm({
     setMainCategoryId(category?.id ?? '')
     setSubcategoryId(nextSubcategory?.id ?? '')
     setOptionId(nextOption?.id ?? '')
+    setStyleId(nextStyle?.id ?? '')
     setSelectedMetalIds(defaultMetals)
     setSelectedPurities(['18K', '14K'])
     setSelectedCertificateIds(defaultCertificates)
-    setSelectedRingSizeIds(defaultRingSizes)
-    setRingSizesEnabled(defaultRingSizes.length > 0)
+    setRingSizesEnabled(true)
+    setRingCategoryId(ringCategories[0]?.id ?? '')
     setFitLabel('Fit')
     setFitOptions(['Standard', 'Comfort Fit'])
-    setFitEnabled(true)
-    setGemstoneLabel('Stone Type')
-    setGemstoneValues(['Natural Diamond'])
-    setShowPurity(true)
-    setEngravingEnabled(true)
-    setEngravingLabel('Complimentary Engraving')
-    setShippingEnabled(true)
-    setCareWarrantyEnabled(true)
-    setShippingRuleId(shippingRules[0]?.id ?? '')
+      setFitEnabled(true)
+      setGemstoneLabel('Stone Type')
+      setGemstoneValues(['Natural Diamond'])
+      setShapesEnabled(false)
+      setSelectedShapeIds([])
+      setShowPurity(true)
+      setEngravingEnabled(true)
+      setEngravingLabel('Complimentary Engraving')
+      setShippingEnabled(true)
+      setCareWarrantyEnabled(true)
+      setShippingOverrideEnabled(false)
+      setCareWarrantyOverrideEnabled(false)
+      setShippingRuleId(shippingRules[0]?.id ?? '')
     setCareWarrantyRuleId(careWarrantyRules[0]?.id ?? '')
     setShippingTitleOverride('')
     setShippingBodyOverride('')
@@ -488,7 +765,7 @@ export function ProductForm({
       { key: 'Finish', value: 'High Polish' },
     ])
     setProductDetails([
-      { key: 'Style', value: nextOption?.name ?? 'Signature' },
+      { key: 'Style', value: nextStyle?.name ?? selectedStyle?.name ?? 'Signature' },
       { key: 'Wear', value: 'Everyday luxury' },
     ])
     setDetailSections([
@@ -514,6 +791,7 @@ export function ProductForm({
         body: JSON.stringify({
           name,
           sku,
+          product_lane: effectiveProductLane,
           detail_template: detailTemplate,
           featured,
           description: description || null,
@@ -526,26 +804,33 @@ export function ProductForm({
           main_category_id: mainCategoryId,
           subcategory_id: subcategoryId || null,
           option_id: optionId || null,
+          style_id: styleId || null,
           metal_ids: selectedMetalIds,
           purity_values: selectedPurities,
           certificate_ids: selectedCertificateIds,
-          ring_size_ids: ringSizesEnabled ? selectedRingSizeIds : [],
-          fit_options: fitEnabled ? fitOptions : [],
-          fit_label: fitEnabled ? fitLabel || null : null,
-          gemstone_label: gemstoneLabel || null,
-          gemstone_value: gemstoneValues.join(', ') || null,
-          show_purity: showPurity,
-          engraving_enabled: engravingEnabled,
-          engraving_label: engravingEnabled ? engravingLabel || null : null,
-          shipping_enabled: shippingEnabled,
-          care_warranty_enabled: careWarrantyEnabled,
-          shipping_rule_id: shippingEnabled ? shippingRuleId || null : null,
-          care_warranty_rule_id: careWarrantyEnabled ? careWarrantyRuleId || null : null,
-          shipping_title_override: shippingEnabled ? shippingTitleOverride || null : null,
-          shipping_body_override: shippingEnabled ? shippingBodyOverride || null : null,
-          care_warranty_title_override: careWarrantyEnabled ? careWarrantyTitleOverride || null : null,
-          care_warranty_body_override: careWarrantyEnabled ? careWarrantyBodyOverride || null : null,
-          features,
+            ring_size_ids: [],
+            ring_enabled: ringSizesEnabled,
+            ring_category_id: ringSizesEnabled ? ringCategoryId || null : null,
+            fit_options: fitEnabled ? fitOptions : [],
+            fit_label: fitEnabled ? fitLabel || null : null,
+            gemstone_label: gemstoneLabel || null,
+            gemstone_value: gemstoneValues.join(', ') || null,
+            shapes_enabled: shapesEnabled,
+            shape_ids: shapesEnabled ? selectedShapeIds : [],
+            show_purity: showPurity,
+            engraving_enabled: engravingEnabled,
+            engraving_label: engravingEnabled ? engravingLabel || null : null,
+            shipping_enabled: shippingEnabled,
+            care_warranty_enabled: careWarrantyEnabled,
+            shipping_override_enabled: shippingEnabled ? shippingOverrideEnabled : false,
+            care_warranty_override_enabled: careWarrantyEnabled ? careWarrantyOverrideEnabled : false,
+            shipping_rule_id: shippingEnabled ? shippingRuleId || null : null,
+            care_warranty_rule_id: careWarrantyEnabled ? careWarrantyRuleId || null : null,
+            shipping_title_override: shippingEnabled && shippingOverrideEnabled ? shippingTitleOverride || null : null,
+            shipping_body_override: shippingEnabled && shippingOverrideEnabled ? shippingBodyOverride || null : null,
+            care_warranty_title_override: careWarrantyEnabled && careWarrantyOverrideEnabled ? careWarrantyTitleOverride || null : null,
+            care_warranty_body_override: careWarrantyEnabled && careWarrantyOverrideEnabled ? careWarrantyBodyOverride || null : null,
+            features,
           specifications: sanitizeRows(specifications),
           product_details: sanitizeRows(productDetails),
           detail_sections: sanitizeSections(detailSections),
@@ -561,6 +846,7 @@ export function ProductForm({
           show_video: showVideo,
           custom_order_enabled: customOrderEnabled,
           ready_to_ship: readyToShip,
+          allow_checkout: isCollectionProduct ? false : allowCheckout,
           hiphop_badges: hiphopBadges,
           chain_length_options: chainLengthOptions,
           hiphop_carat_label: hiphopCaratLabel || null,
@@ -575,7 +861,16 @@ export function ProductForm({
         throw new Error(payload?.error ?? 'Unable to save product.')
       }
 
-      window.location.href = '/dashboard/products'
+      toast({
+        title: productId || productSlug ? 'Product updated' : 'Product created',
+        description: productId || productSlug
+          ? 'The product changes were saved successfully.'
+          : 'The new product was created successfully.',
+      })
+
+      window.setTimeout(() => {
+        window.location.href = backHref
+      }, 700)
     } catch (error) {
       toast({
         title: 'Save failed',
@@ -588,11 +883,11 @@ export function ProductForm({
   }
 
   if (loading) {
-    return <div className="rounded-lg border border-border bg-white px-6 py-12 text-sm text-muted-foreground">Loading product flow...</div>
+    return <div className="rounded-lg border border-border bg-white px-8 py-12 text-sm text-muted-foreground shadow-sm">Loading product flow...</div>
   }
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-10">
       <div className="flex items-center gap-3">
         <Link href={backHref} className="rounded p-1.5 hover:bg-secondary transition-colors">
           <ChevronLeft size={20} />
@@ -601,7 +896,7 @@ export function ProductForm({
           <h1 className="text-3xl font-bold text-foreground">
             {pageTitle || (productId || productSlug ? 'Edit Product' : 'Create Product')}
           </h1>
-          <p className="mt-1 text-muted-foreground">
+          <p className="mt-2 text-xs text-muted-foreground">
             {pageDescription || (productId || productSlug ? 'Update the saved product model and storefront details.' : 'Add a new jewelry product to inventory.')}
           </p>
         </div>
@@ -620,236 +915,302 @@ export function ProductForm({
       ) : null}
 
       <form onSubmit={handleSubmit} className="max-w-5xl space-y-8">
-        <section className="rounded-lg border border-border bg-card p-6">
-          <h2 className="mb-6 text-lg font-semibold text-foreground">Basic Information</h2>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <FormField label="Product Name *">
-              <input value={name} onChange={(e) => setName(e.target.value)} className={inputClassName} />
-            </FormField>
-            <FormField label="SKU *">
-              <input value={sku} onChange={(e) => setSku(e.target.value)} className={inputClassName} />
-            </FormField>
-          </div>
-          <div className="mt-4 flex items-center gap-2">
-            <input id="featured" type="checkbox" checked={featured} onChange={(e) => setFeatured(e.target.checked)} className="rounded border-border" />
-            <label htmlFor="featured" className="text-sm font-medium text-foreground">Featured Product</label>
-          </div>
-        </section>
+        <ProductFormStepBar
+          steps={PRODUCT_FORM_STEPS}
+          activeStep={activeStep}
+          onStepChange={setActiveStep}
+        />
 
-        <section className="rounded-lg border border-border bg-card p-6">
-          <h2 className="mb-6 text-lg font-semibold text-foreground">Category and Classification</h2>
-          <div className="space-y-6">
-            <FormField label="Main Category">
-              <Select
-                value={mainCategoryId}
-                onValueChange={(value) => { setMainCategoryId(value); setSubcategoryId(''); setOptionId('') }}
-                disabled={forceHipHopCategory}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select category" />
-                </SelectTrigger>
-                <SelectContent>
-                  {categories.map((category) => (
-                    <SelectItem key={category.id} value={category.id}>{category.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </FormField>
-
-            {categorySubcategories.length > 0 ? (
-              <FormField label="Subcategory">
-                <Select value={subcategoryId} onValueChange={(value) => { setSubcategoryId(value); setOptionId('') }}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select subcategory" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {categorySubcategories.map((item) => (
-                      <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </FormField>
-            ) : null}
-
-            {subcategoryId ? (
-              <FormField label="Option">
-                <Select value={optionId} onValueChange={setOptionId}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select option" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {subcategoryOptions.map((item) => (
-                      <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </FormField>
-            ) : null}
-
-            <div className="rounded-lg border border-border bg-secondary/20 px-4 py-4">
-              <p className="text-sm font-semibold text-foreground">Selected Path</p>
-              <p className="mt-2 text-sm text-muted-foreground">{selectedPath}</p>
-            </div>
-          </div>
-        </section>
-
-        <section className="rounded-lg border border-border bg-card p-6">
-          <h2 className="mb-6 text-lg font-semibold text-foreground">Pricing</h2>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <FormField label="Base Price *">
-              <input type="number" value={basePrice} onChange={(e) => setBasePrice(e.target.value)} className={inputClassName} />
-            </FormField>
-            <FormField label="Discount Price">
-              <input type="number" value={discountPrice} onChange={(e) => setDiscountPrice(e.target.value)} className={inputClassName} />
-            </FormField>
-            <FormField label="GST Slab">
-              <Select value={gstSlabId || '__none__'} onValueChange={(value) => setGstSlabId(value === '__none__' ? '' : value)}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select GST slab" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">No GST slab</SelectItem>
-                  {gstSlabs
-                    .filter((item) => item.status !== 'hidden')
-                    .map((item) => (
-                      <SelectItem key={item.id} value={item.id}>
-                        {item.name} ({item.percentage}%)
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-            </FormField>
-            <FormField label="Stock Quantity">
-              <input type="number" min="0" value={stockQuantity} onChange={(e) => setStockQuantity(e.target.value)} className={inputClassName} />
-            </FormField>
-          </div>
-        </section>
-
-        <section className="rounded-lg border border-border bg-card p-6">
-          <h2 className="mb-6 text-lg font-semibold text-foreground">Product Experience</h2>
-          <div className="space-y-6">
-            <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-border bg-secondary/10 p-4">
-              <div>
-                <p className="text-sm font-semibold text-foreground">Detail Template</p>
-                <p className="mt-1 text-xs text-muted-foreground">Use Hip Hop mode for premium chain, bracelet, pendant, or grillz presentation and media storage.</p>
+        {activeStep === 'basics' ? (
+          <>
+            <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
+              <h2 className="mb-8 text-xl font-bold text-foreground">Basic Information</h2>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <FormField label="Product Name *">
+                  <input value={name} onChange={(e) => setName(e.target.value)} className={inputClassName} />
+                </FormField>
+                <FormField label="SKU *">
+                  <input value={sku} onChange={(e) => setSku(e.target.value)} className={inputClassName} />
+                </FormField>
               </div>
-              {forcedTemplate === 'hiphop' ? (
-                <span className="inline-flex rounded-full bg-foreground px-3 py-1.5 text-xs font-semibold text-white">Hip Hop</span>
-              ) : (
-                <PillToggle
-                  value={detailTemplate === 'hiphop'}
-                  onChange={(next) => setDetailTemplate(next ? 'hiphop' : 'standard')}
-                  onLabel="Hip Hop"
-                  offLabel="Standard"
-                />
-              )}
-            </div>
+              <div className="mt-4 flex items-center gap-2">
+                <input id="featured" type="checkbox" checked={featured} onChange={(e) => setFeatured(e.target.checked)} className="rounded border-border" />
+                <label htmlFor="featured" className="text-sm font-medium text-foreground">Featured Product</label>
+              </div>
+            </section>
+
+            <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
+              <h2 className="mb-8 text-xl font-bold text-foreground">Category and Classification</h2>
+              <div className="space-y-6">
+                <FormField label="Main Category">
+                  <Select
+                    value={mainCategoryId}
+                    onValueChange={(value) => { setMainCategoryId(value); setSubcategoryId(''); setOptionId('') }}
+                    disabled={forceHipHopCategory || isLockedLaneProduct}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {categories.map((category) => (
+                        <SelectItem key={category.id} value={category.id}>{category.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </FormField>
+
+                {isLockedLaneProduct ? (
+                  <p className="text-xs text-muted-foreground">
+                    {isCollectionProduct
+                      ? 'Main category is locked for Collection products.'
+                      : 'Main category is locked for Hip Hop products.'}
+                  </p>
+                ) : null}
+
+                {categorySubcategories.length > 0 ? (
+                  <FormField label="Subcategory">
+                    <Select value={subcategoryId} onValueChange={(value) => { setSubcategoryId(value); setOptionId('') }}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Select subcategory" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {categorySubcategories.map((item) => (
+                          <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </FormField>
+                ) : null}
+
+                {subcategoryId ? (
+                  <FormField label="Option">
+                    <Select value={optionId} onValueChange={setOptionId}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Select option" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {subcategoryOptions.map((item) => (
+                          <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </FormField>
+                ) : null}
+
+                <FormField label="Style">
+                  <Select value={styleId || '__none__'} onValueChange={(value) => setStyleId(value === '__none__' ? '' : value)}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select style" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">No style</SelectItem>
+                      {styles.map((item) => (
+                        <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </FormField>
+
+                <div className="rounded-lg border border-border bg-secondary/20 px-4 py-4">
+                  <p className="text-sm font-semibold text-foreground">Selected Path</p>
+                  <p className="mt-3 text-xs text-muted-foreground">{selectedPath}</p>
+                </div>
+              </div>
+            </section>
+
+            <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
+              <h2 className="mb-8 text-xl font-bold text-foreground">Pricing</h2>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <FormField label="Base Price *">
+                  <input type="number" value={basePrice} onChange={(e) => setBasePrice(e.target.value)} className={inputClassName} />
+                </FormField>
+                <FormField label="Discount Price">
+                  <input type="number" value={discountPrice} onChange={(e) => setDiscountPrice(e.target.value)} className={inputClassName} />
+                </FormField>
+                <FormField label="GST Slab">
+                  <Select value={gstSlabId || '__none__'} onValueChange={(value) => setGstSlabId(value === '__none__' ? '' : value)}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select GST slab" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">No GST slab</SelectItem>
+                      {gstSlabs
+                        .filter((item) => item.status !== 'hidden')
+                        .map((item) => (
+                          <SelectItem key={item.id} value={item.id}>
+                            {item.name} ({item.percentage}%)
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </FormField>
+                <FormField label="Stock Quantity">
+                  <input type="number" min="0" value={stockQuantity} onChange={(e) => setStockQuantity(e.target.value)} className={inputClassName} />
+                </FormField>
+              </div>
+            </section>
 
             {isHiphopProduct ? (
-              <div className="space-y-6">
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <div className="rounded-lg border border-border bg-secondary/10 p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-4">
-                      <div>
-                        <p className="text-sm font-semibold text-foreground">Ready To Ship</p>
-                        <p className="mt-1 text-xs text-muted-foreground">Show the in-stock premium badge on the Hip Hop detail page.</p>
-                      </div>
-                      <PillToggle value={readyToShip} onChange={setReadyToShip} onLabel="Enabled" offLabel="Disabled" />
+              <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
+                <div className="border-l-2 border-foreground/20 pl-4">
+                  <p className="mb-4 text-xs font-semibold uppercase tracking-widest text-muted-foreground">Hip Hop Options</p>
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <h2 className="text-xl font-bold text-foreground">Hip Hop Checkout</h2>
+                      <p className="mt-2 text-xs text-muted-foreground">Allow this Hip Hop product to go directly to checkout from the product page.</p>
                     </div>
-                  </div>
-                  <div className="rounded-lg border border-border bg-secondary/10 p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-4">
-                      <div>
-                        <p className="text-sm font-semibold text-foreground">Custom Order</p>
-                        <p className="mt-1 text-xs text-muted-foreground">Show the bespoke / custom-order CTA emphasis for Hip Hop products.</p>
-                      </div>
-                      <PillToggle value={customOrderEnabled} onChange={setCustomOrderEnabled} onLabel="Enabled" offLabel="Disabled" />
-                    </div>
+                    <PillToggle value={allowCheckout} onChange={setAllowCheckout} onLabel="Checkout Allowed" offLabel="Checkout Disabled" />
                   </div>
                 </div>
-
-                <div>
-                  <label className="mb-3 block text-sm font-semibold text-foreground">Hip Hop Badges</label>
-                  <div className="flex gap-2">
-                    <input
-                      value={hiphopBadgeInput}
-                      onChange={(e) => setHiphopBadgeInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault()
-                          addHiphopBadge()
-                        }
-                      }}
-                      placeholder="Add badge like Bespoke, Ready to Ship, Full Iced..."
-                      className={`${inputClassName} flex-1`}
-                    />
-                    <button type="button" onClick={addHiphopBadge} className={secondaryButtonClassName}>Add</button>
-                  </div>
-                  <TagList items={hiphopBadges} onRemove={(value) => setHiphopBadges((prev) => prev.filter((item) => item !== value))} />
-                </div>
-
-                <div>
-                  <label className="mb-3 block text-sm font-semibold text-foreground">Chain / Length Options</label>
-                  <div className="flex gap-2">
-                    <input
-                      value={chainLengthInput}
-                      onChange={(e) => setChainLengthInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault()
-                          addChainLengthOption()
-                        }
-                      }}
-                      placeholder='Add chain length like 18", 20", 22"...'
-                      className={`${inputClassName} flex-1`}
-                    />
-                    <button type="button" onClick={addChainLengthOption} className={secondaryButtonClassName}>Add</button>
-                  </div>
-                  <TagList items={chainLengthOptions} onRemove={(value) => setChainLengthOptions((prev) => prev.filter((item) => item !== value))} />
-                </div>
-
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <FormField label="Carat Label">
-                    <input value={hiphopCaratLabel} onChange={(e) => setHiphopCaratLabel(e.target.value)} placeholder="Diamond Carat" className={inputClassName} />
-                  </FormField>
-                  <FormField label="Gram Weight Label">
-                    <input value={gramWeightLabel} onChange={(e) => setGramWeightLabel(e.target.value)} placeholder="Gram Weight" className={inputClassName} />
-                  </FormField>
-                </div>
-
-                <div>
-                  <label className="mb-3 block text-sm font-semibold text-foreground">Carat Values</label>
-                  <div className="flex gap-2">
-                    <input
-                      value={hiphopCaratInput}
-                      onChange={(e) => setHiphopCaratInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault()
-                          addHiphopCaratValue()
-                        }
-                      }}
-                      placeholder="Add carat like 0.5 ct, 1.0 ct, 4.0 ct+"
-                      className={`${inputClassName} flex-1`}
-                    />
-                    <button type="button" onClick={addHiphopCaratValue} className={secondaryButtonClassName}>Add</button>
-                  </div>
-                  <TagList items={hiphopCaratValues} onRemove={(value) => setHiphopCaratValues((prev) => prev.filter((item) => item !== value))} />
-                </div>
-
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <FormField label="Gram Weight Value">
-                    <input value={gramWeightValue} onChange={(e) => setGramWeightValue(e.target.value)} placeholder="148 g" className={inputClassName} />
-                  </FormField>
-                </div>
-              </div>
+              </section>
             ) : null}
-          </div>
-        </section>
 
-        <section className="rounded-lg border border-border bg-card p-6">
-          <h2 className="mb-6 text-lg font-semibold text-foreground">Attributes and Filters</h2>
-          <div className="space-y-6">
+            {isCollectionProduct ? (
+              <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
+                <div className="border-l-2 border-foreground/20 pl-4">
+                  <p className="mb-4 text-xs font-semibold uppercase tracking-widest text-muted-foreground">Collection Rules</p>
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <h2 className="text-xl font-bold text-foreground">Checkout</h2>
+                      <p className="mt-2 text-xs text-muted-foreground">Collection products stay enquiry-first and never allow checkout.</p>
+                    </div>
+                    <span className="inline-flex rounded-full bg-secondary px-3 py-1.5 text-xs font-semibold text-foreground">Checkout Disabled</span>
+                  </div>
+                </div>
+              </section>
+            ) : null}
+
+            <section className="rounded-lg border border-border bg-card p-6">
+              <h2 className="mb-6 text-lg font-semibold text-foreground">Product Experience</h2>
+              <div className="space-y-6">
+                <div className="flex flex-wrap items-start justify-between gap-4 rounded-lg border border-border bg-secondary/10 p-4">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Detail Template</p>
+                    <p className="mt-2 text-xs text-muted-foreground">Use Hip Hop mode for premium chain, bracelet, pendant, or grillz presentation and media storage.</p>
+                  </div>
+                  {forcedTemplate === 'hiphop' ? (
+                    <span className="inline-flex rounded-full bg-foreground px-3 py-1.5 text-xs font-semibold text-white">Hip Hop</span>
+                  ) : isCollectionProduct ? (
+                    <span className="inline-flex rounded-full bg-secondary px-3 py-1.5 text-xs font-semibold text-foreground">Standard</span>
+                  ) : (
+                    <PillToggle
+                      value={detailTemplate === 'hiphop'}
+                      onChange={(next) => setDetailTemplate(next ? 'hiphop' : 'standard')}
+                      onLabel="Hip Hop"
+                      offLabel="Standard"
+                    />
+                  )}
+                </div>
+
+                {isHiphopProduct ? (
+                  <div className="space-y-6 border-l-2 border-foreground/20 pl-4">
+                    <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Hip Hop Options</p>
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                      <div className="rounded-lg border border-border bg-secondary/10 p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-4">
+                          <div>
+                            <p className="text-sm font-medium text-foreground">Ready To Ship</p>
+                            <p className="mt-2 text-xs text-muted-foreground">Show the in-stock premium badge on the Hip Hop detail page.</p>
+                          </div>
+                          <PillToggle value={readyToShip} onChange={setReadyToShip} onLabel="Enabled" offLabel="Disabled" />
+                        </div>
+                      </div>
+                      <div className="rounded-lg border border-border bg-secondary/10 p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-4">
+                          <div>
+                            <p className="text-sm font-medium text-foreground">Custom Order</p>
+                            <p className="mt-2 text-xs text-muted-foreground">Show the bespoke / custom-order CTA emphasis for Hip Hop products.</p>
+                          </div>
+                          <PillToggle value={customOrderEnabled} onChange={setCustomOrderEnabled} onLabel="Enabled" offLabel="Disabled" />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="mb-3 block text-sm font-semibold text-foreground">Hip Hop Badges</label>
+                      <div className="flex gap-2">
+                        <input
+                          value={hiphopBadgeInput}
+                          onChange={(e) => setHiphopBadgeInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              addHiphopBadge()
+                            }
+                          }}
+                          placeholder="Add badge like Bespoke, Ready to Ship, Full Iced..."
+                          className={`${inputClassName} flex-1`}
+                        />
+                        <button type="button" onClick={addHiphopBadge} className={secondaryButtonClassName}>Add</button>
+                      </div>
+                      <TagList items={hiphopBadges} onRemove={(value) => setHiphopBadges((prev) => prev.filter((item) => item !== value))} />
+                    </div>
+
+                    <div>
+                      <label className="mb-3 block text-sm font-semibold text-foreground">Chain / Length Options</label>
+                      <div className="flex gap-2">
+                        <input
+                          value={chainLengthInput}
+                          onChange={(e) => setChainLengthInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              addChainLengthOption()
+                            }
+                          }}
+                          placeholder='Add chain length like 18", 20", 22"...'
+                          className={`${inputClassName} flex-1`}
+                        />
+                        <button type="button" onClick={addChainLengthOption} className={secondaryButtonClassName}>Add</button>
+                      </div>
+                      <TagList items={chainLengthOptions} onRemove={(value) => setChainLengthOptions((prev) => prev.filter((item) => item !== value))} />
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                      <FormField label="Carat Label">
+                        <input value={hiphopCaratLabel} onChange={(e) => setHiphopCaratLabel(e.target.value)} placeholder="Diamond Carat" className={inputClassName} />
+                      </FormField>
+                      <FormField label="Gram Weight Label">
+                        <input value={gramWeightLabel} onChange={(e) => setGramWeightLabel(e.target.value)} placeholder="Gram Weight" className={inputClassName} />
+                      </FormField>
+                    </div>
+
+                    <div>
+                      <label className="mb-3 block text-sm font-semibold text-foreground">Carat Values</label>
+                      <div className="flex gap-2">
+                        <input
+                          value={hiphopCaratInput}
+                          onChange={(e) => setHiphopCaratInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              addHiphopCaratValue()
+                            }
+                          }}
+                          placeholder="Add carat like 0.5 ct, 1.0 ct, 4.0 ct+"
+                          className={`${inputClassName} flex-1`}
+                        />
+                        <button type="button" onClick={addHiphopCaratValue} className={secondaryButtonClassName}>Add</button>
+                      </div>
+                      <TagList items={hiphopCaratValues} onRemove={(value) => setHiphopCaratValues((prev) => prev.filter((item) => item !== value))} />
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                      <FormField label="Gram Weight Value">
+                        <input value={gramWeightValue} onChange={(e) => setGramWeightValue(e.target.value)} placeholder="148 g" className={inputClassName} />
+                      </FormField>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </section>
+          </>
+        ) : null}
+
+        {activeStep === 'attributes' ? (
+          <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
+            <h2 className="mb-8 text-xl font-bold text-foreground">Attributes and Filters</h2>
+            <div className="space-y-6">
             <TogglePillGroup
               label="Metals"
               items={metals.map((item) => ({ id: item.id, label: item.name }))}
@@ -889,41 +1250,62 @@ export function ProductForm({
               />
             ) : null}
 
-            {ringSizes.length > 0 ? (
-              <div className="rounded-lg border border-border bg-secondary/10 p-4">
-                <div className="flex flex-wrap items-center justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">Ring Sizes</p>
-                    <p className="mt-1 text-xs text-muted-foreground">Enable this only for products that need ring size selection.</p>
-                  </div>
-                  <PillToggle
-                    value={ringSizesEnabled}
-                    onChange={(next) => {
-                      setRingSizesEnabled(next)
-                      if (!next) setSelectedRingSizeIds([])
-                    }}
-                    onLabel="Enabled"
-                    offLabel="Disabled"
-                  />
-                </div>
-
-                {ringSizesEnabled ? (
-                  <div className="mt-4">
-                    <TogglePillGroup
-                      label="Available Ring Sizes"
-                      items={ringSizes.map((item) => ({ id: item.id, label: item.name }))}
-                      selected={selectedRingSizeIds}
-                      onToggle={(value) => setSelectedRingSizeIds((prev) => toggleInArray(prev, value))}
+            {ringCategories.length > 0 ? (
+                <div className="rounded-lg border border-border bg-secondary/10 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                    <p className="text-sm font-semibold text-foreground">Ring Category</p>
+                  <p className="mt-2 text-xs text-muted-foreground">Enable this only for products that need ring size selection and pick the default ring category.</p>
+                    </div>
+                    <PillToggle
+                     value={ringSizesEnabled}
+                      onChange={(next) => {
+                       setRingSizesEnabled(next)
+                        if (!next) setRingCategoryId('')
+                      }}
+                      onLabel="Enabled"
+                      offLabel="Disabled"
                     />
                   </div>
-                ) : null}
-              </div>
+  
+                 {ringSizesEnabled ? (
+                    <div className="mt-4">
+                      <FormField label="Default Ring Category">
+                        <Select value={ringCategoryId || undefined} onValueChange={setRingCategoryId}>
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Select ring category" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ringCategories.map((item) => (
+                              <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </FormField>
+                      {ringCategoryId ? (
+                        <div className="mt-4">
+                          <label className="mb-3 block text-sm font-semibold text-foreground">Sizes In This Category</label>
+                          <div className="flex flex-wrap gap-2">
+                            {ringCategorySizes
+                              .filter((item) => item.ring_category_id === ringCategoryId && item.status === 'active')
+                              .sort((left, right) => left.display_order - right.display_order)
+                              .map((item) => (
+                                <span key={item.id} className="rounded-full border border-border px-3 py-2 text-sm text-foreground">
+                                  {item.size_label}
+                                </span>
+                              ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
             ) : null}
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <FormField label="Generic Stone / Material Label">
-                <input value={gemstoneLabel} onChange={(e) => setGemstoneLabel(e.target.value)} placeholder="Stone Type, Material, Gemstone..." className={inputClassName} />
-              </FormField>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <FormField label="Generic Stone / Material Label">
+                  <input value={gemstoneLabel} onChange={(e) => setGemstoneLabel(e.target.value)} placeholder="Stone Type, Material, Gemstone..." className={inputClassName} />
+                </FormField>
               <FormField label="Generic Stone / Material Values" className="sm:col-span-2">
                 <div className="flex gap-2">
                   <input
@@ -939,16 +1321,50 @@ export function ProductForm({
                     className={`${inputClassName} flex-1`}
                   />
                   <button type="button" onClick={addGemstoneValue} className={secondaryButtonClassName}>Add</button>
+                  </div>
+                  <TagList items={gemstoneValues} onRemove={(value) => setGemstoneValues((prev) => prev.filter((item) => item !== value))} />
+                </FormField>
+              </div>
+
+              <div className="rounded-lg border border-border bg-secondary/10 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">Stone Shape Selector</p>
+                    <p className="mt-2 text-xs text-muted-foreground">Enable only when this product should expose shape selection and shape-based filtering.</p>
+                  </div>
+                  <PillToggle
+                    value={shapesEnabled}
+                    onChange={(next) => {
+                      setShapesEnabled(next)
+                      if (!next) {
+                        setSelectedShapeIds([])
+                      }
+                    }}
+                    onLabel="Enabled"
+                    offLabel="Disabled"
+                  />
                 </div>
-                <TagList items={gemstoneValues} onRemove={(value) => setGemstoneValues((prev) => prev.filter((item) => item !== value))} />
-              </FormField>
-            </div>
+
+                {shapesEnabled ? (
+                  <div className="mt-4">
+                    <TogglePillGroup
+                      label="Available Shapes"
+                      items={stoneShapes.map((shape) => ({ id: shape.id, label: shape.name }))}
+                      selected={selectedShapeIds}
+                      onToggle={(value) => setSelectedShapeIds((prev) => toggleInArray(prev, value))}
+                    />
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      These selected master shapes will be used for the product page selector, listing filters, and shape-aware navigation.
+                    </p>
+                  </div>
+                ) : null}
+              </div>
 
             <div className="rounded-lg border border-border bg-secondary/10 p-4">
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div>
                   <p className="text-sm font-semibold text-foreground">Fit</p>
-                  <p className="mt-1 text-xs text-muted-foreground">Use this for wear-style options like Comfort Fit, Screw Back, or Chain Length choices.</p>
+                  <p className="mt-2 text-xs text-muted-foreground">Use this for wear-style options like Comfort Fit, Screw Back, or Chain Length choices.</p>
                 </div>
                 <PillToggle
                   value={fitEnabled}
@@ -991,12 +1407,11 @@ export function ProductForm({
                 </div>
               ) : null}
             </div>
-
             <div className="rounded-lg border border-border bg-secondary/10 p-4">
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div>
                   <p className="text-sm font-semibold text-foreground">Engraving</p>
-                  <p className="mt-1 text-xs text-muted-foreground">Control whether this product offers engraving on the storefront.</p>
+                  <p className="mt-2 text-xs text-muted-foreground">Control whether this product offers engraving on the storefront.</p>
                 </div>
                 <PillToggle value={engravingEnabled} onChange={setEngravingEnabled} onLabel="Enabled" offLabel="Disabled" />
               </div>
@@ -1008,325 +1423,380 @@ export function ProductForm({
               ) : null}
             </div>
           </div>
-        </section>
+          </section>
+        ) : null}
 
-        <section className="rounded-lg border border-border bg-card p-6">
-          <h2 className="mb-6 text-lg font-semibold text-foreground">Content</h2>
-          <div className="space-y-4">
-            <FormField label="Description">
-              <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4} className={inputClassName} />
-            </FormField>
-            <FormField label="Tag Line">
-              <input value={tagLine} onChange={(e) => setTagLine(e.target.value)} className={inputClassName} />
-            </FormField>
-            <div>
-              <label className="mb-2 block text-sm font-medium text-foreground">Highlights</label>
-              <div className="flex gap-2">
-                <input
-                  value={featureInput}
-                  onChange={(e) => setFeatureInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault()
-                      addFeature()
+        {activeStep === 'content' ? (
+          <>
+            <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
+              <h2 className="mb-8 text-xl font-bold text-foreground">Content</h2>
+              <div className="space-y-4">
+                <FormField label="Description">
+                  <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4} className={inputClassName} />
+                </FormField>
+                <FormField label="Tag Line">
+                  <input value={tagLine} onChange={(e) => setTagLine(e.target.value)} className={inputClassName} />
+                </FormField>
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-foreground">Highlights</label>
+                  <div className="flex gap-2">
+                    <input
+                      value={featureInput}
+                      onChange={(e) => setFeatureInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          addFeature()
+                        }
+                      }}
+                      className={`${inputClassName} flex-1`}
+                    />
+                    <button type="button" onClick={addFeature} className={secondaryButtonClassName}>Add</button>
+                  </div>
+                  <TagList items={features} onRemove={(value) => setFeatures((prev) => prev.filter((item) => item !== value))} />
+                </div>
+              </div>
+            </section>
+
+            <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
+              <h2 className="mb-8 text-xl font-bold text-foreground">Store Policies</h2>
+              <div className="space-y-6">
+                  <PolicyEditor
+                    title="Shipping"
+                    description="Select a reusable shipping rule and optionally override it for this product."
+                    enabled={shippingEnabled}
+                    onEnabledChange={(next) => {
+                      setShippingEnabled(next)
+                      if (!next) {
+                        setShippingOverrideEnabled(false)
+                        setShippingRuleId('')
+                        setShippingTitleOverride('')
+                        setShippingBodyOverride('')
                     }
                   }}
-                  className={`${inputClassName} flex-1`}
+                    rules={shippingRules}
+                    selectedRuleId={shippingRuleId}
+                    onRuleChange={setShippingRuleId}
+                    overrideEnabled={shippingOverrideEnabled}
+                    onOverrideEnabledChange={(next) => {
+                      setShippingOverrideEnabled(next)
+                      if (!next) {
+                        setShippingTitleOverride('')
+                        setShippingBodyOverride('')
+                      }
+                    }}
+                    titleOverride={shippingTitleOverride}
+                    onTitleOverrideChange={setShippingTitleOverride}
+                    bodyOverride={shippingBodyOverride}
+                  onBodyOverrideChange={setShippingBodyOverride}
                 />
-                <button type="button" onClick={addFeature} className={secondaryButtonClassName}>Add</button>
+
+                  <PolicyEditor
+                    title="Care & Warranty"
+                    description="Select a reusable care rule and optionally override it for this product."
+                    enabled={careWarrantyEnabled}
+                    onEnabledChange={(next) => {
+                      setCareWarrantyEnabled(next)
+                      if (!next) {
+                        setCareWarrantyOverrideEnabled(false)
+                        setCareWarrantyRuleId('')
+                        setCareWarrantyTitleOverride('')
+                        setCareWarrantyBodyOverride('')
+                    }
+                  }}
+                    rules={careWarrantyRules}
+                    selectedRuleId={careWarrantyRuleId}
+                    onRuleChange={setCareWarrantyRuleId}
+                    overrideEnabled={careWarrantyOverrideEnabled}
+                    onOverrideEnabledChange={(next) => {
+                      setCareWarrantyOverrideEnabled(next)
+                      if (!next) {
+                        setCareWarrantyTitleOverride('')
+                        setCareWarrantyBodyOverride('')
+                      }
+                    }}
+                    titleOverride={careWarrantyTitleOverride}
+                    onTitleOverrideChange={setCareWarrantyTitleOverride}
+                    bodyOverride={careWarrantyBodyOverride}
+                  onBodyOverrideChange={setCareWarrantyBodyOverride}
+                />
               </div>
-              <TagList items={features} onRemove={(value) => setFeatures((prev) => prev.filter((item) => item !== value))} />
-            </div>
-          </div>
-        </section>
+            </section>
+          </>
+        ) : null}
 
-        <section className="rounded-lg border border-border bg-card p-6">
-          <h2 className="mb-6 text-lg font-semibold text-foreground">Store Policies</h2>
-          <div className="space-y-6">
-            <PolicyEditor
-              title="Shipping"
-              description="Select a reusable shipping rule and optionally override it for this product."
-              enabled={shippingEnabled}
-              onEnabledChange={(next) => {
-                setShippingEnabled(next)
-                if (!next) {
-                  setShippingRuleId('')
-                  setShippingTitleOverride('')
-                  setShippingBodyOverride('')
-                }
-              }}
-              rules={shippingRules}
-              selectedRuleId={shippingRuleId}
-              onRuleChange={setShippingRuleId}
-              titleOverride={shippingTitleOverride}
-              onTitleOverrideChange={setShippingTitleOverride}
-              bodyOverride={shippingBodyOverride}
-              onBodyOverrideChange={setShippingBodyOverride}
+        {activeStep === 'details' ? (
+          <>
+            <KeyValueSection
+              title="Specifications"
+              description="Add structured key-value rows for the product detail specifications tab."
+              rows={specifications}
+              onChange={setSpecifications}
             />
 
-            <PolicyEditor
-              title="Care & Warranty"
-              description="Select a reusable care rule and optionally override it for this product."
-              enabled={careWarrantyEnabled}
-              onEnabledChange={(next) => {
-                setCareWarrantyEnabled(next)
-                if (!next) {
-                  setCareWarrantyRuleId('')
-                  setCareWarrantyTitleOverride('')
-                  setCareWarrantyBodyOverride('')
-                }
-              }}
-              rules={careWarrantyRules}
-              selectedRuleId={careWarrantyRuleId}
-              onRuleChange={setCareWarrantyRuleId}
-              titleOverride={careWarrantyTitleOverride}
-              onTitleOverrideChange={setCareWarrantyTitleOverride}
-              bodyOverride={careWarrantyBodyOverride}
-              onBodyOverrideChange={setCareWarrantyBodyOverride}
+            <KeyValueSection
+              title="Product Details"
+              description="Use this for general product facts that should render separately from specifications."
+              rows={productDetails}
+              onChange={setProductDetails}
             />
-          </div>
-        </section>
 
-        <KeyValueSection
-          title="Specifications"
-          description="Add structured key-value rows for the product detail specifications tab."
-          rows={specifications}
-          onChange={setSpecifications}
-        />
-
-        <KeyValueSection
-          title="Product Details"
-          description="Use this for general product facts that should render separately from specifications."
-          rows={productDetails}
-          onChange={setProductDetails}
-        />
-
-        <section className="rounded-lg border border-border bg-card p-6">
-          <div className="mb-6 flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-lg font-semibold text-foreground">Additional Detail Sections</h2>
-              <p className="mt-1 text-sm text-muted-foreground">Create dynamic sections like Diamond Details, Gemstone Details, or Material Details.</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setDetailSections((prev) => [...prev, emptySection()])}
-              className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary"
-            >
-              <Plus size={14} />
-              Add Section
-            </button>
-          </div>
-
-          <div className="space-y-4">
-            {detailSections.map((section, sectionIndex) => (
-              <div key={section.id} className="rounded-lg border border-border bg-secondary/10 p-4">
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
-                  <FormField label="Section Title">
-                    <input
-                      value={section.title}
-                      onChange={(e) =>
-                        setDetailSections((prev) =>
-                          prev.map((entry, index) => (index === sectionIndex ? { ...entry, title: e.target.value } : entry))
-                        )
-                      }
-                      className={inputClassName}
-                    />
-                  </FormField>
-                  <label className="flex items-center gap-2 text-sm font-medium text-foreground">
-                    <input
-                      type="checkbox"
-                      checked={section.visible}
-                      onChange={(e) =>
-                        setDetailSections((prev) =>
-                          prev.map((entry, index) => (index === sectionIndex ? { ...entry, visible: e.target.checked } : entry))
-                        )
-                      }
-                      className="rounded border-border"
-                    />
-                    Visible
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => setDetailSections((prev) => prev.filter((_, index) => index !== sectionIndex))}
-                    className="inline-flex items-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
-                  >
-                    <Trash2 size={14} />
-                    Remove
-                  </button>
+            <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
+              <div className="mb-6 flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-bold text-foreground">Additional Detail Sections</h2>
+                  <p className="mt-2 text-xs text-muted-foreground">Create dynamic sections like Diamond Details, Gemstone Details, or Material Details.</p>
                 </div>
-
-                <div className="mt-4 space-y-3">
-                  {section.rows.map((row, rowIndex) => (
-                    <div key={`${section.id}-${rowIndex}`} className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
-                      <input
-                        value={row.key}
-                        onChange={(e) =>
-                          setDetailSections((prev) =>
-                            prev.map((entry, index) =>
-                              index === sectionIndex
-                                ? {
-                                    ...entry,
-                                    rows: entry.rows.map((sectionRow, sectionRowIndex) =>
-                                      sectionRowIndex === rowIndex ? { ...sectionRow, key: e.target.value } : sectionRow
-                                    ),
-                                  }
-                                : entry
-                            )
-                          )
-                        }
-                        placeholder="Label"
-                        className={inputClassName}
-                      />
-                      <input
-                        value={row.value}
-                        onChange={(e) =>
-                          setDetailSections((prev) =>
-                            prev.map((entry, index) =>
-                              index === sectionIndex
-                                ? {
-                                    ...entry,
-                                    rows: entry.rows.map((sectionRow, sectionRowIndex) =>
-                                      sectionRowIndex === rowIndex ? { ...sectionRow, value: e.target.value } : sectionRow
-                                    ),
-                                  }
-                                : entry
-                            )
-                          )
-                        }
-                        placeholder="Value"
-                        className={inputClassName}
-                      />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setDetailSections((prev) =>
-                            prev.map((entry, index) =>
-                              index === sectionIndex
-                                ? {
-                                    ...entry,
-                                    rows: entry.rows.length > 1 ? entry.rows.filter((_, sectionRowIndex) => sectionRowIndex !== rowIndex) : entry.rows,
-                                  }
-                                : entry
-                            )
-                          )
-                        }
-                        className="inline-flex items-center justify-center rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground hover:bg-secondary"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-
                 <button
                   type="button"
-                  onClick={() =>
-                    setDetailSections((prev) =>
-                      prev.map((entry, index) => (index === sectionIndex ? { ...entry, rows: [...entry.rows, emptyRow()] } : entry))
-                    )
-                  }
-                  className="mt-4 inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary"
+                  onClick={() => setDetailSections((prev) => [...prev, emptySection()])}
+                  className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary"
                 >
                   <Plus size={14} />
-                  Add Row
+                  Add Section
                 </button>
               </div>
-            ))}
-          </div>
-        </section>
 
-        <section className="rounded-lg border border-border bg-card p-6">
-          <h2 className="mb-6 text-lg font-semibold text-foreground">Media</h2>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            {['Image 1', 'Image 2', 'Image 3', 'Image 4'].map((label, index) => (
-              <div key={label} className="rounded-lg border border-border bg-secondary/10 p-4">
+              <div className="space-y-4">
+                {detailSections.map((section, sectionIndex) => (
+                  <div key={section.id} className="rounded-lg border border-border bg-secondary/10 p-4">
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
+                      <FormField label="Section Title">
+                        <input
+                          value={section.title}
+                          onChange={(e) =>
+                            setDetailSections((prev) =>
+                              prev.map((entry, index) => (index === sectionIndex ? { ...entry, title: e.target.value } : entry))
+                            )
+                          }
+                          className={inputClassName}
+                        />
+                      </FormField>
+                      <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+                        <input
+                          type="checkbox"
+                          checked={section.visible}
+                          onChange={(e) =>
+                            setDetailSections((prev) =>
+                              prev.map((entry, index) => (index === sectionIndex ? { ...entry, visible: e.target.checked } : entry))
+                            )
+                          }
+                          className="rounded border-border"
+                        />
+                        Visible
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setDetailSections((prev) => prev.filter((_, index) => index !== sectionIndex))}
+                        className="inline-flex items-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
+                      >
+                        <Trash2 size={14} />
+                        Remove
+                      </button>
+                    </div>
+
+                    <div className="mt-4 space-y-3">
+                      {section.rows.map((row, rowIndex) => (
+                        <div key={`${section.id}-${rowIndex}`} className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                          <input
+                            value={row.key}
+                            onChange={(e) =>
+                              setDetailSections((prev) =>
+                                prev.map((entry, index) =>
+                                  index === sectionIndex
+                                    ? {
+                                        ...entry,
+                                        rows: entry.rows.map((sectionRow, sectionRowIndex) =>
+                                          sectionRowIndex === rowIndex ? { ...sectionRow, key: e.target.value } : sectionRow
+                                        ),
+                                      }
+                                    : entry
+                                )
+                              )
+                            }
+                            placeholder="Label"
+                            className={inputClassName}
+                          />
+                          <input
+                            value={row.value}
+                            onChange={(e) =>
+                              setDetailSections((prev) =>
+                                prev.map((entry, index) =>
+                                  index === sectionIndex
+                                    ? {
+                                        ...entry,
+                                        rows: entry.rows.map((sectionRow, sectionRowIndex) =>
+                                          sectionRowIndex === rowIndex ? { ...sectionRow, value: e.target.value } : sectionRow
+                                        ),
+                                      }
+                                    : entry
+                                )
+                              )
+                            }
+                            placeholder="Value"
+                            className={inputClassName}
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDetailSections((prev) =>
+                                prev.map((entry, index) =>
+                                  index === sectionIndex
+                                    ? {
+                                        ...entry,
+                                        rows: entry.rows.length > 1 ? entry.rows.filter((_, sectionRowIndex) => sectionRowIndex !== rowIndex) : entry.rows,
+                                      }
+                                    : entry
+                                )
+                              )
+                            }
+                            className="inline-flex items-center justify-center rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground hover:bg-secondary"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDetailSections((prev) =>
+                          prev.map((entry, index) => (index === sectionIndex ? { ...entry, rows: [...entry.rows, emptyRow()] } : entry))
+                        )
+                      }
+                      className="mt-4 inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary"
+                    >
+                      <Plus size={14} />
+                      Add Row
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </>
+        ) : null}
+
+        {activeStep === 'media' ? (
+          <>
+            <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-bold text-foreground">Media</h2>
+                  <p className="mt-2 text-xs text-muted-foreground">Upload storefront media and do a final review before saving.</p>
+                </div>
+                <div className="rounded-lg border border-border bg-secondary/10 px-4 py-3 text-sm text-muted-foreground">
+                  <p className="font-semibold text-foreground">{selectedPath}</p>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {isHiphopProduct ? 'Hip Hop presentation is active for this product.' : 'Standard product presentation is active.'}
+                  </p>
+                </div>
+              </div>
+
+                <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+                  {['Image 1', 'Image 2', 'Image 3', 'Image 4'].map((label, index) => (
+                  <div key={label} className="rounded-lg border border-border bg-secondary/10 p-4">
+                    {imagePaths[index] ? (
+                      <div className="mb-4 overflow-hidden rounded-lg border border-border bg-white">
+                        <img
+                          src={toStoragePreviewUrl(imagePaths[index])}
+                          alt={`${label} preview`}
+                          className="h-24 w-full object-cover"
+                        />
+                      </div>
+                    ) : null}
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                      <label className="text-sm font-medium text-foreground">{label}</label>
+                      <PillToggle
+                        value={showImageSlots[index]}
+                        onChange={(next) => setShowImageSlots((prev) => prev.map((entry, slotIndex) => (slotIndex === index ? next : entry)))}
+                        onLabel="Show"
+                        offLabel="Hide"
+                      />
+                    </div>
+                    <label className="block cursor-pointer rounded-lg border border-border bg-white p-4 transition-colors hover:border-primary hover:bg-secondary/10">
+                      <div className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white">
+                        <Upload size={16} />
+                        {imagePaths[index] ? `Replace ${label}` : `Upload ${label}`}
+                      </div>
+                      <p className="mt-3 text-xs text-muted-foreground">
+                        {isHiphopProduct ? 'Saved into hiphop media folder as optimized WEBP/SVG' : 'Saved into products media folder as optimized WEBP/SVG'}
+                      </p>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0]
+                          if (!file) return
+                          try {
+                            const path = await uploadMedia(file, 'image', isHiphopProduct ? 'hiphop' : 'products')
+                            setImageSlots((prev) => prev.map((entry, slotIndex) => (slotIndex === index ? path : entry)))
+                            setImagePaths((prev) => prev.map((entry, slotIndex) => (slotIndex === index ? path : entry)))
+                            toast({ title: 'Uploaded', description: `${label} uploaded successfully.` })
+                          } catch (error) {
+                            toast({
+                              title: 'Upload failed',
+                              description: error instanceof Error ? error.message : `Unable to upload ${label.toLowerCase()}.`,
+                              variant: 'destructive',
+                            })
+                          }
+                        }}
+                      />
+                      <span className="mt-3 block break-all text-xs text-muted-foreground">{imageSlots[index] || 'No file selected'}</span>
+                    </label>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-4 rounded-lg border border-border bg-secondary/10 p-4">
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                  <label className="text-sm font-medium text-foreground">{label}</label>
-                  <PillToggle
-                    value={showImageSlots[index]}
-                    onChange={(next) => setShowImageSlots((prev) => prev.map((entry, slotIndex) => (slotIndex === index ? next : entry)))}
-                    onLabel="Show"
-                    offLabel="Hide"
-                  />
+                  <label className="text-sm font-medium text-foreground">Video Upload</label>
+                  <PillToggle value={showVideo} onChange={setShowVideo} onLabel="Show" offLabel="Hide" />
                 </div>
                 <label className="flex cursor-pointer flex-col items-center justify-center rounded border-2 border-dashed border-border p-6 text-center hover:border-primary transition-colors">
-                  <Upload size={20} className="text-muted-foreground" />
-                  <p className="mt-3 text-sm text-muted-foreground">Upload {label.toLowerCase()}</p>
+                  <Video size={20} className="text-muted-foreground" />
+                  <p className="mt-3 text-sm text-muted-foreground">Upload product video</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {isHiphopProduct ? 'Saved into hiphop media folder as optimized WEBP/SVG' : 'Saved into products media folder as optimized WEBP/SVG'}
+                    {isHiphopProduct ? 'Saved into hiphop video folder' : 'Saved into products video folder'}
                   </p>
                   <input
                     type="file"
-                    accept="image/*"
+                    accept="video/*"
                     className="hidden"
                     onChange={async (e) => {
                       const file = e.target.files?.[0]
                       if (!file) return
                       try {
-                        const path = await uploadMedia(file, 'image', isHiphopProduct ? 'hiphop' : 'products')
-                        setImageSlots((prev) => prev.map((entry, slotIndex) => (slotIndex === index ? path : entry)))
-                        setImagePaths((prev) => prev.map((entry, slotIndex) => (slotIndex === index ? path : entry)))
-                        toast({ title: 'Uploaded', description: `${label} uploaded successfully.` })
+                        const path = await uploadMedia(file, 'video', isHiphopProduct ? 'hiphop' : 'products')
+                        setVideoFileName(path)
+                        setVideoPath(path)
+                        toast({ title: 'Uploaded', description: 'Product video uploaded successfully.' })
                       } catch (error) {
                         toast({
                           title: 'Upload failed',
-                          description: error instanceof Error ? error.message : `Unable to upload ${label.toLowerCase()}.`,
+                          description: error instanceof Error ? error.message : 'Unable to upload video.',
                           variant: 'destructive',
                         })
                       }
                     }}
                   />
-                  <span className="mt-3 text-xs text-muted-foreground">{imageSlots[index] || 'No file selected'}</span>
+                  <span className="mt-3 text-xs text-muted-foreground">{videoFileName || 'No video selected'}</span>
                 </label>
               </div>
-            ))}
-          </div>
+            </section>
+          </>
+        ) : null}
 
-          <div className="mt-4 rounded-lg border border-border bg-secondary/10 p-4">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-              <label className="text-sm font-medium text-foreground">Video Upload</label>
-              <PillToggle value={showVideo} onChange={setShowVideo} onLabel="Show" offLabel="Hide" />
-            </div>
-            <label className="flex cursor-pointer flex-col items-center justify-center rounded border-2 border-dashed border-border p-6 text-center hover:border-primary transition-colors">
-              <Video size={20} className="text-muted-foreground" />
-              <p className="mt-3 text-sm text-muted-foreground">Upload product video</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {isHiphopProduct ? 'Saved into hiphop video folder' : 'Saved into products video folder'}
-              </p>
-              <input
-                type="file"
-                accept="video/*"
-                className="hidden"
-                onChange={async (e) => {
-                  const file = e.target.files?.[0]
-                  if (!file) return
-                  try {
-                    const path = await uploadMedia(file, 'video', isHiphopProduct ? 'hiphop' : 'products')
-                    setVideoFileName(path)
-                    setVideoPath(path)
-                    toast({ title: 'Uploaded', description: 'Product video uploaded successfully.' })
-                  } catch (error) {
-                    toast({
-                      title: 'Upload failed',
-                      description: error instanceof Error ? error.message : 'Unable to upload video.',
-                      variant: 'destructive',
-                    })
-                  }
-                }}
-              />
-              <span className="mt-3 text-xs text-muted-foreground">{videoFileName || 'No video selected'}</span>
-            </label>
-          </div>
-        </section>
-
-        <div className="flex items-center gap-4">
-          <button type="submit" disabled={saving} className="rounded bg-primary px-6 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors disabled:opacity-60">
-            {saving ? 'Saving...' : productId || productSlug ? 'Update Product' : 'Create Product'}
-          </button>
-          <Link href={backHref} className="rounded border border-border px-6 py-2 text-sm font-medium text-foreground hover:bg-secondary transition-colors">
-            Cancel
-          </Link>
-        </div>
+        <ProductFormStepActions
+          isFirstStep={isFirstStep}
+          isLastStep={isLastStep}
+          saving={saving}
+          backHref={backHref}
+          submitLabel={productId || productSlug ? 'Update Product' : 'Create Product'}
+          onPrevious={() => setActiveStep(PRODUCT_FORM_STEPS[Math.max(0, activeStepIndex - 1)].id)}
+          onNext={() => setActiveStep(PRODUCT_FORM_STEPS[Math.min(PRODUCT_FORM_STEPS.length - 1, activeStepIndex + 1)].id)}
+        />
       </form>
     </div>
   )
@@ -1374,14 +1844,14 @@ function PillToggle({
       <button
         type="button"
         onClick={() => onChange(true)}
-        className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${value ? 'bg-foreground text-white' : 'text-muted-foreground hover:bg-secondary'}`}
+        className={`rounded-full px-4 py-2 text-xs font-semibold transition-colors ${value ? 'bg-foreground text-white' : 'text-muted-foreground hover:bg-secondary'}`}
       >
         {onLabel}
       </button>
       <button
         type="button"
         onClick={() => onChange(false)}
-        className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${!value ? 'bg-foreground text-white' : 'text-muted-foreground hover:bg-secondary'}`}
+        className={`rounded-full px-4 py-2 text-xs font-semibold transition-colors ${!value ? 'bg-foreground text-white' : 'text-muted-foreground hover:bg-secondary'}`}
       >
         {offLabel}
       </button>
@@ -1419,6 +1889,125 @@ function TogglePillGroup({
   )
 }
 
+function ProductFormStepBar({
+  steps,
+  activeStep,
+  onStepChange,
+}: {
+  steps: { id: ProductFormStepId; label: string; description: string }[]
+  activeStep: ProductFormStepId
+  onStepChange: (step: ProductFormStepId) => void
+}) {
+  return (
+    <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-bold text-foreground">Product Setup Flow</h2>
+          <p className="mt-2 text-xs text-muted-foreground">Move step by step so the form loads lighter and each edit stays easier to manage.</p>
+        </div>
+        <span className="rounded-full border border-border bg-secondary/20 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+          {steps.findIndex((step) => step.id === activeStep) + 1} / {steps.length}
+        </span>
+      </div>
+
+      <div className="mt-6 grid grid-cols-1 gap-3 md:grid-cols-5">
+        {steps.map((step, index) => {
+          const isActive = step.id === activeStep
+          const isCompleted = steps.findIndex((entry) => entry.id === activeStep) > index
+
+          return (
+            <button
+              key={step.id}
+              type="button"
+              onClick={() => onStepChange(step.id)}
+              className={`rounded-2xl border px-4 py-4 text-left transition-colors ${
+                isActive
+                  ? 'border-foreground bg-foreground text-white shadow-md'
+                  : isCompleted
+                    ? 'border-border bg-secondary/20 text-foreground hover:bg-secondary/40'
+                    : 'border-border bg-white text-foreground hover:bg-secondary/10'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <span
+                  className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold ${
+                    isActive ? 'bg-white/15 text-white' : 'bg-secondary text-foreground'
+                  }`}
+                >
+                  {index + 1}
+                </span>
+                <p className="text-sm font-semibold">{step.label}</p>
+              </div>
+            </button>
+          )
+        })}
+      </div>
+      <p className="mt-4 text-xs text-muted-foreground">{steps.find((step) => step.id === activeStep)?.description}</p>
+    </section>
+  )
+}
+
+function ProductFormStepActions({
+  isFirstStep,
+  isLastStep,
+  saving,
+  backHref,
+  submitLabel,
+  onPrevious,
+  onNext,
+}: {
+  isFirstStep: boolean
+  isLastStep: boolean
+  saving: boolean
+  backHref: string
+  submitLabel: string
+  onPrevious: () => void
+  onNext: () => void
+}) {
+  return (
+    <div className="sticky bottom-4 z-20 rounded-2xl border border-border border-t bg-white/98 p-4 shadow-lg backdrop-blur">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          {!isFirstStep ? (
+            <button
+              type="button"
+              onClick={onPrevious}
+              className="rounded border border-border px-5 py-2.5 text-sm font-medium text-foreground hover:bg-secondary transition-colors"
+            >
+              Back
+            </button>
+          ) : (
+            <Link href={backHref} className="rounded border border-border px-5 py-2.5 text-sm font-medium text-foreground hover:bg-secondary transition-colors">
+              Cancel
+            </Link>
+          )}
+        </div>
+
+        <div className="flex items-center gap-3">
+          {!isLastStep ? (
+            <button
+              type="button"
+              onClick={onNext}
+              className="rounded bg-primary px-6 py-2.5 text-sm font-medium text-white hover:bg-primary/90 transition-colors"
+            >
+              Continue
+            </button>
+          ) : (
+            <>
+              <Link href={backHref} className="rounded border border-border px-5 py-2.5 text-sm font-medium text-foreground hover:bg-secondary transition-colors">
+                Cancel
+              </Link>
+              <button type="submit" disabled={saving} className="rounded bg-primary px-6 py-2.5 text-sm font-medium text-white hover:bg-primary/90 transition-colors disabled:opacity-60">
+                {saving ? 'Saving...' : submitLabel}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function KeyValueSection({
   title,
   description,
@@ -1431,11 +2020,11 @@ function KeyValueSection({
   onChange: Dispatch<SetStateAction<ProductKeyValue[]>>
 }) {
   return (
-    <section className="rounded-lg border border-border bg-card p-6">
+    <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold text-foreground">{title}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+          <h2 className="text-xl font-bold text-foreground">{title}</h2>
+          <p className="mt-2 text-xs text-muted-foreground">{description}</p>
         </div>
         <button
           type="button"
@@ -1447,9 +2036,9 @@ function KeyValueSection({
         </button>
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-0">
         {rows.map((row, index) => (
-          <div key={`${title}-${index}`} className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+          <div key={`${title}-${index}`} className={`grid grid-cols-1 gap-3 py-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] ${index < rows.length - 1 ? 'border-b border-border/40' : ''}`}>
             <input
               value={row.key}
               onChange={(e) => onChange((prev) => prev.map((entry, rowIndex) => (rowIndex === index ? { ...entry, key: e.target.value } : entry)))}
@@ -1465,7 +2054,7 @@ function KeyValueSection({
             <button
               type="button"
               onClick={() => onChange((prev) => (prev.length > 1 ? prev.filter((_, rowIndex) => rowIndex !== index) : prev))}
-              className="inline-flex items-center justify-center rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground hover:bg-secondary"
+              className="inline-flex items-center justify-center rounded-lg border border-transparent px-3 py-2 text-sm text-muted-foreground hover:border-border hover:bg-secondary"
             >
               <Trash2 size={14} />
             </button>
@@ -1484,6 +2073,8 @@ function PolicyEditor({
   rules,
   selectedRuleId,
   onRuleChange,
+  overrideEnabled,
+  onOverrideEnabledChange,
   titleOverride,
   onTitleOverrideChange,
   bodyOverride,
@@ -1496,6 +2087,8 @@ function PolicyEditor({
   rules: ProductContentRule[]
   selectedRuleId: string
   onRuleChange: (value: string) => void
+  overrideEnabled: boolean
+  onOverrideEnabledChange: (value: boolean) => void
   titleOverride: string
   onTitleOverrideChange: Dispatch<SetStateAction<string>>
   bodyOverride: string
@@ -1529,24 +2122,36 @@ function PolicyEditor({
             </Select>
           </FormField>
 
-          <div className="grid grid-cols-1 gap-4">
-            <FormField label={`${title} Title Override`}>
-              <input
-                value={titleOverride}
-                onChange={(e) => onTitleOverrideChange(e.target.value)}
-                placeholder={`Leave blank to use the selected ${title.toLowerCase()} rule title`}
-                className={inputClassName}
-              />
-            </FormField>
-            <FormField label={`${title} Body Override`}>
-              <textarea
-                value={bodyOverride}
-                onChange={(e) => onBodyOverrideChange(e.target.value)}
-                rows={4}
-                placeholder={`Leave blank to use the selected ${title.toLowerCase()} rule body`}
-                className={inputClassName}
-              />
-            </FormField>
+          <div className="rounded-lg border border-border/70 bg-white p-4">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold text-foreground">Override Linked Rule</p>
+                <p className="mt-2 text-xs text-muted-foreground">Only enable this when the product needs custom shipping or warranty text instead of the shared rule.</p>
+              </div>
+              <PillToggle value={overrideEnabled} onChange={onOverrideEnabledChange} onLabel="Override On" offLabel="Use Rule" />
+            </div>
+
+            {overrideEnabled ? (
+              <div className="mt-4 grid grid-cols-1 gap-4">
+                <FormField label={`${title} Title Override`}>
+                  <input
+                    value={titleOverride}
+                    onChange={(e) => onTitleOverrideChange(e.target.value)}
+                    placeholder={`Leave blank to use the selected ${title.toLowerCase()} rule title`}
+                    className={inputClassName}
+                  />
+                </FormField>
+                <FormField label={`${title} Body Override`}>
+                  <textarea
+                    value={bodyOverride}
+                    onChange={(e) => onBodyOverrideChange(e.target.value)}
+                    rows={4}
+                    placeholder={`Leave blank to use the selected ${title.toLowerCase()} rule body`}
+                    className={inputClassName}
+                  />
+                </FormField>
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}

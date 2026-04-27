@@ -34,6 +34,9 @@ export async function POST(request: Request) {
     description: typeof body.description === 'string' ? body.description : '',
     cta_text: typeof body.cta_text === 'string' ? body.cta_text : '',
     cta_link: typeof body.cta_link === 'string' ? body.cta_link : '',
+    image_path: typeof body.image_path === 'string' ? body.image_path : '',
+    image_alt: typeof body.image_alt === 'string' ? body.image_alt : '',
+    image_only_mode: Boolean(body.image_only_mode),
     is_active: Boolean(body.is_active),
     show_once_per_session: body.show_once_per_session !== false,
   }
@@ -41,6 +44,31 @@ export async function POST(request: Request) {
   const { error } = await access.adminClient
     .from('promotion_popup')
     .upsert(payload, { onConflict: 'section_key' })
+
+  if (error && error.message.toLowerCase().includes('image_only_mode')) {
+    const fallbackPayload = {
+      section_key: payload.section_key,
+      label: payload.label,
+      title: payload.title,
+      description: payload.description,
+      cta_text: payload.cta_text,
+      cta_link: payload.cta_link,
+      image_path: payload.image_path,
+      image_alt: payload.image_alt,
+      is_active: payload.is_active,
+      show_once_per_session: payload.show_once_per_session,
+    }
+
+    const fallback = await access.adminClient
+      .from('promotion_popup')
+      .upsert(fallbackPayload, { onConflict: 'section_key' })
+
+    if (fallback.error) {
+      return NextResponse.json({ error: fallback.error.message }, { status: 500 })
+    }
+
+    return NextResponse.json({ success: true, fallback: true })
+  }
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })

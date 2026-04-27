@@ -12,6 +12,12 @@ type DiamondInfoItem = {
   paragraph: string
 }
 
+type DiamondInfoConfig = {
+  video_enabled: boolean
+  video_path: string
+  video_poster_path: string
+}
+
 function buildAuthClient(accessToken: string) {
   if (!supabaseUrl || !supabaseAnonKey) {
     return null
@@ -71,16 +77,38 @@ export async function GET(request: Request) {
   if ('error' in access) return access.error
 
   const { adminClient } = access
-  const { data, error } = await adminClient
-    .from('diamond_info_sections')
-    .select('sort_order, label, heading, paragraph')
-    .order('sort_order', { ascending: true })
+  const [{ data, error }, { data: config, error: configError }] = await Promise.all([
+    adminClient
+      .from('diamond_info_sections')
+      .select('sort_order, label, heading, paragraph')
+      .order('sort_order', { ascending: true }),
+    adminClient
+      .from('diamond_info_config')
+      .select('video_enabled, video_path, video_poster_path')
+      .eq('section_key', 'home_diamond_info')
+      .maybeSingle(),
+  ])
+
+  const isMissingConfigTable =
+    configError?.code === 'PGRST205' ||
+    configError?.message?.includes("Could not find the table 'public.diamond_info_config'")
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  return NextResponse.json({ items: data ?? [] })
+  if (configError && !isMissingConfigTable) {
+    return NextResponse.json({ error: configError.message }, { status: 500 })
+  }
+
+  return NextResponse.json({
+    items: data ?? [],
+    config: {
+      video_enabled: isMissingConfigTable ? false : (config?.video_enabled ?? false),
+      video_path: isMissingConfigTable ? '' : (config?.video_path ?? ''),
+      video_poster_path: isMissingConfigTable ? '' : (config?.video_poster_path ?? ''),
+    },
+  })
 }
 
 export async function POST(request: Request) {
@@ -101,6 +129,13 @@ export async function POST(request: Request) {
     )
   }) as DiamondInfoItem[]
 
+  const rawConfig = body.config ?? {}
+  const config: DiamondInfoConfig = {
+    video_enabled: rawConfig.video_enabled === true,
+    video_path: typeof rawConfig.video_path === 'string' ? rawConfig.video_path : '',
+    video_poster_path: typeof rawConfig.video_poster_path === 'string' ? rawConfig.video_poster_path : '',
+  }
+
   const { adminClient } = access
   const { error: deleteError } = await adminClient.from('diamond_info_sections').delete().gte('sort_order', 0)
   if (deleteError) {
@@ -112,6 +147,21 @@ export async function POST(request: Request) {
     if (insertError) {
       return NextResponse.json({ error: insertError.message }, { status: 500 })
     }
+  }
+
+  const { error: configUpsertError } = await adminClient.from('diamond_info_config').upsert(
+    {
+      section_key: 'home_diamond_info',
+      video_enabled: config.video_enabled,
+      video_path: config.video_path || null,
+      video_poster_path: config.video_poster_path || null,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'section_key' }
+  )
+
+  if (configUpsertError) {
+    return NextResponse.json({ error: configUpsertError.message }, { status: 500 })
   }
 
   return NextResponse.json({ ok: true })

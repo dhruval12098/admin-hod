@@ -44,9 +44,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     notes: body.notes || 'Stock updated from inventory admin.',
   })
 
-  if (adjustmentError) {
-    return NextResponse.json({ error: adjustmentError.message }, { status: 500 })
-  }
-
-  return NextResponse.json({ ok: true, stockQuantity: nextStock })
+  return NextResponse.json({
+    ok: true,
+    stockQuantity: nextStock,
+    warning: adjustmentError?.message ?? null,
+  })
 }

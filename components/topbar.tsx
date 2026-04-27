@@ -4,7 +4,7 @@ import { FormEvent, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Bell, Search } from 'lucide-react'
 
-export function Topbar() {
+export function Topbar({ notificationCount = 0 }: { notificationCount?: number }) {
   const router = useRouter()
   const [query, setQuery] = useState('')
 
@@ -34,11 +34,17 @@ export function Topbar() {
 
       <div className="flex items-center gap-3">
         <button
+          type="button"
+          onClick={() => router.push('/dashboard/notifications')}
           className="relative rounded-md p-1.5 transition-colors hover:bg-secondary"
           aria-label="Notifications"
         >
           <Bell size={18} className="text-foreground" />
-          <span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-red-500" />
+          {notificationCount > 0 ? (
+            <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold leading-none text-white shadow-sm">
+              {notificationCount > 9 ? '9+' : notificationCount}
+            </span>
+          ) : null}
         </button>
       </div>
     </header>

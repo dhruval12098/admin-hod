@@ -20,6 +20,8 @@ export type CatalogCategory = {
   code: CategoryCode
   name: string
   slug: string
+  is_system_locked?: boolean
+  category_lane?: 'standard' | 'hiphop' | 'collection' | null
   show_in_nav?: boolean
   nav_type: 'mega_menu' | 'direct_link' | null
   direct_link_url: string | null
@@ -33,6 +35,8 @@ export type CatalogSubcategory = {
   name: string
   slug: string
   sub_type: 'standard' | 'auto_shape' | 'manual_style' | 'auto_metal' | 'gender_split'
+  show_on_category_page?: boolean
+  icon_svg_path?: string | null
   display_order: number
   status: CatalogStatus
 }
@@ -42,6 +46,8 @@ export type CatalogOption = {
   subcategory_id: string
   name: string
   slug: string
+  show_on_category_page?: boolean
+  icon_svg_path?: string | null
   display_order: number
   status: CatalogStatus
 }
@@ -71,6 +77,24 @@ export type CatalogRingSize = {
   status: CatalogStatus
 }
 
+export type CatalogRingCategory = {
+  id: string
+  name: string
+  slug: string
+  description?: string | null
+  display_order: number
+  status: CatalogStatus
+}
+
+export type CatalogRingCategorySize = {
+  id: string
+  ring_category_id: string
+  size_label: string
+  size_value?: string | null
+  display_order: number
+  status: CatalogStatus
+}
+
 export type CatalogCertificate = {
   id: string
   name: string
@@ -78,6 +102,13 @@ export type CatalogCertificate = {
   slug?: string | null
   display_order?: number | null
   status?: CatalogStatus
+}
+
+export type CatalogStyle = {
+  id: string
+  name: string
+  display_order: number
+  status: CatalogStatus
 }
 
 export type CatalogGstSlab = {
@@ -106,10 +137,12 @@ export type ProductRecord = {
   name: string
   slug: string
   sku: string
+  product_lane?: 'standard' | 'hiphop' | 'collection'
   detail_template?: 'standard' | 'hiphop'
   main_category_id: string
   subcategory_id: string | null
   option_id: string | null
+  style_id?: string | null
   wedding_gender: WeddingGender
   description: string | null
   tag_line: string | null
@@ -141,10 +174,13 @@ export type ProductRecord = {
   purity_values?: string[] | null
   certificate_ids?: string[] | null
   ring_size_ids?: string[] | null
+  ring_enabled?: boolean | null
+  ring_category_id?: string | null
   fit_options?: string[] | null
   fit_label?: string | null
   gemstone_label?: string | null
   gemstone_value?: string | null
+  shapes_enabled?: boolean | null
   show_purity?: boolean | null
   engraving_enabled?: boolean | null
   engraving_label?: string | null
@@ -152,6 +188,8 @@ export type ProductRecord = {
   care_warranty_rule_id?: string | null
   shipping_enabled?: boolean | null
   care_warranty_enabled?: boolean | null
+  shipping_override_enabled?: boolean | null
+  care_warranty_override_enabled?: boolean | null
   shipping_title_override?: string | null
   shipping_body_override?: string | null
   care_warranty_title_override?: string | null

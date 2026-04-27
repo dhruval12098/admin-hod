@@ -2,6 +2,8 @@
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
+import { useToast } from '@/hooks/use-toast'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { supabase } from '@/lib/supabase'
 
 type OrderDetailPageProps = {
@@ -60,6 +62,7 @@ async function authedFetch(url: string, options: RequestInit = {}) {
 }
 
 export default function OrderDetailPage({ params }: OrderDetailPageProps) {
+  const { toast } = useToast()
   const [id, setId] = useState('')
   const [loading, setLoading] = useState(true)
   const [savingStatus, setSavingStatus] = useState(false)
@@ -99,13 +102,35 @@ export default function OrderDetailPage({ params }: OrderDetailPageProps) {
         method: 'PATCH',
         body: JSON.stringify({ status }),
       })
+      const payload = await response.json().catch(() => null)
       if (response.ok) {
+        if (payload?.emailStatus === 'failed') {
+          toast({
+            title: 'Status updated with email warning',
+            description: payload?.emailError ?? 'The order status changed, but the email was not sent.',
+            variant: 'destructive',
+          })
+        } else if (payload?.emailStatus === 'sent') {
+          toast({ title: 'Status updated', description: 'Order status updated and customer email sent.' })
+        } else {
+          toast({ title: 'Status updated', description: 'Order status updated successfully.' })
+        }
         await loadOrder(order.id)
+      } else {
+        toast({
+          title: 'Status update failed',
+          description: payload?.error ?? 'Unable to update order status.',
+          variant: 'destructive',
+        })
       }
     } finally {
       setSavingStatus(false)
     }
   }
+
+  const statusSteps: OrderDetail['status'][] = ['pending', 'processing', 'shipped', 'delivered']
+  const activeStatusIndex = status === 'cancelled' ? -1 : statusSteps.indexOf(status)
+  const formatStatusLabel = (value: OrderDetail['status']) => value.charAt(0).toUpperCase() + value.slice(1)
 
   if (loading) {
     return <div className="p-8"><div className="rounded-lg border border-border bg-white px-6 py-12 text-sm text-muted-foreground">Loading order...</div></div>
@@ -124,21 +149,54 @@ export default function OrderDetailPage({ params }: OrderDetailPageProps) {
           <p className="mt-1 text-sm text-muted-foreground">Placed on {new Date(order.created_at).toLocaleString()}</p>
         </div>
         <div className="flex items-center gap-3">
-          <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value as OrderDetail['status'])}
-            className="rounded-lg border border-border bg-white px-3 py-2 text-sm transition-colors hover:border-input focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
-          >
-            <option value="pending">Pending</option>
-            <option value="processing">Processing</option>
-            <option value="shipped">Shipped</option>
-            <option value="delivered">Delivered</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
+          <Select value={status} onValueChange={(value) => setStatus(value as OrderDetail['status'])}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="Select status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="processing">Processing</SelectItem>
+              <SelectItem value="shipped">Shipped</SelectItem>
+              <SelectItem value="delivered">Delivered</SelectItem>
+              <SelectItem value="cancelled">Cancelled</SelectItem>
+            </SelectContent>
+          </Select>
           <button onClick={() => void saveStatus()} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-60" disabled={savingStatus}>
             {savingStatus ? 'Saving...' : 'Update Status'}
           </button>
         </div>
+      </div>
+
+      <div className="mb-6 rounded-lg border border-border bg-white p-6 shadow-xs">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-jakarta text-lg font-semibold text-foreground">Order Progress</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {status === 'cancelled' ? 'This order has been cancelled.' : `Current stage: ${formatStatusLabel(status)}`}
+            </p>
+          </div>
+          {status === 'cancelled' ? (
+            <span className="inline-flex rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-700">Cancelled</span>
+          ) : null}
+        </div>
+
+        {status !== 'cancelled' ? (
+          <div className="mt-6 grid gap-4 md:grid-cols-4">
+            {statusSteps.map((step, index) => {
+              const isComplete = index <= activeStatusIndex
+              const isCurrent = index === activeStatusIndex
+              return (
+                <div key={step} className="relative rounded-xl border border-border bg-secondary/10 px-4 py-4">
+                  <div className={`mb-3 flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold ${isComplete ? 'bg-foreground text-white' : 'bg-white text-muted-foreground border border-border'}`}>
+                    {index + 1}
+                  </div>
+                  <div className="text-sm font-semibold text-foreground">{formatStatusLabel(step)}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">{isCurrent ? 'Current step' : isComplete ? 'Completed' : 'Upcoming'}</div>
+                </div>
+              )
+            })}
+          </div>
+        ) : null}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
