@@ -71,7 +71,7 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
     setFormData((prev) => ({ ...prev, slider_enabled: e.target.checked }))
   }
 
-  const uploadImage = async (file: File) => {
+  const uploadImage = async (file: File, field: 'image_path' | 'mobile_image_path') => {
     const { data: sessionData } = await supabase.auth.getSession()
     const accessToken = sessionData.session?.access_token
 
@@ -81,7 +81,7 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
     }
 
     setUploadState('uploading')
-    setStatus('Uploading hero image...')
+    setStatus(field === 'mobile_image_path' ? 'Uploading mobile hero image...' : 'Uploading hero image...')
 
     const formData = new FormData()
     formData.append('file', file)
@@ -99,9 +99,9 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
       return
     }
 
-    setEditorItem((prev) => ({ ...prev, image_path: payload.path ?? '' }))
+    setEditorItem((prev) => ({ ...prev, [field]: payload.path ?? '' }))
     setUploadState('done')
-    setStatus('Hero image uploaded successfully')
+    setStatus(field === 'mobile_image_path' ? 'Mobile hero image uploaded successfully' : 'Hero image uploaded successfully')
   }
 
   const saveEditor = () => {
@@ -118,6 +118,11 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
 
     setEditorOpen(false)
     setUploadState('idle')
+    setStatus('Hero slide updated')
+    toast({
+      title: 'Slide updated',
+      description: 'Hero slide changes were applied successfully.',
+    })
   }
 
   const handleSave = () => setConfirmOpen(true)
@@ -170,7 +175,7 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
   return (
     <div className="min-h-screen bg-background">
       <div className="p-8">
-        <div className="mb-8 flex items-center gap-4">
+        <div className="mb-8 flex items-center justify-between gap-4">
           <Link
             href="/dashboard/cms/home"
             className="inline-flex items-center gap-2 text-sm font-semibold text-primary transition-colors hover:text-primary/80"
@@ -178,6 +183,7 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
             <ArrowLeft size={16} />
             Back to Home
           </Link>
+          <CmsSaveAction onClick={handleSave} isSaving={isSaving} position="inline" label="Save Changes to Publish" />
         </div>
 
         <div className="mb-10">
@@ -304,8 +310,6 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
           </div>
         )}
 
-        <CmsSaveAction onClick={handleSave} isSaving={isSaving} />
-
         <ConfirmDialog
           isOpen={confirmOpen}
           title="Save hero changes?"
@@ -349,7 +353,7 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
                       disabled={uploadState === 'uploading'}
                       onChange={(e: ChangeEvent<HTMLInputElement>) => {
                         const file = e.target.files?.[0]
-                        if (file) void uploadImage(file)
+                        if (file) void uploadImage(file, 'image_path')
                       }}
                     />
                   </label>
@@ -358,14 +362,24 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
               </div>
 
               <div>
-                <label className="mb-2 block text-sm font-semibold text-foreground">Mobile Image Path</label>
-                <input
-                  type="text"
-                  value={editorItem.mobile_image_path}
-                  onChange={(e) => setEditorItem((prev) => ({ ...prev, mobile_image_path: e.target.value }))}
-                  placeholder="Optional smaller-screen image path"
-                  className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm"
-                />
+                <label className="mb-2 block text-sm font-semibold text-foreground">Mobile Image</label>
+                <div className="flex items-center gap-3">
+                  <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary">
+                    <Upload size={14} />
+                    {uploadState === 'uploading' ? 'Uploading...' : 'Upload Mobile Image'}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      disabled={uploadState === 'uploading'}
+                      onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                        const file = e.target.files?.[0]
+                        if (file) void uploadImage(file, 'mobile_image_path')
+                      }}
+                    />
+                  </label>
+                  <span className="text-xs text-muted-foreground">{editorItem.mobile_image_path || 'No mobile image uploaded yet'}</span>
+                </div>
                 <p className="mt-2 text-xs text-muted-foreground">
                   If empty, mobile will use the same desktop hero image.
                 </p>
