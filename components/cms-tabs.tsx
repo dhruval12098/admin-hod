@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 
 const CMS_TABS = [
   { label: 'Home', href: '/dashboard/cms/home', key: 'home' },
+  { label: 'Collection', href: '/dashboard/cms/collection', key: 'collection' },
   { label: 'About', href: '/dashboard/cms/about', key: 'about' },
   { label: 'Contact', href: '/dashboard/cms/contact', key: 'contact' },
   { label: 'Bespoke', href: '/dashboard/cms/bespoke', key: 'bespoke' },
@@ -22,7 +23,7 @@ export function CMSTabs() {
     <div className="border-b border-border">
       <div className="flex gap-0">
         {CMS_TABS.map((tab) => {
-          const isActive = pathname.includes(tab.key)
+          const isActive = pathname === tab.href || pathname.startsWith(`${tab.href}/`)
           return (
             <Link
               key={tab.key}

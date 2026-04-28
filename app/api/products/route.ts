@@ -6,6 +6,8 @@ import type {
   CatalogGstSlab,
   CatalogMetal,
   CatalogOption,
+  ProductMetalMedia,
+  ProductPurityPrice,
   CatalogRingCategory,
   CatalogRingCategorySize,
   CatalogStoneShape,
@@ -30,6 +32,130 @@ function isMissingRelation(error: { message?: string | null } | null | undefined
     error?.message?.includes(`relation "${table}" does not exist`) ||
     error?.message?.includes(`Could not find the table 'public.${table}' in the schema cache`)
   ) ?? false
+}
+
+function isUuidLike(value: string | null | undefined) {
+  return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+}
+
+async function replaceProductPurityPrices(adminClient: any, productId: string, purityPrices: ProductPurityPrice[], defaultPurityPriceId?: string | null) {
+  const normalizedRows = purityPrices
+    .map((row, index) => ({
+      id: row.id,
+      product_id: productId,
+      purity_label: row.purity_label.trim(),
+      price: Number(row.price ?? 0),
+      compare_at_price: row.compare_at_price == null || row.compare_at_price === 0 ? null : Number(row.compare_at_price),
+      sort_order: row.sort_order ?? index + 1,
+    }))
+    .filter((row) => row.purity_label.length > 0)
+
+  const existingResult = await adminClient.from('product_purity_prices').select('id').eq('product_id', productId)
+  if (existingResult.error && !isMissingRelation(existingResult.error, 'product_purity_prices')) {
+    return { error: existingResult.error }
+  }
+  const existingIds = new Set<string>((existingResult.data ?? []).map((row: { id: string }) => row.id))
+
+  const keepIds = new Set<string>(normalizedRows.map((row) => row.id).filter((id): id is string => typeof id === 'string' && id.length > 0))
+  const deleteIds = [...existingIds].filter((id) => !keepIds.has(id))
+  if (deleteIds.length > 0) {
+    const deleteResult = await adminClient.from('product_purity_prices').delete().in('id', deleteIds)
+    if (deleteResult.error) return { error: deleteResult.error }
+  }
+
+  const resolvedIdMap = new Map<string, string>()
+  for (const row of normalizedRows) {
+    if (row.id && existingIds.has(row.id)) {
+      const updateResult = await adminClient
+        .from('product_purity_prices')
+        .update({
+          purity_label: row.purity_label,
+          price: row.price,
+          compare_at_price: row.compare_at_price,
+          sort_order: row.sort_order,
+        })
+        .eq('id', row.id)
+        .select('id')
+        .single()
+      if (updateResult.error) return { error: updateResult.error }
+      resolvedIdMap.set(row.id, updateResult.data.id)
+    } else {
+      const insertResult = await adminClient
+        .from('product_purity_prices')
+        .insert({
+          product_id: productId,
+          purity_label: row.purity_label,
+          price: row.price,
+          compare_at_price: row.compare_at_price,
+          sort_order: row.sort_order,
+        })
+        .select('id')
+        .single()
+      if (insertResult.error) return { error: insertResult.error }
+      if (row.id) resolvedIdMap.set(row.id, insertResult.data.id)
+    }
+  }
+
+  const fallbackDefaultId = normalizedRows[0]?.id ? resolvedIdMap.get(normalizedRows[0].id) ?? null : null
+  const resolvedCandidateId = defaultPurityPriceId ? resolvedIdMap.get(defaultPurityPriceId) ?? defaultPurityPriceId : fallbackDefaultId
+  const resolvedDefaultId = isUuidLike(resolvedCandidateId) ? resolvedCandidateId : fallbackDefaultId
+  const productUpdateResult = await adminClient
+    .from('products')
+    .update({ default_purity_price_id: resolvedDefaultId ?? null })
+    .eq('id', productId)
+  if (productUpdateResult.error && !isMissingProductColumn(productUpdateResult.error, 'default_purity_price_id')) {
+    return { error: productUpdateResult.error }
+  }
+
+  return { defaultPurityPriceId: resolvedDefaultId ?? null }
+}
+
+async function replaceProductMetalMedia(adminClient: any, productId: string, metalMedia: ProductMetalMedia[]) {
+  const existingResult = await adminClient.from('product_metal_media').select('id, metal_id').eq('product_id', productId)
+  if (existingResult.error && !isMissingRelation(existingResult.error, 'product_metal_media')) {
+    return { error: existingResult.error }
+  }
+
+  const existingByMetalId = new Map((existingResult.data ?? []).map((row: { id: string; metal_id: string }) => [row.metal_id, row.id]))
+  const nextRows = metalMedia
+    .map((row) => ({
+      metal_id: row.metal_id,
+      image_1_path: row.image_1_path ?? null,
+      image_2_path: row.image_2_path ?? null,
+      image_3_path: row.image_3_path ?? null,
+      image_4_path: row.image_4_path ?? null,
+      video_path: row.video_path ?? null,
+      is_default_fallback: Boolean(row.is_default_fallback),
+    }))
+    .filter((row) => row.metal_id)
+
+  const nextMetalIds = new Set(nextRows.map((row) => row.metal_id))
+  const deleteIds = (existingResult.data ?? [])
+    .filter((row: { metal_id: string }) => !nextMetalIds.has(row.metal_id))
+    .map((row: { id: string }) => row.id)
+
+  if (deleteIds.length > 0) {
+    const deleteResult = await adminClient.from('product_metal_media').delete().in('id', deleteIds)
+    if (deleteResult.error) return { error: deleteResult.error }
+  }
+
+  for (const row of nextRows) {
+    const existingId = existingByMetalId.get(row.metal_id)
+    if (existingId) {
+      const updateResult = await adminClient
+        .from('product_metal_media')
+        .update(row)
+        .eq('id', existingId)
+      if (updateResult.error) return { error: updateResult.error }
+    } else {
+      const insertResult = await adminClient
+        .from('product_metal_media')
+        .insert({ product_id: productId, ...row })
+      if (insertResult.error) return { error: insertResult.error }
+    }
+  }
+
+  return { ok: true }
 }
 
 function buildProductWritePayload(body: ProductPayload, includeStyleId = true) {
@@ -124,6 +250,9 @@ type ProductPayload = {
   style_id?: string | null
   metal_ids: string[]
   purity_values: string[]
+  purity_prices?: ProductPurityPrice[]
+  default_purity_price_id?: string | null
+  metal_media?: ProductMetalMedia[]
   certificate_ids: string[]
   ring_size_ids: string[]
   ring_enabled?: boolean
@@ -291,6 +420,7 @@ export async function GET(request: Request) {
         catalog,
         metalMap.get(product.id) ?? []
       ),
+      defaultPurityPriceId: product.default_purity_price_id ?? null,
       shapesEnabled: Boolean(product.shapes_enabled),
       shapes: shapeMap.get(product.id) ?? [],
     })
@@ -365,6 +495,16 @@ export async function POST(request: Request) {
     if (shapeError && !isMissingRelation(shapeError, 'product_stone_shapes')) {
       return NextResponse.json({ error: shapeError.message }, { status: 500 })
     }
+  }
+
+  const purityPricesResult = await replaceProductPurityPrices(adminClient, product.id, body.purity_prices ?? [], body.default_purity_price_id ?? null)
+  if ('error' in purityPricesResult && purityPricesResult.error) {
+    return NextResponse.json({ error: purityPricesResult.error.message }, { status: 500 })
+  }
+
+  const metalMediaResult = await replaceProductMetalMedia(adminClient, product.id, body.metal_media ?? [])
+  if ('error' in metalMediaResult && metalMediaResult.error) {
+    return NextResponse.json({ error: metalMediaResult.error.message }, { status: 500 })
   }
 
   return NextResponse.json({ item: product })

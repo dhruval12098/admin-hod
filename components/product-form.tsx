@@ -3,7 +3,7 @@
 import type { Dispatch, FormEvent, ReactNode, SetStateAction } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ChevronLeft, Plus, Trash2, Upload, Video, X } from 'lucide-react'
+import { ChevronLeft, Eye, EyeOff, Loader2, Plus, Trash2, Upload, Video, X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/hooks/use-toast'
 import {
@@ -27,6 +27,8 @@ import type {
   CatalogSubcategory,
   ProductDetailSection,
   ProductKeyValue,
+  ProductMetalMedia,
+  ProductPurityPrice,
 } from '@/lib/product-catalog'
 import { formatCategoryPath } from '@/lib/product-catalog'
 
@@ -66,6 +68,9 @@ type ProductResponse = {
     style_id?: string | null
     metal_ids?: string[]
     purity_values?: string[]
+    purity_prices?: ProductPurityPrice[]
+    default_purity_price_id?: string | null
+    metal_media?: ProductMetalMedia[]
     certificate_ids?: string[]
     ring_size_ids?: string[]
     fit_options?: string[]
@@ -166,6 +171,9 @@ function applyProductPayload(
     setStyleId: Dispatch<SetStateAction<string>>
     setSelectedMetalIds: Dispatch<SetStateAction<string[]>>
     setSelectedPurities: Dispatch<SetStateAction<string[]>>
+    setPurityPrices: Dispatch<SetStateAction<ProductPurityPrice[]>>
+    setDefaultPurityPriceId: Dispatch<SetStateAction<string>>
+    setMetalMedia: Dispatch<SetStateAction<ProductMetalMedia[]>>
     setSelectedCertificateIds: Dispatch<SetStateAction<string[]>>
     setRingSizesEnabled: Dispatch<SetStateAction<boolean>>
     setRingCategoryId: Dispatch<SetStateAction<string>>
@@ -229,6 +237,19 @@ function applyProductPayload(
   setters.setStyleId(item.style_id ?? '')
   setters.setSelectedMetalIds(item.metal_ids ?? [])
   setters.setSelectedPurities(item.purity_values ?? [])
+  setters.setPurityPrices(
+    item.purity_prices?.length
+      ? item.purity_prices
+      : (item.purity_values ?? []).map((value, index) => ({
+          id: `legacy-${index}-${value.toLowerCase().replace(/\s+/g, '-')}`,
+          purity_label: value,
+          price: 0,
+          compare_at_price: null,
+          sort_order: index + 1,
+        }))
+  )
+  setters.setDefaultPurityPriceId(item.default_purity_price_id ?? '')
+  setters.setMetalMedia(item.metal_media ?? [])
   setters.setSelectedCertificateIds(item.certificate_ids ?? [])
   setters.setRingSizesEnabled(Boolean(item.ring_enabled))
   setters.setRingCategoryId(item.ring_category_id ?? '')
@@ -301,12 +322,14 @@ const emptySection = (): ProductDetailSection => ({
   rows: [emptyRow()],
   visible: true,
 })
+type ProductMetalMediaImageField = 'image_1_path' | 'image_2_path' | 'image_3_path' | 'image_4_path'
 const collectionBucket = process.env.NEXT_PUBLIC_SUPABASE_COLLECTION_BUCKET || 'hod'
 
-type ProductFormStepId = 'basics' | 'attributes' | 'content' | 'details' | 'media'
+type ProductFormStepId = 'basics' | 'pricing' | 'attributes' | 'content' | 'details' | 'media'
 
 const PRODUCT_FORM_STEPS: { id: ProductFormStepId; label: string; description: string }[] = [
-  { id: 'basics', label: 'Basics', description: 'Core info, category, pricing, and template setup.' },
+  { id: 'basics', label: 'Basics', description: 'Core info, category, and template setup.' },
+  { id: 'pricing', label: 'Pricing', description: 'Base price source, purity pricing, GST, discounts, and stock.' },
   { id: 'attributes', label: 'Attributes', description: 'Metals, filters, sizing, engraving, and storefront options.' },
   { id: 'content', label: 'Content', description: 'Description, highlights, and policy content.' },
   { id: 'details', label: 'Details', description: 'Specifications and detailed content sections.' },
@@ -377,6 +400,7 @@ export function ProductForm({
   const { toast } = useToast()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [redirecting, setRedirecting] = useState(false)
   const [categories, setCategories] = useState<CatalogCategory[]>([])
   const [subcategories, setSubcategories] = useState<CatalogSubcategory[]>([])
   const [options, setOptions] = useState<CatalogOption[]>([])
@@ -408,7 +432,11 @@ export function ProductForm({
   const [styleId, setStyleId] = useState('')
   const [selectedMetalIds, setSelectedMetalIds] = useState<string[]>([])
   const [selectedPurities, setSelectedPurities] = useState<string[]>([])
-  const [purityInput, setPurityInput] = useState('')
+  const [purityLabelInput, setPurityLabelInput] = useState('')
+  const [purityPriceInput, setPurityPriceInput] = useState('')
+  const [purityPrices, setPurityPrices] = useState<ProductPurityPrice[]>([])
+  const [defaultPurityPriceId, setDefaultPurityPriceId] = useState('')
+  const [metalMedia, setMetalMedia] = useState<ProductMetalMedia[]>([])
   const [selectedCertificateIds, setSelectedCertificateIds] = useState<string[]>([])
   const [ringSizesEnabled, setRingSizesEnabled] = useState(false)
   const [ringCategoryId, setRingCategoryId] = useState('')
@@ -445,6 +473,9 @@ export function ProductForm({
   const [videoPath, setVideoPath] = useState<string | null>(null)
   const [showImageSlots, setShowImageSlots] = useState([true, true, true, true])
   const [showVideo, setShowVideo] = useState(true)
+  const [activeMetalMediaId, setActiveMetalMediaId] = useState('')
+  const [uploadingSlots, setUploadingSlots] = useState<Record<string, boolean>>({})
+  const [uploadingVideos, setUploadingVideos] = useState<Record<string, boolean>>({})
   const [customOrderEnabled, setCustomOrderEnabled] = useState(false)
   const [readyToShip, setReadyToShip] = useState(false)
   const [hiphopBadges, setHiphopBadges] = useState<string[]>([])
@@ -493,6 +524,9 @@ export function ProductForm({
       setStyleId,
       setSelectedMetalIds,
       setSelectedPurities,
+      setPurityPrices,
+      setDefaultPurityPriceId,
+      setMetalMedia,
       setSelectedCertificateIds,
       setRingSizesEnabled,
       setRingCategoryId,
@@ -606,6 +640,11 @@ export function ProductForm({
     return formatCategoryPath({ category: mainCategory, subcategory: selectedSubcategory, option }) || 'No category selected'
   }, [mainCategory, selectedSubcategory, optionId, options])
 
+  const selectedBasePriceEntry = useMemo(
+    () => purityPrices.find((entry) => entry.id === defaultPurityPriceId) ?? null,
+    [defaultPurityPriceId, purityPrices]
+  )
+
   useEffect(() => {
     if (mainCategory && isHipHopCategory(mainCategory)) {
       setDetailTemplate('hiphop')
@@ -666,6 +705,63 @@ export function ProductForm({
     }
   }, [detailTemplate, isCollectionProduct])
 
+  useEffect(() => {
+    setSelectedPurities(
+      purityPrices
+        .map((entry) => entry.purity_label.trim())
+        .filter(Boolean)
+    )
+  }, [purityPrices])
+
+  useEffect(() => {
+    const hasDefault = purityPrices.some((entry) => entry.id === defaultPurityPriceId)
+    if (!hasDefault) {
+      setDefaultPurityPriceId(purityPrices[0]?.id ?? '')
+    }
+  }, [defaultPurityPriceId, purityPrices])
+
+  useEffect(() => {
+    if (!selectedBasePriceEntry) {
+      return
+    }
+
+    setBasePrice(String(Number(selectedBasePriceEntry.price ?? 0)))
+  }, [selectedBasePriceEntry])
+
+  useEffect(() => {
+    setMetalMedia((prev) => {
+      const next = selectedMetalIds.map((metalId, index) => {
+        const existing = prev.find((entry) => entry.metal_id === metalId)
+        return (
+          existing ?? {
+            metal_id: metalId,
+            image_1_path: null,
+            image_2_path: null,
+            image_3_path: null,
+            image_4_path: null,
+            video_path: null,
+            is_default_fallback: index === 0,
+          }
+        )
+      })
+
+      return next.map((entry, index) => ({
+        ...entry,
+        is_default_fallback: entry.is_default_fallback || (!next.some((row) => row.is_default_fallback) && index === 0),
+      }))
+    })
+  }, [selectedMetalIds])
+
+  useEffect(() => {
+    if (!selectedMetalIds.length) {
+      setActiveMetalMediaId('')
+      return
+    }
+    if (!selectedMetalIds.includes(activeMetalMediaId)) {
+      setActiveMetalMediaId(selectedMetalIds[0])
+    }
+  }, [activeMetalMediaId, selectedMetalIds])
+
   const addFeature = () => {
     const next = featureInput.trim()
     if (!next) return
@@ -673,11 +769,28 @@ export function ProductForm({
     setFeatureInput('')
   }
 
-  const addPurity = () => {
-    const next = purityInput.trim()
-    if (!next) return
-    setSelectedPurities((prev) => (prev.includes(next) ? prev : [...prev, next]))
-    setPurityInput('')
+  const addPurityPrice = () => {
+    const nextLabel = purityLabelInput.trim()
+    if (!nextLabel) return
+    const nextPrice = Number(purityPriceInput || 0)
+    let nextDefaultId = ''
+    setPurityPrices((prev) => {
+      if (prev.some((entry) => entry.purity_label.toLowerCase() === nextLabel.toLowerCase())) {
+        return prev
+      }
+      const nextRow: ProductPurityPrice = {
+        id: `temp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        purity_label: nextLabel,
+        price: Number.isFinite(nextPrice) ? nextPrice : 0,
+        compare_at_price: null,
+        sort_order: prev.length + 1,
+      }
+      nextDefaultId = nextRow.id ?? nextRow.purity_label
+      return [...prev, nextRow]
+    })
+    setDefaultPurityPriceId((current) => current || nextDefaultId)
+    setPurityLabelInput('')
+    setPurityPriceInput('')
   }
 
   const addFitOption = () => {
@@ -715,6 +828,29 @@ export function ProductForm({
     setHiphopCaratInput('')
   }
 
+  const updateMetalMediaEntry = (metalId: string, updater: (entry: ProductMetalMedia) => ProductMetalMedia) => {
+    setMetalMedia((prev) =>
+      prev.map((entry) => (entry.metal_id === metalId ? updater(entry) : entry))
+    )
+  }
+
+  const setFallbackMetal = (metalId: string) => {
+    setMetalMedia((prev) =>
+      prev.map((entry) => ({
+        ...entry,
+        is_default_fallback: entry.metal_id === metalId,
+      }))
+    )
+  }
+
+  const removePurityPrice = (targetId: string) => {
+    setPurityPrices((prev) =>
+      prev
+        .filter((entry) => entry.id !== targetId)
+        .map((entry, index) => ({ ...entry, sort_order: index + 1 }))
+    )
+  }
+
   const applyTestData = () => {
     const category = categories[0]
     const nextSubcategory = subcategories.find((item) => item.category_id === category?.id)
@@ -734,7 +870,11 @@ export function ProductForm({
     setOptionId(nextOption?.id ?? '')
     setStyleId(nextStyle?.id ?? '')
     setSelectedMetalIds(defaultMetals)
-    setSelectedPurities(['18K', '14K'])
+    setPurityPrices([
+      { id: 'test-18k', purity_label: '18K', price: 5200, compare_at_price: 5600, sort_order: 1 },
+      { id: 'test-14k', purity_label: '14K', price: 4800, compare_at_price: null, sort_order: 2 },
+    ])
+    setDefaultPurityPriceId('test-18k')
     setSelectedCertificateIds(defaultCertificates)
     setRingSizesEnabled(true)
     setRingCategoryId(ringCategories[0]?.id ?? '')
@@ -784,6 +924,7 @@ export function ProductForm({
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
     setSaving(true)
+    let shouldRedirect = false
 
     try {
       const response = await authedFetch(productId ? `/api/products/${productId}` : productSlug ? `/api/products/by-slug/${productSlug}` : '/api/products', {
@@ -807,6 +948,12 @@ export function ProductForm({
           style_id: styleId || null,
           metal_ids: selectedMetalIds,
           purity_values: selectedPurities,
+          purity_prices: purityPrices.map((entry, index) => ({
+            ...entry,
+            sort_order: index + 1,
+          })),
+          default_purity_price_id: defaultPurityPriceId || null,
+          metal_media: metalMedia,
           certificate_ids: selectedCertificateIds,
             ring_size_ids: [],
             ring_enabled: ringSizesEnabled,
@@ -868,6 +1015,8 @@ export function ProductForm({
           : 'The new product was created successfully.',
       })
 
+      shouldRedirect = true
+      setRedirecting(true)
       window.setTimeout(() => {
         window.location.href = backHref
       }, 700)
@@ -877,8 +1026,11 @@ export function ProductForm({
         description: error instanceof Error ? error.message : 'Unable to save product.',
         variant: 'destructive',
       })
+      setRedirecting(false)
     } finally {
-      setSaving(false)
+      if (!shouldRedirect) {
+        setSaving(false)
+      }
     }
   }
 
@@ -888,6 +1040,20 @@ export function ProductForm({
 
   return (
     <div className="flex flex-col gap-10">
+      {redirecting ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-sm">
+          <div className="rounded-2xl border border-border bg-white px-8 py-6 shadow-xl">
+            <div className="flex items-center gap-4">
+              <div className="h-9 w-9 animate-spin rounded-full border-2 border-black/10 border-t-foreground" />
+              <div>
+                <p className="text-sm font-semibold text-foreground">Redirecting to products</p>
+                <p className="mt-1 text-xs text-muted-foreground">Please wait while the updated product list loads.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div className="flex items-center gap-3">
         <Link href={backHref} className="rounded p-1.5 hover:bg-secondary transition-colors">
           <ChevronLeft size={20} />
@@ -1018,38 +1184,6 @@ export function ProductForm({
               </div>
             </section>
 
-            <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
-              <h2 className="mb-8 text-xl font-bold text-foreground">Pricing</h2>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                <FormField label="Base Price *">
-                  <input type="number" value={basePrice} onChange={(e) => setBasePrice(e.target.value)} className={inputClassName} />
-                </FormField>
-                <FormField label="Discount Price">
-                  <input type="number" value={discountPrice} onChange={(e) => setDiscountPrice(e.target.value)} className={inputClassName} />
-                </FormField>
-                <FormField label="GST Slab">
-                  <Select value={gstSlabId || '__none__'} onValueChange={(value) => setGstSlabId(value === '__none__' ? '' : value)}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Select GST slab" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">No GST slab</SelectItem>
-                      {gstSlabs
-                        .filter((item) => item.status !== 'hidden')
-                        .map((item) => (
-                          <SelectItem key={item.id} value={item.id}>
-                            {item.name} ({item.percentage}%)
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
-                </FormField>
-                <FormField label="Stock Quantity">
-                  <input type="number" min="0" value={stockQuantity} onChange={(e) => setStockQuantity(e.target.value)} className={inputClassName} />
-                </FormField>
-              </div>
-            </section>
-
             {isHiphopProduct ? (
               <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
                 <div className="border-l-2 border-foreground/20 pl-4">
@@ -1085,13 +1219,19 @@ export function ProductForm({
               <div className="space-y-6">
                 <div className="flex flex-wrap items-start justify-between gap-4 rounded-lg border border-border bg-secondary/10 p-4">
                   <div>
-                    <p className="text-sm font-medium text-foreground">Detail Template</p>
-                    <p className="mt-2 text-xs text-muted-foreground">Use Hip Hop mode for premium chain, bracelet, pendant, or grillz presentation and media storage.</p>
+                    <p className="text-sm font-medium text-foreground">Product Mode</p>
+                    <p className="mt-2 text-xs text-muted-foreground">This form mode is set by the admin section you entered from, so the product stays in its correct lane.</p>
                   </div>
-                  {forcedTemplate === 'hiphop' ? (
-                    <span className="inline-flex rounded-full bg-foreground px-3 py-1.5 text-xs font-semibold text-white">Hip Hop</span>
-                  ) : isCollectionProduct ? (
-                    <span className="inline-flex rounded-full bg-secondary px-3 py-1.5 text-xs font-semibold text-foreground">Standard</span>
+                  {forcedLane ? (
+                    <span className={`inline-flex rounded-full px-3 py-1.5 text-xs font-semibold ${
+                      forcedLane === 'hiphop'
+                        ? 'bg-foreground text-white'
+                        : forcedLane === 'collection'
+                          ? 'bg-secondary text-foreground'
+                          : 'bg-white border border-border text-foreground'
+                    }`}>
+                      {forcedLane === 'hiphop' ? 'Hip Hop' : forcedLane === 'collection' ? 'Collection' : 'Standard'}
+                    </span>
                   ) : (
                     <PillToggle
                       value={detailTemplate === 'hiphop'}
@@ -1207,6 +1347,154 @@ export function ProductForm({
           </>
         ) : null}
 
+        {activeStep === 'pricing' ? (
+          <>
+            <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
+              <h2 className="mb-8 text-xl font-bold text-foreground">Pricing</h2>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <FormField label="Base Price *">
+                  <Select
+                    value={defaultPurityPriceId || undefined}
+                    onValueChange={setDefaultPurityPriceId}
+                    disabled={purityPrices.length === 0}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder={purityPrices.length ? 'Select base price' : 'Add purity pricing first'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {purityPrices.map((entry) => {
+                        const rowId = entry.id ?? entry.purity_label
+                        return (
+                          <SelectItem key={rowId} value={rowId}>
+                            {Number(entry.price || 0).toLocaleString('en-IN', {
+                              style: 'currency',
+                              currency: 'INR',
+                              maximumFractionDigits: 0,
+                            })}
+                          </SelectItem>
+                        )
+                      })}
+                    </SelectContent>
+                  </Select>
+                </FormField>
+                <FormField label="Discount Price">
+                  <input type="number" value={discountPrice} onChange={(e) => setDiscountPrice(e.target.value)} className={inputClassName} />
+                </FormField>
+                <FormField label="GST Slab">
+                  <Select value={gstSlabId || '__none__'} onValueChange={(value) => setGstSlabId(value === '__none__' ? '' : value)}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select GST slab" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">No GST slab</SelectItem>
+                      {gstSlabs
+                        .filter((item) => item.status !== 'hidden')
+                        .map((item) => (
+                          <SelectItem key={item.id} value={item.id}>
+                            {item.name} ({item.percentage}%)
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </FormField>
+                <FormField label="Stock Quantity">
+                  <input type="number" min="0" value={stockQuantity} onChange={(e) => setStockQuantity(e.target.value)} className={inputClassName} />
+                </FormField>
+              </div>
+              <p className="mt-3 text-xs text-muted-foreground">
+                Base price is sourced from the selected purity-price row so discount, GST, and storefront pricing stay aligned.
+              </p>
+            </section>
+
+            <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-bold text-foreground">Purity Pricing</h2>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Add purity-price pairs here, then choose one above as the product base price.
+                  </p>
+                </div>
+                <PillToggle value={showPurity} onChange={setShowPurity} onLabel="Show on storefront" offLabel="Hidden on storefront" />
+              </div>
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,1fr)_180px_auto]">
+                <input
+                  value={purityLabelInput}
+                  onChange={(e) => setPurityLabelInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      addPurityPrice()
+                    }
+                  }}
+                  placeholder="Purity like 18K or Pt 950"
+                  className={inputClassName}
+                />
+                <input
+                  value={purityPriceInput}
+                  onChange={(e) => setPurityPriceInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      addPurityPrice()
+                    }
+                  }}
+                  placeholder="Price"
+                  className={inputClassName}
+                />
+                <button type="button" onClick={addPurityPrice} className={secondaryButtonClassName}>Add</button>
+              </div>
+              {purityPrices.length > 0 ? (
+                <div className="mt-4 space-y-3">
+                  <div className="space-y-2">
+                    {purityPrices.map((entry, index) => {
+                      const rowId = entry.id ?? entry.purity_label
+                      const isDefault = rowId === defaultPurityPriceId
+                      return (
+                        <div key={rowId} className="grid grid-cols-1 gap-2 rounded-lg border border-border bg-white p-3 md:grid-cols-[minmax(0,1fr)_180px_auto]">
+                          <input
+                            value={entry.purity_label}
+                            onChange={(e) =>
+                              setPurityPrices((prev) =>
+                                prev.map((row, rowIndex) =>
+                                  rowIndex === index ? { ...row, purity_label: e.target.value } : row
+                                )
+                              )
+                            }
+                            className={inputClassName}
+                          />
+                          <input
+                            value={String(entry.price ?? '')}
+                            onChange={(e) =>
+                              setPurityPrices((prev) =>
+                                prev.map((row, rowIndex) =>
+                                  rowIndex === index ? { ...row, price: Number(e.target.value || 0) } : row
+                                )
+                              )
+                            }
+                            className={inputClassName}
+                          />
+                          <div className="flex items-center justify-between gap-2">
+                            <span className={`text-xs font-semibold uppercase tracking-[0.2em] ${isDefault ? 'text-foreground' : 'text-muted-foreground'}`}>
+                              {isDefault ? 'Base Price' : `Row ${index + 1}`}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => removePurityPrice(rowId)}
+                              className="inline-flex items-center justify-center rounded-lg border border-transparent px-3 py-2 text-sm text-muted-foreground hover:border-border hover:bg-secondary"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ) : null}
+            </section>
+          </>
+        ) : null}
+
         {activeStep === 'attributes' ? (
           <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
             <h2 className="mb-8 text-xl font-bold text-foreground">Attributes and Filters</h2>
@@ -1217,29 +1505,6 @@ export function ProductForm({
               selected={selectedMetalIds}
               onToggle={(value) => setSelectedMetalIds((prev) => toggleInArray(prev, value))}
             />
-
-            <div>
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <label className="text-sm font-semibold text-foreground">Purity Values</label>
-                <PillToggle value={showPurity} onChange={setShowPurity} onLabel="Show on storefront" offLabel="Hidden on storefront" />
-              </div>
-              <div className="flex gap-2">
-                <input
-                  value={purityInput}
-                  onChange={(e) => setPurityInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault()
-                      addPurity()
-                    }
-                  }}
-                  placeholder="Add purity like 18K or Pt 950"
-                  className={`${inputClassName} flex-1`}
-                />
-                <button type="button" onClick={addPurity} className={secondaryButtonClassName}>Add</button>
-              </div>
-              <TagList items={selectedPurities} onRemove={(value) => setSelectedPurities((prev) => prev.filter((item) => item !== value))} />
-            </div>
 
             {certificates.length > 0 ? (
               <TogglePillGroup
@@ -1693,42 +1958,27 @@ export function ProductForm({
                 </div>
               </div>
 
-                <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
-                  {['Image 1', 'Image 2', 'Image 3', 'Image 4'].map((label, index) => (
-                  <div key={label} className="rounded-lg border border-border bg-secondary/10 p-4">
-                    {imagePaths[index] ? (
-                      <div className="mb-4 overflow-hidden rounded-lg border border-border bg-white">
-                        <img
-                          src={toStoragePreviewUrl(imagePaths[index])}
-                          alt={`${label} preview`}
-                          className="h-24 w-full object-cover"
-                        />
-                      </div>
-                    ) : null}
-                    <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                      <label className="text-sm font-medium text-foreground">{label}</label>
-                      <PillToggle
-                        value={showImageSlots[index]}
-                        onChange={(next) => setShowImageSlots((prev) => prev.map((entry, slotIndex) => (slotIndex === index ? next : entry)))}
-                        onLabel="Show"
-                        offLabel="Hide"
-                      />
-                    </div>
-                    <label className="block cursor-pointer rounded-lg border border-border bg-white p-4 transition-colors hover:border-primary hover:bg-secondary/10">
-                      <div className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white">
-                        <Upload size={16} />
-                        {imagePaths[index] ? `Replace ${label}` : `Upload ${label}`}
-                      </div>
-                      <p className="mt-3 text-xs text-muted-foreground">
-                        {isHiphopProduct ? 'Saved into hiphop media folder as optimized WEBP/SVG' : 'Saved into products media folder as optimized WEBP/SVG'}
-                      </p>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={async (e) => {
-                          const file = e.target.files?.[0]
-                          if (!file) return
+                <div className="mt-6">
+                  <div className="mb-3">
+                    <p className="text-sm font-semibold text-foreground">Base Image Carousel</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Shared fallback media when a metal variant does not have its own images.</p>
+                  </div>
+                  <div className="flex flex-wrap gap-3">
+                    {['Image 1', 'Image 2', 'Image 3', 'Image 4'].map((label, index) => (
+                      <MediaThumbnailSlot
+                        key={label}
+                        inputId={`base-media-${index}`}
+                        label={label}
+                        path={imagePaths[index]}
+                        visible={showImageSlots[index]}
+                        uploading={Boolean(uploadingSlots[`base-image-${index}`])}
+                        onVisibleChange={(next) => setShowImageSlots((prev) => prev.map((entry, slotIndex) => (slotIndex === index ? next : entry)))}
+                        onClear={() => {
+                          setImageSlots((prev) => prev.map((entry, slotIndex) => (slotIndex === index ? '' : entry)))
+                          setImagePaths((prev) => prev.map((entry, slotIndex) => (slotIndex === index ? null : entry)))
+                        }}
+                        onUpload={async (file) => {
+                          setUploadingSlots((prev) => ({ ...prev, [`base-image-${index}`]: true }))
                           try {
                             const path = await uploadMedia(file, 'image', isHiphopProduct ? 'hiphop' : 'products')
                             setImageSlots((prev) => prev.map((entry, slotIndex) => (slotIndex === index ? path : entry)))
@@ -1740,33 +1990,21 @@ export function ProductForm({
                               description: error instanceof Error ? error.message : `Unable to upload ${label.toLowerCase()}.`,
                               variant: 'destructive',
                             })
+                          } finally {
+                            setUploadingSlots((prev) => ({ ...prev, [`base-image-${index}`]: false }))
                           }
                         }}
                       />
-                      <span className="mt-3 block break-all text-xs text-muted-foreground">{imageSlots[index] || 'No file selected'}</span>
-                    </label>
+                    ))}
                   </div>
-                ))}
-              </div>
-
-              <div className="mt-4 rounded-lg border border-border bg-secondary/10 p-4">
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                  <label className="text-sm font-medium text-foreground">Video Upload</label>
-                  <PillToggle value={showVideo} onChange={setShowVideo} onLabel="Show" offLabel="Hide" />
                 </div>
-                <label className="flex cursor-pointer flex-col items-center justify-center rounded border-2 border-dashed border-border p-6 text-center hover:border-primary transition-colors">
-                  <Video size={20} className="text-muted-foreground" />
-                  <p className="mt-3 text-sm text-muted-foreground">Upload product video</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {isHiphopProduct ? 'Saved into hiphop video folder' : 'Saved into products video folder'}
-                  </p>
-                  <input
-                    type="file"
-                    accept="video/*"
-                    className="hidden"
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0]
-                      if (!file) return
+
+                <div className="mt-4">
+                  <MediaVideoRow
+                    fileName={videoFileName || null}
+                    uploading={Boolean(uploadingVideos.base)}
+                    onUpload={async (file) => {
+                      setUploadingVideos((prev) => ({ ...prev, base: true }))
                       try {
                         const path = await uploadMedia(file, 'video', isHiphopProduct ? 'hiphop' : 'products')
                         setVideoFileName(path)
@@ -1778,12 +2016,145 @@ export function ProductForm({
                           description: error instanceof Error ? error.message : 'Unable to upload video.',
                           variant: 'destructive',
                         })
+                      } finally {
+                        setUploadingVideos((prev) => ({ ...prev, base: false }))
                       }
                     }}
                   />
-                  <span className="mt-3 text-xs text-muted-foreground">{videoFileName || 'No video selected'}</span>
-                </label>
-              </div>
+                </div>
+
+              {selectedMetalIds.length > 0 ? (
+                <div className="mt-6 rounded-lg border border-border bg-card p-6">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <h3 className="text-lg font-semibold text-foreground">Metal Based Media</h3>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Upload up to four images and one optional video per selected metal. If a metal has no own media, storefront falls back to the shared base media first, then to the selected fallback metal when needed.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-6 flex flex-wrap items-center gap-2">
+                    {selectedMetalIds.map((metalId) => {
+                      const metal = metals.find((entry) => entry.id === metalId)
+                      const mediaEntry = metalMedia.find((entry) => entry.metal_id === metalId)
+                      if (!metal || !mediaEntry) return null
+
+                      return (
+                        <button
+                          key={metalId}
+                          type="button"
+                          onClick={() => setActiveMetalMediaId(metalId)}
+                          className={`rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] transition-colors ${
+                            activeMetalMediaId === metalId
+                              ? 'border-foreground bg-foreground text-white'
+                              : 'border-border bg-white text-foreground hover:bg-secondary'
+                          }`}
+                        >
+                          {metal.name}
+                        </button>
+                      )
+                    })}
+                    {(() => {
+                      const activeEntry = metalMedia.find((entry) => entry.metal_id === activeMetalMediaId)
+                      if (!activeEntry) return null
+                      return (
+                        <span className="ml-1 text-xs font-medium text-muted-foreground">
+                          {activeEntry.is_default_fallback ? 'Fallback metal active' : 'Base media remains the default fallback'}
+                        </span>
+                      )
+                    })()}
+                  </div>
+
+                  {(() => {
+                    const metal = metals.find((entry) => entry.id === activeMetalMediaId)
+                    const mediaEntry = metalMedia.find((entry) => entry.metal_id === activeMetalMediaId)
+                    if (!metal || !mediaEntry) return null
+
+                    return (
+                      <div className="mt-5">
+                        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-foreground">{metal.name}</p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {mediaEntry.is_default_fallback ? 'Default fallback metal when metal-specific media is missing' : 'Uses base shared media unless this metal media is available'}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setFallbackMetal(activeMetalMediaId)}
+                            className={`rounded-full border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] transition-colors ${
+                              mediaEntry.is_default_fallback ? 'border-foreground bg-foreground text-white' : 'border-border bg-white text-foreground hover:bg-secondary'
+                            }`}
+                          >
+                            {mediaEntry.is_default_fallback ? 'Fallback Metal' : 'Set As Fallback'}
+                          </button>
+                        </div>
+
+                        <div className="flex flex-wrap gap-3">
+                          {[1, 2, 3, 4].map((slot) => {
+                            const field = `image_${slot}_path` as ProductMetalMediaImageField
+                            const path = mediaEntry[field]
+                            return (
+                              <MediaThumbnailSlot
+                                key={`${activeMetalMediaId}-${field}`}
+                                inputId={`metal-media-${activeMetalMediaId}-${field}`}
+                                label={`${metal.name} ${slot}`}
+                                path={path}
+                                visible
+                                uploading={Boolean(uploadingSlots[`metal-${activeMetalMediaId}-${field}`])}
+                                onVisibleChange={() => {}}
+                                onClear={() => {
+                                  updateMetalMediaEntry(activeMetalMediaId, (entry) => ({ ...entry, [field]: null }))
+                                }}
+                                onUpload={async (file) => {
+                                  setUploadingSlots((prev) => ({ ...prev, [`metal-${activeMetalMediaId}-${field}`]: true }))
+                                  try {
+                                    const uploadedPath = await uploadMedia(file, 'image', isHiphopProduct ? 'hiphop' : 'products')
+                                    updateMetalMediaEntry(activeMetalMediaId, (entry) => ({ ...entry, [field]: uploadedPath }))
+                                    toast({ title: 'Uploaded', description: `${metal.name} image ${slot} uploaded successfully.` })
+                                  } catch (error) {
+                                    toast({
+                                      title: 'Upload failed',
+                                      description: error instanceof Error ? error.message : `Unable to upload ${metal.name} image ${slot}.`,
+                                      variant: 'destructive',
+                                    })
+                                  } finally {
+                                    setUploadingSlots((prev) => ({ ...prev, [`metal-${activeMetalMediaId}-${field}`]: false }))
+                                  }
+                                }}
+                              />
+                            )
+                          })}
+                        </div>
+
+                        <div className="mt-4">
+                          <MediaVideoRow
+                            fileName={mediaEntry.video_path || null}
+                            uploading={Boolean(uploadingVideos[`metal-${activeMetalMediaId}`])}
+                            onUpload={async (file) => {
+                              setUploadingVideos((prev) => ({ ...prev, [`metal-${activeMetalMediaId}`]: true }))
+                              try {
+                                const uploadedPath = await uploadMedia(file, 'video', isHiphopProduct ? 'hiphop' : 'products')
+                                updateMetalMediaEntry(activeMetalMediaId, (entry) => ({ ...entry, video_path: uploadedPath }))
+                                toast({ title: 'Uploaded', description: `${metal.name} video uploaded successfully.` })
+                              } catch (error) {
+                                toast({
+                                  title: 'Upload failed',
+                                  description: error instanceof Error ? error.message : `Unable to upload ${metal.name} video.`,
+                                  variant: 'destructive',
+                                })
+                              } finally {
+                                setUploadingVideos((prev) => ({ ...prev, [`metal-${activeMetalMediaId}`]: false }))
+                              }
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )
+                  })()}
+                </div>
+              ) : null}
             </section>
           </>
         ) : null}
@@ -1910,36 +2281,36 @@ function ProductFormStepBar({
         </span>
       </div>
 
-      <div className="mt-6 grid grid-cols-1 gap-3 md:grid-cols-5">
-        {steps.map((step, index) => {
-          const isActive = step.id === activeStep
-          const isCompleted = steps.findIndex((entry) => entry.id === activeStep) > index
+        <div className="mt-6 grid grid-cols-1 gap-2 md:grid-cols-6">
+          {steps.map((step, index) => {
+            const isActive = step.id === activeStep
+            const isCompleted = steps.findIndex((entry) => entry.id === activeStep) > index
 
           return (
-            <button
-              key={step.id}
-              type="button"
-              onClick={() => onStepChange(step.id)}
-              className={`rounded-2xl border px-4 py-4 text-left transition-colors ${
-                isActive
-                  ? 'border-foreground bg-foreground text-white shadow-md'
-                  : isCompleted
-                    ? 'border-border bg-secondary/20 text-foreground hover:bg-secondary/40'
-                    : 'border-border bg-white text-foreground hover:bg-secondary/10'
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <span
-                  className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold ${
-                    isActive ? 'bg-white/15 text-white' : 'bg-secondary text-foreground'
-                  }`}
-                >
-                  {index + 1}
-                </span>
-                <p className="text-sm font-semibold">{step.label}</p>
-              </div>
-            </button>
-          )
+              <button
+                key={step.id}
+                type="button"
+                onClick={() => onStepChange(step.id)}
+                className={`rounded-xl border px-3 py-3 text-left transition-colors ${
+                  isActive
+                    ? 'border-foreground bg-foreground text-white shadow-md'
+                    : isCompleted
+                      ? 'border-border bg-secondary/20 text-foreground hover:bg-secondary/40'
+                      : 'border-border bg-white text-foreground hover:bg-secondary/10'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <span
+                    className={`inline-flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-semibold ${
+                      isActive ? 'bg-white/15 text-white' : 'bg-secondary text-foreground'
+                    }`}
+                  >
+                    {index + 1}
+                  </span>
+                  <p className="text-[13px] font-semibold leading-none">{step.label}</p>
+                </div>
+              </button>
+            )
         })}
       </div>
       <p className="mt-4 text-xs text-muted-foreground">{steps.find((step) => step.id === activeStep)?.description}</p>
@@ -2156,6 +2527,128 @@ function PolicyEditor({
         </div>
       ) : null}
     </div>
+  )
+}
+
+function MediaThumbnailSlot({
+  inputId,
+  label,
+  path,
+  visible,
+  uploading = false,
+  onVisibleChange,
+  onUpload,
+  onClear,
+}: {
+  inputId: string
+  label: string
+  path: string | null | undefined
+  visible: boolean
+  uploading?: boolean
+  onVisibleChange: (next: boolean) => void
+  onUpload: (file: File) => void | Promise<void>
+  onClear?: () => void
+}) {
+  return (
+    <div className="group relative h-24 w-24">
+      <label htmlFor={inputId} className="block h-full w-full cursor-pointer overflow-hidden rounded-xl border border-border bg-white transition-colors hover:border-primary">
+        {path ? (
+          <img src={toStoragePreviewUrl(path)} alt={`${label} preview`} className="h-full w-full object-cover" />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center border-2 border-dashed border-border text-muted-foreground">
+            <Plus size={18} />
+          </div>
+        )}
+        {uploading ? (
+          <div className="absolute inset-0 flex items-center justify-center bg-white/80 text-foreground">
+            <div className="flex flex-col items-center gap-1">
+              <Loader2 size={18} className="animate-spin" />
+              <span className="text-[10px] font-semibold uppercase tracking-[0.18em]">Uploading</span>
+            </div>
+          </div>
+        ) : null}
+      </label>
+
+      <div className="absolute right-2 top-2 flex items-center gap-1 opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
+        <button
+          type="button"
+          onClick={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            onVisibleChange(!visible)
+          }}
+          className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-white/95 text-foreground"
+          aria-label={visible ? `Hide ${label}` : `Show ${label}`}
+        >
+          {visible ? <Eye size={14} /> : <EyeOff size={14} />}
+        </button>
+        {path && onClear && !uploading ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              onClear()
+            }}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-white/95 text-foreground"
+            aria-label={`Delete ${label}`}
+          >
+            <Trash2 size={14} />
+          </button>
+        ) : null}
+      </div>
+
+      <input
+        id={inputId}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0]
+          if (!file) return
+          void onUpload(file)
+          event.currentTarget.value = ''
+        }}
+      />
+    </div>
+  )
+}
+
+function MediaVideoRow({
+  fileName,
+  uploading = false,
+  onUpload,
+}: {
+  fileName: string | null | undefined
+  uploading?: boolean
+  onUpload: (file: File) => void | Promise<void>
+}) {
+  return (
+    <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-border bg-white px-4 py-3 transition-colors hover:border-primary">
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-secondary/30 text-foreground">
+          <Video size={16} />
+        </span>
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-foreground">Video</p>
+          <p className="truncate text-xs text-muted-foreground">{fileName || 'No video'}</p>
+        </div>
+      </div>
+      <span className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-white">
+        {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+        {uploading ? 'Uploading' : 'Upload'}
+      </span>
+      <input
+        type="file"
+        accept="video/*"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0]
+          if (!file) return
+          void onUpload(file)
+        }}
+      />
+    </label>
   )
 }
 

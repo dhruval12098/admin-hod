@@ -9,7 +9,14 @@ export default async function EditProductBySlugPage({
 
   return (
     <div className="p-8">
-      <ProductForm productSlug={slug} />
+      <ProductForm
+        productSlug={slug}
+        forcedLane="standard"
+        forcedTemplate="standard"
+        backHref="/dashboard/products"
+        pageTitle="Edit Product"
+        pageDescription="Update the saved standard product and storefront details."
+      />
     </div>
   )
 }

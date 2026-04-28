@@ -38,23 +38,25 @@ export type DiamondInfoInitialData = {
   config: DiamondInfoConfig
 }
 
+function toPublicUrl(path: string) {
+  if (!path) return ''
+  if (path.startsWith('http://') || path.startsWith('https://')) return path
+  const bucket = process.env.NEXT_PUBLIC_SUPABASE_COLLECTION_BUCKET || 'hod'
+  const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  return projectUrl ? `${projectUrl}/storage/v1/object/public/${bucket}/${path}` : path
+}
+
 export function DiamondInfoEditorClient({ initialData }: { initialData: DiamondInfoInitialData }) {
   const { toast } = useToast()
   const [items, setItems] = useState<DiamondInfoItem[]>(initialData.items)
   const [config, setConfig] = useState<DiamondInfoConfig>(initialData.config)
+  const [videoPreviewUrl, setVideoPreviewUrl] = useState(initialData.config.video_path ? toPublicUrl(initialData.config.video_path) : '')
+  const [posterPreviewUrl, setPosterPreviewUrl] = useState(initialData.config.video_poster_path ? toPublicUrl(initialData.config.video_poster_path) : '')
   const [loadStatus, setLoadStatus] = useState(initialData.items.some((item) => item.label || item.heading || item.paragraph) ? 'Diamond Info loaded' : 'No Diamond Info rows found yet')
   const [editorOpen, setEditorOpen] = useState(false)
   const [editorItem, setEditorItem] = useState<DiamondInfoItem | null>(null)
   const [isUploadingVideo, setIsUploadingVideo] = useState(false)
   const [isUploadingPoster, setIsUploadingPoster] = useState(false)
-
-  const toPublicUrl = (path: string) => {
-    if (!path) return ''
-    if (path.startsWith('http://') || path.startsWith('https://')) return path
-    const bucket = process.env.NEXT_PUBLIC_SUPABASE_COLLECTION_BUCKET || 'hod'
-    const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    return projectUrl ? `${projectUrl}/storage/v1/object/public/${bucket}/${path}` : path
-  }
 
   const handleChange = (sortOrder: number, field: keyof DiamondInfoItem, value: string) => {
     setItems((prev) => prev.map((item) => (item.sort_order === sortOrder ? { ...item, [field]: value } : item)))
@@ -173,7 +175,7 @@ export function DiamondInfoEditorClient({ initialData }: { initialData: DiamondI
       body: formData,
     })
 
-    const payload = (await response.json().catch(() => null)) as { path?: string; error?: string } | null
+    const payload = (await response.json().catch(() => null)) as { path?: string; url?: string; error?: string } | null
 
     if (kind === 'video') {
       setIsUploadingVideo(false)
@@ -183,12 +185,24 @@ export function DiamondInfoEditorClient({ initialData }: { initialData: DiamondI
 
     if (!response.ok || !payload?.path) {
       setLoadStatus(payload?.error ?? 'Upload failed.')
+      toast({
+        title: 'Upload failed',
+        description: payload?.error ?? 'Upload failed.',
+        variant: 'destructive',
+      })
       return
     }
 
     const nextConfig = {
       ...config,
+      video_enabled: kind === 'video' ? true : config.video_enabled,
       [kind === 'video' ? 'video_path' : 'video_poster_path']: payload.path,
+    }
+
+    if (kind === 'video') {
+      setVideoPreviewUrl(payload.url || toPublicUrl(payload.path))
+    } else {
+      setPosterPreviewUrl(payload.url || toPublicUrl(payload.path))
     }
 
     await saveConfig(nextConfig, kind === 'video' ? 'Saving Diamond Info video...' : 'Saving Diamond Info poster...')
@@ -250,8 +264,8 @@ export function DiamondInfoEditorClient({ initialData }: { initialData: DiamondI
             {config.video_path ? (
               <div className="mt-4 overflow-hidden rounded-lg border border-border bg-black/90">
                 <video
-                  src={toPublicUrl(config.video_path)}
-                  poster={config.video_poster_path ? toPublicUrl(config.video_poster_path) : undefined}
+                  src={videoPreviewUrl || toPublicUrl(config.video_path)}
+                  poster={config.video_poster_path ? (posterPreviewUrl || toPublicUrl(config.video_poster_path)) : undefined}
                   controls
                   muted
                   playsInline
@@ -275,7 +289,7 @@ export function DiamondInfoEditorClient({ initialData }: { initialData: DiamondI
             <p className="mt-2 text-xs text-muted-foreground">Optional preview image stored in `diamond-info/posters`.</p>
             {config.video_poster_path ? (
               <div className="mt-4 overflow-hidden rounded-lg border border-border bg-white">
-                <img src={toPublicUrl(config.video_poster_path)} alt="Diamond Info poster" className="h-40 w-full object-cover" />
+                <img src={posterPreviewUrl || toPublicUrl(config.video_poster_path)} alt="Diamond Info poster" className="h-40 w-full object-cover" />
               </div>
             ) : (
               <div className="mt-4 rounded-lg border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">

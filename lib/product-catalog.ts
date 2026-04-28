@@ -60,6 +60,27 @@ export type CatalogMetal = {
   status: CatalogStatus
 }
 
+export type ProductPurityPrice = {
+  id?: string
+  product_id?: string
+  purity_label: string
+  price: number
+  compare_at_price?: number | null
+  sort_order: number
+}
+
+export type ProductMetalMedia = {
+  id?: string
+  product_id?: string
+  metal_id: string
+  image_1_path?: string | null
+  image_2_path?: string | null
+  image_3_path?: string | null
+  image_4_path?: string | null
+  video_path?: string | null
+  is_default_fallback?: boolean
+}
+
 export type CatalogStoneShape = {
   id: string
   name: string
@@ -147,6 +168,7 @@ export type ProductRecord = {
   description: string | null
   tag_line: string | null
   base_price: number | null
+  default_purity_price_id?: string | null
   discount_price: number | null
   gst_slab_id?: string | null
   featured: boolean

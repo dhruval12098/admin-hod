@@ -31,12 +31,33 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Ring category and size label are required.' }, { status: 400 })
   }
 
+  const sizeLabel = body.size_label.trim()
+  const sizeValue = body.size_value?.trim() || null
+
+  const { data: existingDuplicate, error: duplicateLookupError } = await access.adminClient
+    .from('catalog_ring_category_sizes')
+    .select('id, size_label, size_value')
+    .eq('ring_category_id', body.ring_category_id)
+    .eq('size_label', sizeLabel)
+    .maybeSingle()
+
+  if (duplicateLookupError) {
+    return NextResponse.json({ error: duplicateLookupError.message }, { status: 500 })
+  }
+
+  if (existingDuplicate) {
+    return NextResponse.json(
+      { error: `A size with label "${sizeLabel}" already exists in this ring category.` },
+      { status: 409 }
+    )
+  }
+
   const { data, error } = await access.adminClient
     .from('catalog_ring_category_sizes')
     .insert({
       ring_category_id: body.ring_category_id,
-      size_label: body.size_label.trim(),
-      size_value: body.size_value?.trim() || null,
+      size_label: sizeLabel,
+      size_value: sizeValue,
       display_order: Number(body.display_order ?? 0),
       status: body.status || 'active',
     })
