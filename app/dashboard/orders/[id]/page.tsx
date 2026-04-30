@@ -456,12 +456,14 @@ export default function OrderDetailPage({ params }: OrderDetailPageProps) {
 
             <div className="mt-5 grid grid-cols-2 gap-3">
               <div className="rounded-2xl border border-border bg-secondary/20 px-4 py-3">
-                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Total</div>
+                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Base Total</div>
                 <div className="mt-2 text-base font-semibold text-foreground">${Number(order.total_amount || 0).toLocaleString()}</div>
               </div>
               <div className="rounded-2xl border border-border bg-secondary/20 px-4 py-3">
-                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Payment</div>
-                <div className="mt-2 text-sm font-semibold capitalize text-foreground">{order.payment_status || '-'}</div>
+                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Charged</div>
+                <div className="mt-2 text-sm font-semibold text-foreground">
+                  {(order.payment_currency || 'USD')} {Number(order.payment_amount || order.total_amount || 0).toLocaleString()}
+                </div>
               </div>
               <div className="rounded-2xl border border-border bg-secondary/20 px-4 py-3">
                 <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Items</div>
