@@ -15,6 +15,9 @@ type OrderStatusUpdateInput = {
   totalAmount: number
   items: OrderEmailItem[]
   status: string
+  courierName?: string | null
+  courierAwbNumber?: string | null
+  shippedAt?: string | null
 }
 
 const emailHost = process.env.EMAIL_HOST
@@ -78,6 +81,20 @@ export async function sendOrderStatusUpdateEmail(input: OrderStatusUpdateInput) 
       `
     )
     .join('')
+  const shippedDateLabel = input.shippedAt
+    ? new Date(input.shippedAt).toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' })
+    : null
+  const shipmentMarkup =
+    input.status === 'shipped' && (input.courierName || input.courierAwbNumber)
+      ? `
+            <div style="margin-top:20px;padding:18px 20px;border-radius:18px;background:#fbf8f2;border:1px solid #ece7dd;">
+              <div style="font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:#8b7355;font-weight:700;">Shipment Details</div>
+              ${input.courierName ? `<div style="margin-top:12px;font-size:14px;color:#1c1f26;"><strong>Courier:</strong> ${input.courierName}</div>` : ''}
+              ${input.courierAwbNumber ? `<div style="margin-top:8px;font-size:14px;color:#1c1f26;"><strong>AWB / Tracking Number:</strong> ${input.courierAwbNumber}</div>` : ''}
+              ${shippedDateLabel ? `<div style="margin-top:8px;font-size:14px;color:#1c1f26;"><strong>Shipped On:</strong> ${shippedDateLabel}</div>` : ''}
+            </div>
+        `
+      : ''
 
   const html = `
     <div style="margin:0;padding:32px 16px;background:#f5f1eb;font-family:Arial,sans-serif;color:#1c1f26;">
@@ -106,6 +123,7 @@ export async function sendOrderStatusUpdateEmail(input: OrderStatusUpdateInput) 
             <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;">
               ${itemRows}
             </table>
+            ${shipmentMarkup}
             <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:18px;border-top:1px solid #ece7dd;">
               <tr>
                 <td style="padding-top:18px;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#8b7355;">Total</td>

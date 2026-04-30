@@ -30,6 +30,24 @@ type OrderDetail = {
   love_letter_type?: 'generate_for_me' | 'write_myself' | 'no_letter' | null
   status: 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled'
   payment_status: string
+  payment_gateway?: string | null
+  payment_currency?: string | null
+  payment_amount?: number | null
+  razorpay_order_id?: string | null
+  razorpay_payment_id?: string | null
+  razorpay_payment_method?: string | null
+  razorpay_payment_contact?: string | null
+  razorpay_payment_email?: string | null
+  gateway_order_status?: string | null
+  gateway_payment_status?: string | null
+  payment_verified_at?: string | null
+  payment_failed_at?: string | null
+  payment_captured_at?: string | null
+  razorpay_error_code?: string | null
+  razorpay_error_description?: string | null
+  courier_name?: string | null
+  courier_awb_number?: string | null
+  shipped_at?: string | null
   created_at: string
   notes: string | null
 }
@@ -106,6 +124,8 @@ export default function OrderDetailPage({ params }: OrderDetailPageProps) {
   const [items, setItems] = useState<OrderItem[]>([])
   const [loveLetter, setLoveLetter] = useState<OrderLoveLetter | null>(null)
   const [status, setStatus] = useState<OrderDetail['status']>('pending')
+  const [courierName, setCourierName] = useState('')
+  const [courierAwbNumber, setCourierAwbNumber] = useState('')
   const [showLetterPreview, setShowLetterPreview] = useState(false)
 
   useEffect(() => {
@@ -127,6 +147,8 @@ export default function OrderDetailPage({ params }: OrderDetailPageProps) {
         setItems(payload.items ?? [])
         setLoveLetter(payload.loveLetter ?? null)
         setStatus(payload.order.status)
+        setCourierName(payload.order.courier_name ?? '')
+        setCourierAwbNumber(payload.order.courier_awb_number ?? '')
       }
     } finally {
       setLoading(false)
@@ -135,11 +157,33 @@ export default function OrderDetailPage({ params }: OrderDetailPageProps) {
 
   const saveStatus = async () => {
     if (!order) return
+    if (status === 'shipped') {
+      if (!courierName.trim()) {
+        toast({
+          title: 'Courier required',
+          description: 'Please add the courier name before marking the order as shipped.',
+          variant: 'destructive',
+        })
+        return
+      }
+      if (!courierAwbNumber.trim()) {
+        toast({
+          title: 'AWB required',
+          description: 'Please add the AWB or tracking number before marking the order as shipped.',
+          variant: 'destructive',
+        })
+        return
+      }
+    }
     setSavingStatus(true)
     try {
       const response = await authedFetch(`/api/orders/${order.id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({
+          status,
+          courier_name: courierName.trim() || null,
+          courier_awb_number: courierAwbNumber.trim() || null,
+        }),
       })
       const payload = await response.json().catch(() => null)
       if (response.ok) {
@@ -180,6 +224,7 @@ export default function OrderDetailPage({ params }: OrderDetailPageProps) {
   const customerName = [order?.customer_first_name, order?.customer_last_name].filter(Boolean).join(' ') || '-'
   const shippingCityLine =
     [order?.shipping_city, order?.shipping_state, order?.shipping_postal_code].filter(Boolean).join(', ') || '-'
+  const showShippingFields = status === 'shipped' || Boolean(order?.courier_name || order?.courier_awb_number)
   const statusBadgeClass =
     status === 'delivered'
       ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
@@ -286,6 +331,49 @@ export default function OrderDetailPage({ params }: OrderDetailPageProps) {
         </div>
       </div>
 
+      {showShippingFields ? (
+        <div className="mb-6 rounded-lg border border-border bg-white p-6 shadow-xs">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h2 className="font-jakarta text-lg font-semibold text-foreground">Shipment Details</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Add courier and AWB details before sending the shipped update email.
+              </p>
+            </div>
+            {order?.shipped_at ? (
+              <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                Shipped {new Date(order.shipped_at).toLocaleString()}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
+            <div>
+              <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                Courier Name
+              </label>
+              <input
+                value={courierName}
+                onChange={(event) => setCourierName(event.target.value)}
+                placeholder="Bluedart, DHL, FedEx..."
+                className="h-11 w-full rounded-lg border border-border bg-white px-4 text-sm text-foreground outline-none transition focus:border-primary"
+              />
+            </div>
+            <div>
+              <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                AWB / Tracking Number
+              </label>
+              <input
+                value={courierAwbNumber}
+                onChange={(event) => setCourierAwbNumber(event.target.value)}
+                placeholder="Enter shipment tracking number"
+                className="h-11 w-full rounded-lg border border-border bg-white px-4 text-sm text-foreground outline-none transition focus:border-primary"
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div className="mb-6 rounded-lg border border-border bg-white p-6 shadow-xs">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -387,6 +475,36 @@ export default function OrderDetailPage({ params }: OrderDetailPageProps) {
 
             <div className="mt-6 space-y-5 border-t border-border pt-5">
               <div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Payment Details</div>
+                <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                  <div className="rounded-2xl border border-border bg-secondary/20 px-4 py-3">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Gateway</div>
+                    <div className="mt-2 font-semibold text-foreground capitalize">{order.payment_gateway || '-'}</div>
+                  </div>
+                  <div className="rounded-2xl border border-border bg-secondary/20 px-4 py-3">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Method</div>
+                    <div className="mt-2 font-semibold text-foreground capitalize">{order.razorpay_payment_method || '-'}</div>
+                  </div>
+                  <div className="rounded-2xl border border-border bg-secondary/20 px-4 py-3">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Gateway Order</div>
+                    <div className="mt-2 break-all font-semibold text-foreground">{order.razorpay_order_id || '-'}</div>
+                  </div>
+                  <div className="rounded-2xl border border-border bg-secondary/20 px-4 py-3">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Gateway Payment</div>
+                    <div className="mt-2 break-all font-semibold text-foreground">{order.razorpay_payment_id || '-'}</div>
+                  </div>
+                </div>
+
+                <div className="mt-3 space-y-2 text-sm text-muted-foreground">
+                  <div><span className="font-semibold text-foreground">Gateway status:</span> {order.gateway_payment_status || order.gateway_order_status || '-'}</div>
+                  <div><span className="font-semibold text-foreground">Payment amount:</span> {order.payment_currency || 'INR'} {Number(order.payment_amount || order.total_amount || 0).toLocaleString()}</div>
+                  {order.payment_captured_at ? <div><span className="font-semibold text-foreground">Captured at:</span> {new Date(order.payment_captured_at).toLocaleString()}</div> : null}
+                  {order.payment_failed_at ? <div><span className="font-semibold text-foreground">Failed at:</span> {new Date(order.payment_failed_at).toLocaleString()}</div> : null}
+                  {order.razorpay_error_description ? <div><span className="font-semibold text-foreground">Failure note:</span> {order.razorpay_error_description}</div> : null}
+                </div>
+              </div>
+
+              <div>
                 <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Customer</div>
                 <div className="mt-3 space-y-2 text-sm text-muted-foreground">
                   <div><span className="font-semibold text-foreground">Name:</span> {customerName}</div>
@@ -402,6 +520,8 @@ export default function OrderDetailPage({ params }: OrderDetailPageProps) {
                   {order.shipping_address_line_2 ? <div>{order.shipping_address_line_2}</div> : null}
                   <div>{shippingCityLine}</div>
                   <div>{order.shipping_country || '-'}</div>
+                  {order.courier_name ? <div><span className="font-semibold text-foreground">Courier:</span> {order.courier_name}</div> : null}
+                  {order.courier_awb_number ? <div><span className="font-semibold text-foreground">AWB:</span> {order.courier_awb_number}</div> : null}
                 </div>
               </div>
 

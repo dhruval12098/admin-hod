@@ -48,15 +48,26 @@ export async function PATCH(request: Request, context: RouteContext) {
   const { id } = await context.params
   const payload = await request.json().catch(() => null)
   const status = payload?.status
+  const courierName = typeof payload?.courier_name === 'string' ? payload.courier_name.trim() : null
+  const courierAwbNumber = typeof payload?.courier_awb_number === 'string' ? payload.courier_awb_number.trim() : null
 
   if (!status) {
     return NextResponse.json({ error: 'Missing status.' }, { status: 400 })
   }
 
+  if (status === 'shipped') {
+    if (!courierName) {
+      return NextResponse.json({ error: 'Courier name is required for shipped orders.' }, { status: 400 })
+    }
+    if (!courierAwbNumber) {
+      return NextResponse.json({ error: 'AWB or tracking number is required for shipped orders.' }, { status: 400 })
+    }
+  }
+
   const [existingOrderResult, itemsResult] = await Promise.all([
     adminClient
       .from('orders')
-      .select('id, order_number, customer_email, customer_first_name, customer_last_name, total_amount, created_at, status')
+      .select('id, order_number, customer_email, customer_first_name, customer_last_name, total_amount, created_at, status, courier_name, courier_awb_number, shipped_at')
       .eq('id', id)
       .single(),
     adminClient
@@ -76,9 +87,17 @@ export async function PATCH(request: Request, context: RouteContext) {
 
   const { data, error } = await adminClient
     .from('orders')
-    .update({ status })
+    .update({
+      status,
+      courier_name: courierName,
+      courier_awb_number: courierAwbNumber,
+      shipped_at:
+        status === 'shipped'
+          ? existingOrderResult.data.shipped_at ?? new Date().toISOString()
+          : existingOrderResult.data.shipped_at ?? null,
+    })
     .eq('id', id)
-    .select('id, status, order_number, customer_email, customer_first_name, customer_last_name, total_amount, created_at')
+    .select('id, status, order_number, customer_email, customer_first_name, customer_last_name, total_amount, created_at, courier_name, courier_awb_number, shipped_at')
     .single()
 
   if (error) {
@@ -95,6 +114,9 @@ export async function PATCH(request: Request, context: RouteContext) {
         orderDate: data.created_at,
         totalAmount: Number(data.total_amount || 0),
         status,
+        courierName: data.courier_name || null,
+        courierAwbNumber: data.courier_awb_number || null,
+        shippedAt: data.shipped_at || null,
         items: (itemsResult.data ?? []).map((item) => ({
           product_name: item.product_name,
           quantity: Number(item.quantity || 0),
