@@ -15,9 +15,10 @@ export async function GET(request: Request, context: RouteContext) {
   const { adminClient } = access
   const { id } = await context.params
 
-  const [orderResult, itemsResult] = await Promise.all([
+  const [orderResult, itemsResult, loveLetterResult] = await Promise.all([
     adminClient.from('orders').select('*').eq('id', id).single(),
     adminClient.from('order_items').select('*').eq('order_id', id).order('created_at', { ascending: true }),
+    adminClient.from('order_love_letters').select('*').eq('order_id', id).maybeSingle(),
   ])
 
   if (orderResult.error) {
@@ -28,9 +29,14 @@ export async function GET(request: Request, context: RouteContext) {
     return NextResponse.json({ error: itemsResult.error.message }, { status: 500 })
   }
 
+  if (loveLetterResult.error) {
+    return NextResponse.json({ error: loveLetterResult.error.message }, { status: 500 })
+  }
+
   return NextResponse.json({
     order: orderResult.data,
     items: itemsResult.data ?? [],
+    loveLetter: loveLetterResult.data ?? null,
   })
 }
 

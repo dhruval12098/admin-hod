@@ -15,6 +15,7 @@ async function getStyles(): Promise<CatalogStyleItem[]> {
   return (data ?? []).map((item: any) => ({
     id: item.id,
     name: item.name,
+    iconSvgPath: item.icon_svg_path ?? '',
     displayOrder: item.display_order,
     status: item.status === 'hidden' ? 'Hidden' : 'Active',
   }))

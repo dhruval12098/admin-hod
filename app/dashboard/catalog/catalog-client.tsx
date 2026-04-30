@@ -28,6 +28,7 @@ type SubcategoryFormState = {
   name: string
   slug: string
   parentCategoryId: string
+  iconSvgPath: string
   displayOrder: number
   status: 'Active' | 'Hidden'
 }
@@ -36,6 +37,7 @@ type OptionFormState = {
   name: string
   slug: string
   parentSubcategoryId: string
+  iconSvgPath: string
   displayOrder: number
   status: 'Active' | 'Hidden'
 }
@@ -69,6 +71,7 @@ function emptySubcategoryForm(categoryId: string, nextOrder: number): Subcategor
     name: '',
     slug: '',
     parentCategoryId: categoryId || '',
+    iconSvgPath: '',
     displayOrder: nextOrder,
     status: 'Active',
   }
@@ -79,6 +82,7 @@ function emptyOptionForm(subcategoryId: string, nextOrder: number): OptionFormSt
     name: '',
     slug: '',
     parentSubcategoryId: subcategoryId || '',
+    iconSvgPath: '',
     displayOrder: nextOrder,
     status: 'Active',
   }
@@ -107,6 +111,29 @@ async function authedFetch(url: string, options: RequestInit = {}) {
   if (accessToken) headers.set('authorization', `Bearer ${accessToken}`)
   if (!(options.body instanceof FormData)) headers.set('content-type', 'application/json')
   return fetch(url, { ...options, headers })
+}
+
+async function uploadCatalogSvg(kind: 'subcategories' | 'options', file: File) {
+  const accessToken = await getAccessToken()
+  if (!accessToken) {
+    throw new Error('You must be signed in to upload SVG files.')
+  }
+
+  const payload = new FormData()
+  payload.append('file', file)
+
+  const response = await fetch(`/api/catalog/${kind}/upload`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${accessToken}` },
+    body: payload,
+  })
+
+  const data = await response.json().catch(() => null)
+  if (!response.ok || !data?.path) {
+    throw new Error(data?.error ?? 'Unable to upload SVG.')
+  }
+
+  return data.path as string
 }
 
 export function CatalogClient({
@@ -385,6 +412,7 @@ function SubcategoriesPanel({
   const [formData, setFormData] = useState<SubcategoryFormState>(emptySubcategoryForm(categories[0]?.id ?? '', subcategories.length + 1))
   const [saveConfirmOpen, setSaveConfirmOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<CatalogSubcategory | null>(null)
+  const [uploading, setUploading] = useState(false)
 
   const openNew = () => {
     setSelectedId(null)
@@ -398,6 +426,7 @@ function SubcategoriesPanel({
       name: item.name,
       slug: item.slug,
       parentCategoryId: item.category_id,
+      iconSvgPath: item.icon_svg_path ?? '',
       displayOrder: item.display_order,
       status: item.status === 'hidden' ? 'Hidden' : 'Active',
     })
@@ -417,6 +446,7 @@ function SubcategoriesPanel({
         name: formData.name,
         slug: formData.slug,
         sub_type: 'standard',
+        icon_svg_path: formData.iconSvgPath || null,
         display_order: formData.displayOrder,
         status: formData.status === 'Hidden' ? 'hidden' : 'active',
       }),
@@ -446,17 +476,31 @@ function SubcategoriesPanel({
     }
   }
 
+  const handleUpload = async (file: File) => {
+    setUploading(true)
+    try {
+      const path = await uploadCatalogSvg('subcategories', file)
+      setFormData((current) => ({ ...current, iconSvgPath: path }))
+      toast({ title: 'SVG uploaded', description: 'Subcategory icon uploaded successfully.' })
+    } catch (error) {
+      toast({ title: 'Upload failed', description: error instanceof Error ? error.message : 'Unable to upload SVG.' })
+    } finally {
+      setUploading(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <SectionHeader title="Subcategories" description="Manage category children and their display behavior." actionLabel="Add New Subcategory" onAction={openNew} />
 
       <DataTable
-        headers={['Name', 'Slug', 'Parent Category', 'Display Order', 'Status', 'Edit', 'Delete']}
+        headers={['Name', 'Slug', 'Icon', 'Parent Category', 'Display Order', 'Status', 'Edit', 'Delete']}
         rows={subcategories.map((item) => ({
           id: item.id,
           cells: [
             item.name,
             item.slug,
+            item.icon_svg_path || 'No SVG',
             categories.find((category) => category.id === item.category_id)?.name ?? '',
             item.display_order,
             item.status === 'active' ? 'Active' : 'Hidden',
@@ -481,6 +525,35 @@ function SubcategoriesPanel({
         </Field>
         <Field label="Slug">
           <input value={formData.slug} onChange={(e) => setFormData((prev) => ({ ...prev, slug: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm" />
+        </Field>
+        <Field label="Icon SVG">
+          <div className="space-y-3">
+            <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary">
+              Upload SVG
+              <input
+                type="file"
+                accept=".svg,image/svg+xml"
+                className="hidden"
+                disabled={uploading}
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  if (file) void handleUpload(file)
+                }}
+              />
+            </label>
+            {formData.iconSvgPath ? (
+              <button
+                type="button"
+                onClick={() => setFormData((current) => ({ ...current, iconSvgPath: '' }))}
+                className="rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
+              >
+                Remove SVG
+              </button>
+            ) : null}
+            <p className="text-xs text-muted-foreground">
+              {uploading ? 'Uploading SVG...' : formData.iconSvgPath || 'No SVG uploaded yet'}
+            </p>
+          </div>
         </Field>
         <Field label="Parent Category">
           <Select value={formData.parentCategoryId || undefined} onValueChange={(value) => setFormData((prev) => ({ ...prev, parentCategoryId: value }))}>
@@ -544,6 +617,7 @@ function OptionsPanel({
   const [formData, setFormData] = useState<OptionFormState>(emptyOptionForm(availableSubcategories[0]?.id ?? '', options.length + 1))
   const [saveConfirmOpen, setSaveConfirmOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<CatalogOption | null>(null)
+  const [uploading, setUploading] = useState(false)
 
   const openNew = () => {
     setSelectedId(null)
@@ -557,6 +631,7 @@ function OptionsPanel({
       name: item.name,
       slug: item.slug,
       parentSubcategoryId: item.subcategory_id,
+      iconSvgPath: item.icon_svg_path ?? '',
       displayOrder: item.display_order,
       status: item.status === 'hidden' ? 'Hidden' : 'Active',
     })
@@ -575,6 +650,7 @@ function OptionsPanel({
         subcategory_id: formData.parentSubcategoryId,
         name: formData.name,
         slug: formData.slug,
+        icon_svg_path: formData.iconSvgPath || null,
         display_order: formData.displayOrder,
         status: formData.status === 'Hidden' ? 'hidden' : 'active',
       }),
@@ -604,17 +680,31 @@ function OptionsPanel({
     }
   }
 
+  const handleUpload = async (file: File) => {
+    setUploading(true)
+    try {
+      const path = await uploadCatalogSvg('options', file)
+      setFormData((current) => ({ ...current, iconSvgPath: path }))
+      toast({ title: 'SVG uploaded', description: 'Option icon uploaded successfully.' })
+    } catch (error) {
+      toast({ title: 'Upload failed', description: error instanceof Error ? error.message : 'Unable to upload SVG.' })
+    } finally {
+      setUploading(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <SectionHeader title="Options" description="Manage manual child options for any subcategory." actionLabel="Add New Option" onAction={openNew} />
 
       <DataTable
-        headers={['Name', 'Slug', 'Parent Subcategory', 'Display Order', 'Status', 'Edit', 'Delete']}
+        headers={['Name', 'Slug', 'Icon', 'Parent Subcategory', 'Display Order', 'Status', 'Edit', 'Delete']}
         rows={options.map((item) => ({
           id: item.id,
           cells: [
             item.name,
             item.slug,
+            item.icon_svg_path || 'No SVG',
             subcategories.find((subcategory) => subcategory.id === item.subcategory_id)?.name ?? '',
             item.display_order,
             item.status === 'active' ? 'Active' : 'Hidden',
@@ -639,6 +729,35 @@ function OptionsPanel({
         </Field>
         <Field label="Slug">
           <input value={formData.slug} onChange={(e) => setFormData((prev) => ({ ...prev, slug: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm" />
+        </Field>
+        <Field label="Icon SVG">
+          <div className="space-y-3">
+            <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary">
+              Upload SVG
+              <input
+                type="file"
+                accept=".svg,image/svg+xml"
+                className="hidden"
+                disabled={uploading}
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  if (file) void handleUpload(file)
+                }}
+              />
+            </label>
+            {formData.iconSvgPath ? (
+              <button
+                type="button"
+                onClick={() => setFormData((current) => ({ ...current, iconSvgPath: '' }))}
+                className="rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
+              >
+                Remove SVG
+              </button>
+            ) : null}
+            <p className="text-xs text-muted-foreground">
+              {uploading ? 'Uploading SVG...' : formData.iconSvgPath || 'No SVG uploaded yet'}
+            </p>
+          </div>
         </Field>
         <Field label="Parent Subcategory">
           <Select value={formData.parentSubcategoryId || undefined} onValueChange={(value) => setFormData((prev) => ({ ...prev, parentSubcategoryId: value }))}>

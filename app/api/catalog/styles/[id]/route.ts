@@ -15,6 +15,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     .from('catalog_styles')
     .update({
       name: body.name,
+      icon_svg_path: body.icon_svg_path ?? null,
       display_order: body.display_order ?? 0,
       status: body.status ?? 'active',
     })

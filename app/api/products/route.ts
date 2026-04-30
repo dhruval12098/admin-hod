@@ -5,6 +5,7 @@ import type {
   CatalogCertificate,
   CatalogGstSlab,
   CatalogMetal,
+  CatalogMaterialValue,
   CatalogOption,
   ProductMetalMedia,
   ProductPurityPrice,
@@ -158,6 +159,45 @@ async function replaceProductMetalMedia(adminClient: any, productId: string, met
   return { ok: true }
 }
 
+async function replaceProductMaterialValueSelections(adminClient: any, productId: string, materialValueIds: string[]) {
+  const existingResult = await adminClient
+    .from('product_material_value_selections')
+    .select('id, material_value_id')
+    .eq('product_id', productId)
+  if (existingResult.error && !isMissingRelation(existingResult.error, 'product_material_value_selections')) {
+    return { error: existingResult.error }
+  }
+
+  const existingByValueId = new Map((existingResult.data ?? []).map((row: { id: string; material_value_id: string }) => [row.material_value_id, row.id]))
+  const nextValueIds = [...new Set(materialValueIds.filter(Boolean))]
+  const deleteIds = (existingResult.data ?? [])
+    .filter((row: { material_value_id: string }) => !nextValueIds.includes(row.material_value_id))
+    .map((row: { id: string }) => row.id)
+
+  if (deleteIds.length > 0) {
+    const deleteResult = await adminClient.from('product_material_value_selections').delete().in('id', deleteIds)
+    if (deleteResult.error) return { error: deleteResult.error }
+  }
+
+  for (const [index, materialValueId] of nextValueIds.entries()) {
+    const existingId = existingByValueId.get(materialValueId)
+    if (existingId) {
+      const updateResult = await adminClient
+        .from('product_material_value_selections')
+        .update({ sort_order: index + 1 })
+        .eq('id', existingId)
+      if (updateResult.error) return { error: updateResult.error }
+    } else {
+      const insertResult = await adminClient
+        .from('product_material_value_selections')
+        .insert({ product_id: productId, material_value_id: materialValueId, sort_order: index + 1 })
+      if (insertResult.error) return { error: insertResult.error }
+    }
+  }
+
+  return { ok: true }
+}
+
 function buildProductWritePayload(body: ProductPayload, includeStyleId = true) {
   const payload: Record<string, unknown> = {
     name: body.name,
@@ -185,7 +225,6 @@ function buildProductWritePayload(body: ProductPayload, includeStyleId = true) {
     fit_options: body.fit_options ?? [],
     fit_label: body.fit_label,
     gemstone_label: body.gemstone_label,
-    gemstone_value: body.gemstone_value,
     shapes_enabled: body.shapes_enabled ?? false,
     show_purity: body.show_purity,
     engraving_enabled: body.engraving_enabled,
@@ -227,6 +266,10 @@ function buildProductWritePayload(body: ProductPayload, includeStyleId = true) {
     payload.style_id = body.style_id ?? null
   }
 
+  if (body.gemstone_value !== undefined) {
+    payload.gemstone_value = body.gemstone_value
+  }
+
   return payload
 }
 
@@ -261,6 +304,7 @@ type ProductPayload = {
   fit_label: string | null
   gemstone_label: string | null
   gemstone_value: string | null
+  material_value_ids?: string[]
   shapes_enabled?: boolean
   shape_ids?: string[]
   show_purity: boolean
@@ -307,11 +351,12 @@ function extractRelatedName(value: RelatedNameRow) {
 }
 
 async function loadCatalog(adminClient: any) {
-  const [categoriesResult, subcategoriesResult, optionsResult, metalsResult, shapesResult, certificatesResult, ringCategoriesResult, ringCategorySizesResult, stylesResult, gstSlabsResult] = await Promise.all([
+  const [categoriesResult, subcategoriesResult, optionsResult, metalsResult, materialValuesResult, shapesResult, certificatesResult, ringCategoriesResult, ringCategorySizesResult, stylesResult, gstSlabsResult] = await Promise.all([
     adminClient.from('catalog_categories').select('*'),
     adminClient.from('catalog_subcategories').select('*'),
     adminClient.from('catalog_options').select('*'),
     adminClient.from('catalog_metals').select('*'),
+    adminClient.from('catalog_material_values').select('*'),
     adminClient.from('catalog_stone_shapes').select('*'),
     adminClient.from('catalog_certificates').select('*'),
     adminClient.from('catalog_ring_categories').select('*'),
@@ -325,6 +370,7 @@ async function loadCatalog(adminClient: any) {
     subcategories: (subcategoriesResult.data ?? []) as CatalogSubcategory[],
     options: (optionsResult.data ?? []) as CatalogOption[],
     metals: (metalsResult.data ?? []) as CatalogMetal[],
+    materialValues: materialValuesResult.error ? ([] as CatalogMaterialValue[]) : ((materialValuesResult.data ?? []) as CatalogMaterialValue[]),
     shapes: (shapesResult.data ?? []) as CatalogStoneShape[],
     certificates: certificatesResult.error ? ([] as CatalogCertificate[]) : ((certificatesResult.data ?? []) as CatalogCertificate[]),
     ringCategories: ringCategoriesResult.error ? ([] as CatalogRingCategory[]) : ((ringCategoriesResult.data ?? []) as CatalogRingCategory[]),
@@ -387,9 +433,12 @@ export async function GET(request: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   const productIds = (products ?? []).map((product) => product.id)
-  const [metalSelections, shapeSelections, catalog] = await Promise.all([
+  const [metalSelections, materialValueSelections, shapeSelections, catalog] = await Promise.all([
     productIds.length
       ? adminClient.from('product_metal_selections').select('product_id, metal:catalog_metals(name)').in('product_id', productIds)
+      : Promise.resolve({ data: [], error: null }),
+    productIds.length
+      ? adminClient.from('product_material_value_selections').select('product_id, material_value:catalog_material_values(name)').in('product_id', productIds)
       : Promise.resolve({ data: [], error: null }),
     productIds.length
       ? adminClient.from('product_stone_shapes').select('product_id, shape:catalog_stone_shapes(name, slug)').in('product_id', productIds)
@@ -413,6 +462,15 @@ export async function GET(request: Request) {
     }
   }
 
+  const materialValueMap = new Map<string, string[]>()
+  if (!materialValueSelections.error || !isMissingRelation(materialValueSelections.error, 'product_material_value_selections')) {
+    for (const row of materialValueSelections.data ?? []) {
+      const name = extractRelatedName(row.material_value as RelatedNameRow)
+      if (!name) continue
+      materialValueMap.set(row.product_id, [...(materialValueMap.get(row.product_id) ?? []), name])
+    }
+  }
+
   const items = ((products ?? []) as ProductRecord[]).map((product) =>
     ({
       ...formatProductListItem(
@@ -423,6 +481,7 @@ export async function GET(request: Request) {
       defaultPurityPriceId: product.default_purity_price_id ?? null,
       shapesEnabled: Boolean(product.shapes_enabled),
       shapes: shapeMap.get(product.id) ?? [],
+      materialValues: materialValueMap.get(product.id) ?? [],
     })
   )
 
@@ -463,7 +522,7 @@ export async function POST(request: Request) {
   }
 
   let { data: product, error } = await adminClient.from('products').insert(buildInsertPayload()).select('*').single()
-  if (error && (isMissingStyleIdColumn(error) || isMissingProductColumn(error, 'shapes_enabled') || isMissingProductColumn(error, 'shipping_override_enabled') || isMissingProductColumn(error, 'care_warranty_override_enabled'))) {
+  if (error && (isMissingStyleIdColumn(error) || isMissingProductColumn(error, 'gemstone_value') || isMissingProductColumn(error, 'shapes_enabled') || isMissingProductColumn(error, 'shipping_override_enabled') || isMissingProductColumn(error, 'care_warranty_override_enabled'))) {
     ;({ data: product, error } = await adminClient
       .from('products')
       .insert(
@@ -475,6 +534,15 @@ export async function POST(request: Request) {
       )
       .select('*')
       .single())
+    if (error && isMissingProductColumn(error, 'gemstone_value')) {
+      const retryPayload = buildInsertPayload({
+        includeStyleId: !isMissingStyleIdColumn(error),
+        includeShapeFields: !isMissingProductColumn(error, 'shapes_enabled'),
+        includeOverrideFields: !isMissingProductColumn(error, 'shipping_override_enabled') && !isMissingProductColumn(error, 'care_warranty_override_enabled'),
+      })
+      delete retryPayload.gemstone_value
+      ;({ data: product, error } = await adminClient.from('products').insert(retryPayload).select('*').single())
+    }
   }
 
   if (error || !product) {
@@ -505,6 +573,11 @@ export async function POST(request: Request) {
   const metalMediaResult = await replaceProductMetalMedia(adminClient, product.id, body.metal_media ?? [])
   if ('error' in metalMediaResult && metalMediaResult.error) {
     return NextResponse.json({ error: metalMediaResult.error.message }, { status: 500 })
+  }
+
+  const materialValueResult = await replaceProductMaterialValueSelections(adminClient, product.id, body.material_value_ids ?? [])
+  if ('error' in materialValueResult && materialValueResult.error) {
+    return NextResponse.json({ error: materialValueResult.error.message }, { status: 500 })
   }
 
   return NextResponse.json({ item: product })

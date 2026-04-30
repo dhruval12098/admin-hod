@@ -10,6 +10,7 @@ import { useToast } from '@/hooks/use-toast'
 export type CatalogStyleItem = {
   id: string
   name: string
+  iconSvgPath: string
   displayOrder: number
   status: 'Active' | 'Hidden'
 }
@@ -17,6 +18,40 @@ export type CatalogStyleItem = {
 async function getAccessToken() {
   const { data } = await supabase.auth.getSession()
   return data.session?.access_token ?? null
+}
+
+async function uploadStyleSvg(file: File) {
+  const accessToken = await getAccessToken()
+  if (!accessToken) {
+    throw new Error('You must be signed in to upload SVG files.')
+  }
+
+  const payload = new FormData()
+  payload.append('file', file)
+
+  const response = await fetch('/api/catalog/styles/upload', {
+    method: 'POST',
+    headers: { authorization: `Bearer ${accessToken}` },
+    body: payload,
+  })
+
+  const data = await response.json().catch(() => null)
+  if (!response.ok || !data?.path) {
+    throw new Error(data?.error ?? 'Unable to upload SVG.')
+  }
+
+  return data.path as string
+}
+
+function resolveStyleIconUrl(path: string | null | undefined) {
+  if (!path) return null
+  if (/^https?:\/\//i.test(path)) return path
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const collectionBucket = process.env.NEXT_PUBLIC_SUPABASE_COLLECTION_BUCKET || 'hod'
+  if (!supabaseUrl) return path
+
+  return `${supabaseUrl}/storage/v1/object/public/${collectionBucket}/${path}`
 }
 
 export function StylesClient({ initialItems }: { initialItems: CatalogStyleItem[] }) {
@@ -28,8 +63,10 @@ export function StylesClient({ initialItems }: { initialItems: CatalogStyleItem[
   const [deleteTarget, setDeleteTarget] = useState<CatalogStyleItem | null>(null)
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [uploading, setUploading] = useState(false)
   const [formData, setFormData] = useState({
     name: '',
+    iconSvgPath: '',
     displayOrder: 1,
     status: 'Active' as 'Active' | 'Hidden',
   })
@@ -47,9 +84,10 @@ export function StylesClient({ initialItems }: { initialItems: CatalogStyleItem[
       if (!response.ok || !payload?.items) return
 
       setItems(
-        payload.items.map((item: { id: string; name: string; display_order: number; status: 'active' | 'hidden' }) => ({
+        payload.items.map((item: { id: string; name: string; icon_svg_path?: string | null; display_order: number; status: 'active' | 'hidden' }) => ({
           id: item.id,
           name: item.name,
+          iconSvgPath: item.icon_svg_path ?? '',
           displayOrder: item.display_order,
           status: item.status === 'hidden' ? 'Hidden' : 'Active',
         }))
@@ -61,14 +99,27 @@ export function StylesClient({ initialItems }: { initialItems: CatalogStyleItem[
 
   const openNew = () => {
     setEditingId(null)
-    setFormData({ name: '', displayOrder: items.length + 1, status: 'Active' })
+    setFormData({ name: '', iconSvgPath: '', displayOrder: items.length + 1, status: 'Active' })
     setFormOpen(true)
   }
 
   const openEdit = (item: CatalogStyleItem) => {
     setEditingId(item.id)
-    setFormData({ name: item.name, displayOrder: item.displayOrder, status: item.status })
+    setFormData({ name: item.name, iconSvgPath: item.iconSvgPath ?? '', displayOrder: item.displayOrder, status: item.status })
     setFormOpen(true)
+  }
+
+  const handleSvgUpload = async (file: File) => {
+    setUploading(true)
+    try {
+      const path = await uploadStyleSvg(file)
+      setFormData((current) => ({ ...current, iconSvgPath: path }))
+      toast({ title: 'SVG uploaded', description: 'Style icon uploaded successfully.' })
+    } catch (error) {
+      toast({ title: 'Upload failed', description: error instanceof Error ? error.message : 'Unable to upload SVG.' })
+    } finally {
+      setUploading(false)
+    }
   }
 
   const saveItem = async () => {
@@ -87,6 +138,7 @@ export function StylesClient({ initialItems }: { initialItems: CatalogStyleItem[
       },
       body: JSON.stringify({
         name: formData.name,
+        icon_svg_path: formData.iconSvgPath || null,
         display_order: formData.displayOrder,
         status: formData.status === 'Hidden' ? 'hidden' : 'active',
       }),
@@ -149,6 +201,7 @@ export function StylesClient({ initialItems }: { initialItems: CatalogStyleItem[
             <thead>
               <tr className="border-b border-border bg-secondary/30">
                 <th className="px-6 py-3.5 text-left text-xs font-semibold text-foreground">Name</th>
+                <th className="px-6 py-3.5 text-left text-xs font-semibold text-foreground">Icon</th>
                 <th className="px-6 py-3.5 text-left text-xs font-semibold text-foreground">Display Order</th>
                 <th className="px-6 py-3.5 text-left text-xs font-semibold text-foreground">Status</th>
                 <th className="px-6 py-3.5 text-left text-xs font-semibold text-foreground">Edit</th>
@@ -159,6 +212,13 @@ export function StylesClient({ initialItems }: { initialItems: CatalogStyleItem[
               {items.map((item) => (
                 <tr key={item.id} className="border-b border-border hover:bg-secondary/20 transition-colors">
                   <td className="px-6 py-3.5 text-sm font-medium text-foreground">{item.name}</td>
+                  <td className="px-6 py-3.5 text-sm text-foreground">
+                    {item.iconSvgPath ? (
+                      <img src={resolveStyleIconUrl(item.iconSvgPath) ?? item.iconSvgPath} alt={item.name} className="h-8 w-8 object-contain" />
+                    ) : (
+                      <span className="text-muted-foreground">No icon</span>
+                    )}
+                  </td>
                   <td className="px-6 py-3.5 text-sm text-foreground">{item.displayOrder}</td>
                   <td className="px-6 py-3.5 text-sm">
                     <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${item.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-700'}`}>
@@ -210,6 +270,38 @@ export function StylesClient({ initialItems }: { initialItems: CatalogStyleItem[
                 onChange={(e) => setFormData((prev) => ({ ...prev, displayOrder: Number(e.target.value) || 0 }))}
                 className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm"
               />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-foreground">SVG Icon</label>
+              <div className="space-y-3">
+                <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary">
+                  Upload SVG
+                  <input
+                    type="file"
+                    accept=".svg,image/svg+xml"
+                    className="hidden"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0]
+                      if (file) {
+                        void handleSvgUpload(file)
+                      }
+                      event.currentTarget.value = ''
+                    }}
+                  />
+                </label>
+                {formData.iconSvgPath ? (
+                  <button
+                    type="button"
+                    onClick={() => setFormData((current) => ({ ...current, iconSvgPath: '' }))}
+                    className="rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
+                  >
+                    Remove SVG
+                  </button>
+                ) : null}
+                <p className="text-xs text-muted-foreground">{uploading ? 'Uploading SVG...' : formData.iconSvgPath || 'No SVG uploaded yet'}</p>
+                {formData.iconSvgPath ? <img src={resolveStyleIconUrl(formData.iconSvgPath) ?? formData.iconSvgPath} alt="Style icon preview" className="h-12 w-12 object-contain" /> : null}
+              </div>
             </div>
 
             <div>

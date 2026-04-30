@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { createSupabaseServerSessionClient } from '@/lib/server-supabase'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -19,16 +20,24 @@ export function buildAdminClient() {
 
 export async function assertAdmin(request: Request) {
   const authHeader = request.headers.get('authorization')
-  if (!authHeader?.startsWith('Bearer ')) {
-    return { error: NextResponse.json({ error: 'Missing authorization token.' }, { status: 401 }) }
-  }
-
-  const accessToken = authHeader.slice('Bearer '.length)
-  const authClient = buildAuthClient(accessToken)
   const adminClient = buildAdminClient()
 
-  if (!authClient || !adminClient) {
+  if (!adminClient) {
     return { error: NextResponse.json({ error: 'Missing Supabase env vars.' }, { status: 500 }) }
+  }
+
+  let authClient: Awaited<ReturnType<typeof createSupabaseServerSessionClient>> | ReturnType<typeof buildAuthClient> | null = null
+  let accessToken: string | null = null
+
+  if (authHeader?.startsWith('Bearer ')) {
+    accessToken = authHeader.slice('Bearer '.length)
+    authClient = buildAuthClient(accessToken)
+  } else {
+    authClient = await createSupabaseServerSessionClient()
+  }
+
+  if (!authClient) {
+    return { error: NextResponse.json({ error: 'Missing authorization token.' }, { status: 401 }) }
   }
 
   const { data: userData, error: userError } = await authClient.auth.getUser()

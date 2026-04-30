@@ -27,6 +27,7 @@ export async function POST(request: Request) {
     .from('catalog_styles')
     .insert({
       name: body.name,
+      icon_svg_path: body.icon_svg_path ?? null,
       display_order: body.display_order ?? 0,
       status: body.status ?? 'active',
     })

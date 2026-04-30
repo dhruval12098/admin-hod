@@ -26,11 +26,13 @@ import {
   Trash,
   SwatchBook,
   Inbox,
+  Files,
 } from 'lucide-react'
 
 const NAVIGATION = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Products', href: '/dashboard/products', icon: Package },
+  { name: 'Bulk Imports', href: '/dashboard/product-imports', icon: Files },
   { name: 'Hip Hop Products', href: '/dashboard/hiphop-products', icon: Gem },
   { name: 'Collection Products', href: '/dashboard/collection-products', icon: Package },
   { name: 'Bespoke Products', href: '/dashboard/bespoke', icon: Sparkles },
@@ -48,6 +50,7 @@ const NAVIGATION = [
 const CATALOG_ITEMS = [
   { name: 'Categories', href: '/dashboard/catalog#categories', icon: Tag },
   { name: 'Metals', href: '/dashboard/catalog/metals', icon: Grid3x3 },
+  { name: 'Material Values', href: '/dashboard/catalog/material-values', icon: Grid3x3 },
   { name: 'Styles', href: '/dashboard/catalog/styles', icon: SwatchBook },
   { name: 'Stone Shapes', href: '/dashboard/catalog/stone-shapes', icon: Gem },
   { name: 'Ring Categories', href: '/dashboard/catalog/ring-sizes', icon: Ruler },

@@ -6,6 +6,8 @@ import { CMSSectionTable } from '@/components/cms-section-table'
 const HOME_SECTIONS = [
   { id: 'hero', label: 'Hero Section', description: 'Main headline, eyebrow, and CTAs' },
   { id: 'diamond-info', label: 'Diamond Info', description: 'Carat, cut, and clarity text blocks' },
+  { id: 'discover-shapes', label: 'Discover Shapes', description: 'Homepage shape carousel images, titles, and descriptions' },
+  { id: 'discover-rings', label: 'Discover Rings', description: 'Homepage ring carousel images, titles, and descriptions' },
   { id: 'collection', label: 'Home Collection Cards', description: 'Homepage collection cards, images, and links' },
   { id: 'bestsellers', label: 'Best Sellers', description: 'Selected existing products shown in the best sellers grid' },
   { id: 'material-strip', label: 'Material Strip', description: 'Materials title, descriptions, and icons' },

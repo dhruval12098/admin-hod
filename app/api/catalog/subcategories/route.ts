@@ -17,6 +17,7 @@ export async function POST(request: Request) {
       name: body.name,
       slug: body.slug,
       sub_type: body.sub_type ?? 'standard',
+      icon_svg_path: body.icon_svg_path ?? null,
       display_order: body.display_order ?? 0,
       status: body.status ?? 'active',
     })

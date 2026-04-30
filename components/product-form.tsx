@@ -18,6 +18,7 @@ import type {
   CatalogCertificate,
   CatalogGstSlab,
   CatalogMetal,
+  CatalogMaterialValue,
   CatalogOption,
   CatalogRingCategory,
   CatalogRingCategorySize,
@@ -37,6 +38,7 @@ type BootstrapPayload = {
   subcategories?: CatalogSubcategory[]
   options?: CatalogOption[]
   metals?: CatalogMetal[]
+  materialValues?: CatalogMaterialValue[]
   stoneShapes?: CatalogStoneShape[]
   gstSlabs?: CatalogGstSlab[]
   ringCategories?: CatalogRingCategory[]
@@ -77,6 +79,7 @@ type ProductResponse = {
     fit_label?: string | null
     gemstone_label?: string | null
     gemstone_value?: string | null
+    material_value_ids?: string[]
     shapes_enabled?: boolean | null
     shape_ids?: string[]
     show_purity?: boolean | null
@@ -124,6 +127,7 @@ function applyBootstrapPayload(
     setSubcategories: Dispatch<SetStateAction<CatalogSubcategory[]>>
     setOptions: Dispatch<SetStateAction<CatalogOption[]>>
     setMetals: Dispatch<SetStateAction<CatalogMetal[]>>
+    setMaterialValues: Dispatch<SetStateAction<CatalogMaterialValue[]>>
     setStoneShapes: Dispatch<SetStateAction<CatalogStoneShape[]>>
     setGstSlabs: Dispatch<SetStateAction<CatalogGstSlab[]>>
     setRingCategories: Dispatch<SetStateAction<CatalogRingCategory[]>>
@@ -140,6 +144,7 @@ function applyBootstrapPayload(
   setters.setSubcategories(payload.subcategories ?? [])
   setters.setOptions(payload.options ?? [])
   setters.setMetals(payload.metals ?? [])
+  setters.setMaterialValues(payload.materialValues ?? [])
   setters.setStoneShapes(payload.stoneShapes ?? [])
   setters.setGstSlabs(payload.gstSlabs ?? [])
   setters.setRingCategories(payload.ringCategories ?? [])
@@ -182,6 +187,7 @@ function applyProductPayload(
     setFitEnabled: Dispatch<SetStateAction<boolean>>
     setGemstoneLabel: Dispatch<SetStateAction<string>>
     setGemstoneValues: Dispatch<SetStateAction<string[]>>
+    setSelectedMaterialValueIds: Dispatch<SetStateAction<string[]>>
     setShapesEnabled: Dispatch<SetStateAction<boolean>>
     setSelectedShapeIds: Dispatch<SetStateAction<string[]>>
     setShowPurity: Dispatch<SetStateAction<boolean>>
@@ -265,6 +271,7 @@ function applyProductPayload(
           .filter(Boolean)
       : []
   )
+  setters.setSelectedMaterialValueIds(item.material_value_ids ?? [])
   setters.setShapesEnabled(Boolean(item.shapes_enabled))
   setters.setSelectedShapeIds(item.shape_ids ?? [])
   setters.setShowPurity(item.show_purity ?? true)
@@ -405,6 +412,7 @@ export function ProductForm({
   const [subcategories, setSubcategories] = useState<CatalogSubcategory[]>([])
   const [options, setOptions] = useState<CatalogOption[]>([])
   const [metals, setMetals] = useState<CatalogMetal[]>([])
+  const [materialValues, setMaterialValues] = useState<CatalogMaterialValue[]>([])
   const [stoneShapes, setStoneShapes] = useState<CatalogStoneShape[]>([])
   const [gstSlabs, setGstSlabs] = useState<CatalogGstSlab[]>([])
   const [ringCategories, setRingCategories] = useState<CatalogRingCategory[]>([])
@@ -446,7 +454,7 @@ export function ProductForm({
   const [fitEnabled, setFitEnabled] = useState(false)
   const [gemstoneLabel, setGemstoneLabel] = useState('')
   const [gemstoneValues, setGemstoneValues] = useState<string[]>([])
-  const [gemstoneValueInput, setGemstoneValueInput] = useState('')
+  const [selectedMaterialValueIds, setSelectedMaterialValueIds] = useState<string[]>([])
   const [shapesEnabled, setShapesEnabled] = useState(false)
   const [selectedShapeIds, setSelectedShapeIds] = useState<string[]>([])
   const [showPurity, setShowPurity] = useState(true)
@@ -494,6 +502,7 @@ export function ProductForm({
       setSubcategories,
       setOptions,
       setMetals,
+      setMaterialValues,
       setStoneShapes,
       setGstSlabs,
       setRingCategories,
@@ -532,10 +541,11 @@ export function ProductForm({
       setRingCategoryId,
       setFitLabel,
       setFitOptions,
-      setFitEnabled,
-      setGemstoneLabel,
-      setGemstoneValues,
-      setShapesEnabled,
+    setFitEnabled,
+    setGemstoneLabel,
+    setGemstoneValues,
+    setSelectedMaterialValueIds,
+    setShapesEnabled,
       setSelectedShapeIds,
       setShowPurity,
       setEngravingEnabled,
@@ -713,6 +723,24 @@ export function ProductForm({
     )
   }, [purityPrices])
 
+  const effectiveGemstoneValues = useMemo(() => {
+    if (selectedMaterialValueIds.length > 0) {
+      return selectedMaterialValueIds
+        .map((id) => materialValues.find((entry) => entry.id === id)?.name)
+        .filter((value): value is string => typeof value === 'string' && value.length > 0)
+    }
+
+    return gemstoneValues
+  }, [gemstoneValues, materialValues, selectedMaterialValueIds])
+
+  const effectiveSelectedMaterialValueIds = useMemo(() => {
+    if (selectedMaterialValueIds.length > 0) return selectedMaterialValueIds
+
+    return gemstoneValues
+      .map((value) => materialValues.find((entry) => entry.name.toLowerCase() === value.toLowerCase())?.id)
+      .filter((value): value is string => typeof value === 'string' && value.length > 0)
+  }, [gemstoneValues, materialValues, selectedMaterialValueIds])
+
   useEffect(() => {
     const hasDefault = purityPrices.some((entry) => entry.id === defaultPurityPriceId)
     if (!hasDefault) {
@@ -798,13 +826,6 @@ export function ProductForm({
     if (!next) return
     setFitOptions((prev) => (prev.includes(next) ? prev : [...prev, next]))
     setFitInput('')
-  }
-
-  const addGemstoneValue = () => {
-    const next = gemstoneValueInput.trim()
-    if (!next) return
-    setGemstoneValues((prev) => (prev.includes(next) ? prev : [...prev, next]))
-    setGemstoneValueInput('')
   }
 
   const addHiphopBadge = () => {
@@ -961,7 +982,8 @@ export function ProductForm({
             fit_options: fitEnabled ? fitOptions : [],
             fit_label: fitEnabled ? fitLabel || null : null,
             gemstone_label: gemstoneLabel || null,
-            gemstone_value: gemstoneValues.join(', ') || null,
+            gemstone_value: effectiveGemstoneValues.join(', ') || null,
+            material_value_ids: effectiveSelectedMaterialValueIds,
             shapes_enabled: shapesEnabled,
             shape_ids: shapesEnabled ? selectedShapeIds : [],
             show_purity: showPurity,
@@ -1572,22 +1594,32 @@ export function ProductForm({
                   <input value={gemstoneLabel} onChange={(e) => setGemstoneLabel(e.target.value)} placeholder="Stone Type, Material, Gemstone..." className={inputClassName} />
                 </FormField>
               <FormField label="Generic Stone / Material Values" className="sm:col-span-2">
-                <div className="flex gap-2">
-                  <input
-                    value={gemstoneValueInput}
-                    onChange={(e) => setGemstoneValueInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault()
-                        addGemstoneValue()
-                      }
-                    }}
-                    placeholder="Add a value like Natural Diamond, Ruby, Plain Gold..."
-                    className={`${inputClassName} flex-1`}
-                  />
-                  <button type="button" onClick={addGemstoneValue} className={secondaryButtonClassName}>Add</button>
+                {materialValues.length > 0 ? (
+                  <>
+                    <div className="flex flex-wrap gap-2">
+                      {materialValues.map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() =>
+                            setSelectedMaterialValueIds((prev) => {
+                              const base = prev.length > 0 ? prev : effectiveSelectedMaterialValueIds
+                              return toggleInArray(base, item.id)
+                            })
+                          }
+                          className={`rounded px-3 py-2 text-sm font-medium transition-colors ${effectiveSelectedMaterialValueIds.includes(item.id) ? 'bg-primary text-white' : 'border border-border hover:bg-secondary'}`}
+                        >
+                          {item.name}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="mt-3 text-xs text-muted-foreground">Select the material values this product should expose on the storefront.</p>
+                  </>
+                ) : (
+                  <div className="rounded border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
+                    No material values found in the master table yet. Add them in the database first, then they will appear here.
                   </div>
-                  <TagList items={gemstoneValues} onRemove={(value) => setGemstoneValues((prev) => prev.filter((item) => item !== value))} />
+                )}
                 </FormField>
               </div>
 

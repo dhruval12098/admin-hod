@@ -8,8 +8,8 @@ const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 type CertificationItem = {
   sort_order: number
   title: string
-  description: string
-  badge: string
+  description?: string
+  badge?: string
   icon_path: string
 }
 
@@ -103,8 +103,6 @@ export async function POST(request: Request) {
     return (
       typeof item.sort_order === 'number' &&
       typeof item.title === 'string' &&
-      typeof item.description === 'string' &&
-      typeof item.badge === 'string' &&
       typeof item.icon_path === 'string'
     )
   }) as CertificationItem[]
@@ -122,7 +120,15 @@ export async function POST(request: Request) {
   if (deleteError) return NextResponse.json({ error: deleteError.message }, { status: 500 })
 
   if (items.length > 0) {
-    const { error: insertError } = await adminClient.from('certifications_items').insert(items)
+    const normalizedItems = items.map((item) => ({
+      sort_order: item.sort_order,
+      title: item.title.trim(),
+      description: typeof item.description === 'string' ? item.description.trim() : '',
+      badge: typeof item.badge === 'string' ? item.badge.trim() : '',
+      icon_path: item.icon_path.trim(),
+    }))
+
+    const { error: insertError } = await adminClient.from('certifications_items').insert(normalizedItems)
     if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 })
   }
 

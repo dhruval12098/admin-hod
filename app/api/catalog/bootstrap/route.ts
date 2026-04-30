@@ -13,11 +13,12 @@ export async function GET(request: Request) {
 
   const { adminClient } = access
 
-  const [categoriesResult, subcategoriesResult, optionsResult, metalsResult, stoneShapesResult, ringSizes, ringCategories, ringCategorySizes, certificates, styles, productContentRules, gstSlabs] = await Promise.all([
+  const [categoriesResult, subcategoriesResult, optionsResult, metalsResult, materialValues, stoneShapesResult, ringSizes, ringCategories, ringCategorySizes, certificates, styles, productContentRules, gstSlabs] = await Promise.all([
     adminClient.from('catalog_categories').select('*').order('display_order', { ascending: true }),
     adminClient.from('catalog_subcategories').select('*').order('display_order', { ascending: true }),
     adminClient.from('catalog_options').select('*').order('display_order', { ascending: true }),
     adminClient.from('catalog_metals').select('*').order('display_order', { ascending: true }),
+    loadOptionalTable(adminClient, 'catalog_material_values'),
     adminClient.from('catalog_stone_shapes').select('*').order('display_order', { ascending: true }),
     loadOptionalTable(adminClient, 'catalog_ring_sizes'),
     loadOptionalTable(adminClient, 'catalog_ring_categories'),
@@ -44,6 +45,7 @@ export async function GET(request: Request) {
     subcategories: subcategoriesResult.data ?? [],
     options: optionsResult.data ?? [],
     metals: metalsResult.data ?? [],
+    materialValues,
     stoneShapes: stoneShapesResult.data ?? [],
     ringSizes,
     ringCategories,

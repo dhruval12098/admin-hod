@@ -60,6 +60,16 @@ export type CatalogMetal = {
   status: CatalogStatus
 }
 
+export type CatalogMaterialValue = {
+  id: string
+  name: string
+  slug: string
+  cta_mode?: 'both' | 'enquire_only' | 'checkout_only'
+  cta_label?: string | null
+  display_order: number
+  status: CatalogStatus
+}
+
 export type ProductPurityPrice = {
   id?: string
   product_id?: string
@@ -128,6 +138,7 @@ export type CatalogCertificate = {
 export type CatalogStyle = {
   id: string
   name: string
+  icon_svg_path?: string | null
   display_order: number
   status: CatalogStatus
 }
@@ -202,6 +213,7 @@ export type ProductRecord = {
   fit_label?: string | null
   gemstone_label?: string | null
   gemstone_value?: string | null
+  material_value_ids?: string[] | null
   shapes_enabled?: boolean | null
   show_purity?: boolean | null
   engraving_enabled?: boolean | null

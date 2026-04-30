@@ -3,6 +3,9 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
+  experimental: {
+    proxyClientMaxBodySize: '50mb',
+  },
   images: {
     unoptimized: true,
   },

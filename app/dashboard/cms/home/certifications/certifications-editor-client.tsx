@@ -57,9 +57,9 @@ export type CertificationsInitialData = {
   }>
 }
 
-const emptyItem = (sort_order: number): CertificationItem => ({
-  clientId: `draft-${Date.now()}-${sort_order}`,
-  sort_order,
+const emptyItem = (sortOrder: number): CertificationItem => ({
+  clientId: `draft-${Date.now()}-${sortOrder}`,
+  sort_order: sortOrder,
   title: '',
   description: '',
   badge: '',
@@ -68,12 +68,16 @@ const emptyItem = (sort_order: number): CertificationItem => ({
 
 export function CertificationsEditorClient({ initialData }: { initialData: CertificationsInitialData }) {
   const { toast } = useToast()
-  const [eyebrow, setEyebrow] = useState(initialData.section.eyebrow)
-  const [heading, setHeading] = useState(initialData.section.heading)
   const [items, setItems] = useState<CertificationItem[]>(
-    initialData.items.map((item) => ({ clientId: `id-${item.id ?? item.sort_order}`, ...item }))
+    initialData.items.map((item) => ({
+      clientId: `id-${item.id ?? item.sort_order}`,
+      ...item,
+      title: item.title || item.description || '',
+      description: item.description || '',
+      badge: item.badge || '',
+    }))
   )
-  const [loadStatus, setLoadStatus] = useState(initialData.items.length ? 'Certifications loaded' : 'No certification rows found yet')
+  const [loadStatus, setLoadStatus] = useState(initialData.items.length ? 'Why Choose items loaded' : 'No Why Choose rows found yet')
   const [isSaving, setIsSaving] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
@@ -109,14 +113,19 @@ export function CertificationsEditorClient({ initialData }: { initialData: Certi
 
     setEditorItem((prev) => (prev ? { ...prev, icon_path: payload.path ?? '' } : prev))
     setLoadStatus('Icon uploaded')
-    toast({ title: 'Uploaded', description: 'Certification icon uploaded successfully.' })
+    toast({ title: 'Uploaded', description: 'Why Choose icon uploaded successfully.' })
   }
 
   const handleSaveEditor = () => {
     if (!editorItem) return
     setItems((prev) => {
       const exists = prev.some((item) => item.clientId === editorItem.clientId)
-      return exists ? prev.map((item) => (item.clientId === editorItem.clientId ? editorItem : item)) : [...prev, editorItem]
+      const normalized = {
+        ...editorItem,
+        description: '',
+        badge: '',
+      }
+      return exists ? prev.map((item) => (item.clientId === editorItem.clientId ? normalized : item)) : [...prev, normalized]
     })
     setEditorOpen(false)
   }
@@ -142,8 +151,17 @@ export function CertificationsEditorClient({ initialData }: { initialData: Certi
         authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify({
-        section: { eyebrow, heading },
-        items: items.map(({ sort_order, title, description, badge, icon_path }) => ({ sort_order, title, description, badge, icon_path })),
+        section: {
+          eyebrow: 'Our Promise',
+          heading: 'Why Choose House of Diams',
+        },
+        items: items.map(({ sort_order, title, icon_path }) => ({
+          sort_order,
+          title,
+          description: '',
+          badge: '',
+          icon_path,
+        })),
       }),
     })
 
@@ -151,12 +169,12 @@ export function CertificationsEditorClient({ initialData }: { initialData: Certi
     setIsSaving(false)
 
     if (!response.ok) {
-      setLoadStatus(payload?.error ?? 'Unable to save Certifications.')
+      setLoadStatus(payload?.error ?? 'Unable to save Why Choose content.')
       return
     }
 
-    setLoadStatus('Certifications saved')
-    toast({ title: 'Saved', description: 'Certifications updated successfully.' })
+    setLoadStatus('Why Choose section saved')
+    toast({ title: 'Saved', description: 'Why Choose House of Diams updated successfully.' })
   }
 
   return (
@@ -169,26 +187,15 @@ export function CertificationsEditorClient({ initialData }: { initialData: Certi
       </div>
 
       <div className="mb-10">
-        <h1 className="font-jakarta text-3xl font-semibold text-foreground">Certifications</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Edit the trust section heading and certification cards</p>
+        <h1 className="font-jakarta text-3xl font-semibold text-foreground">Why Choose House of Diams</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Keep this section simple: each card only needs an icon and one line of text.</p>
         <p className="mt-2 text-xs text-muted-foreground">{loadStatus}</p>
-      </div>
-
-      <div className="max-w-3xl space-y-4 rounded-lg border border-border bg-white p-6 shadow-xs">
-        <div>
-          <label className="mb-2 block text-sm font-semibold text-foreground">Eyebrow</label>
-          <input value={eyebrow} onChange={(e) => setEyebrow(e.target.value)} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" />
-        </div>
-        <div>
-          <label className="mb-2 block text-sm font-semibold text-foreground">Heading</label>
-          <input value={heading} onChange={(e) => setHeading(e.target.value)} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" />
-        </div>
       </div>
 
       <div className="mb-6 mt-6 flex justify-end">
         <button onClick={() => openEditor()} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary/90">
           <Plus size={16} />
-          Add Card
+          Add Item
         </button>
       </div>
 
@@ -197,8 +204,7 @@ export function CertificationsEditorClient({ initialData }: { initialData: Certi
           <thead>
             <tr className="border-b border-border bg-secondary/40">
               <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground">Order</th>
-              <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground">Title</th>
-              <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground">Badge</th>
+              <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground">Text</th>
               <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground">Icon</th>
               <th className="px-5 py-3 text-right text-xs font-semibold uppercase tracking-wider text-foreground">Actions</th>
             </tr>
@@ -208,8 +214,7 @@ export function CertificationsEditorClient({ initialData }: { initialData: Certi
               <tr key={item.clientId} className="border-b border-border last:border-b-0">
                 <td className="px-5 py-4 text-sm">{item.sort_order}</td>
                 <td className="px-5 py-4 text-sm">{item.title}</td>
-                <td className="px-5 py-4 text-sm">{item.badge}</td>
-                <td className="px-5 py-4 text-sm">{item.icon_path}</td>
+                <td className="px-5 py-4 text-sm">{item.icon_path || 'No icon yet'}</td>
                 <td className="px-5 py-4 text-right">
                   <div className="inline-flex items-center gap-2">
                     <button onClick={() => openEditor(item)} className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-secondary">
@@ -235,8 +240,8 @@ export function CertificationsEditorClient({ initialData }: { initialData: Certi
 
       <ConfirmDialog
         isOpen={confirmOpen}
-        title="Save Certifications?"
-        description="This will update the certifications section on the homepage."
+        title="Save Why Choose section?"
+        description="This will update the Why Choose House of Diams section on the homepage."
         confirmText="Save"
         cancelText="Cancel"
         type="confirm"
@@ -248,57 +253,32 @@ export function CertificationsEditorClient({ initialData }: { initialData: Certi
       <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
         <DialogContent className="sm:max-w-xl">
           <DialogHeader>
-            <DialogTitle>Edit Certification</DialogTitle>
-            <DialogDescription>Update title, description, badge, and uploaded icon.</DialogDescription>
+            <DialogTitle>Edit Why Choose Item</DialogTitle>
+            <DialogDescription>Only icon and text are needed here.</DialogDescription>
           </DialogHeader>
 
           {editorItem && (
             <div className="space-y-4">
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div>
-                  <label className="mb-2 block text-sm font-semibold text-foreground">Order</label>
-                  <input
-                    type="number"
-                    value={editorItem.sort_order}
-                    onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                      setEditorItem((prev) => (prev ? { ...prev, sort_order: Number(e.target.value) } : prev))
-                    }
-                    className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="mb-2 block text-sm font-semibold text-foreground">Badge</label>
-                  <input
-                    type="text"
-                    value={editorItem.badge}
-                    onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                      setEditorItem((prev) => (prev ? { ...prev, badge: e.target.value } : prev))
-                    }
-                    className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm"
-                  />
-                </div>
-              </div>
-
               <div>
-                <label className="mb-2 block text-sm font-semibold text-foreground">Title</label>
+                <label className="mb-2 block text-sm font-semibold text-foreground">Order</label>
                 <input
-                  type="text"
-                  value={editorItem.title}
+                  type="number"
+                  value={editorItem.sort_order}
                   onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                    setEditorItem((prev) => (prev ? { ...prev, title: e.target.value } : prev))
+                    setEditorItem((prev) => (prev ? { ...prev, sort_order: Number(e.target.value) } : prev))
                   }
                   className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm"
                 />
               </div>
 
               <div>
-                <label className="mb-2 block text-sm font-semibold text-foreground">Description</label>
+                <label className="mb-2 block text-sm font-semibold text-foreground">Text</label>
                 <textarea
-                  value={editorItem.description}
+                  value={editorItem.title}
                   onChange={(e: ChangeEvent<HTMLTextAreaElement>) =>
-                    setEditorItem((prev) => (prev ? { ...prev, description: e.target.value } : prev))
+                    setEditorItem((prev) => (prev ? { ...prev, title: e.target.value } : prev))
                   }
-                  rows={4}
+                  rows={3}
                   className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm"
                 />
               </div>

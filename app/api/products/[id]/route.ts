@@ -130,6 +130,42 @@ async function replaceProductMetalMedia(adminClient: any, productId: string, met
   return { ok: true }
 }
 
+async function replaceProductMaterialValueSelections(adminClient: any, productId: string, materialValueIds: string[]) {
+  const existingResult = await adminClient
+    .from('product_material_value_selections')
+    .select('id, material_value_id')
+    .eq('product_id', productId)
+  if (existingResult.error && !isMissingRelation(existingResult.error, 'product_material_value_selections')) {
+    return { error: existingResult.error }
+  }
+
+  const existingByValueId = new Map((existingResult.data ?? []).map((row: { id: string; material_value_id: string }) => [row.material_value_id, row.id]))
+  const nextValueIds = [...new Set(materialValueIds.filter(Boolean))]
+  const deleteIds = (existingResult.data ?? [])
+    .filter((row: { material_value_id: string }) => !nextValueIds.includes(row.material_value_id))
+    .map((row: { id: string }) => row.id)
+
+  if (deleteIds.length > 0) {
+    const deleteResult = await adminClient.from('product_material_value_selections').delete().in('id', deleteIds)
+    if (deleteResult.error) return { error: deleteResult.error }
+  }
+
+  for (const [index, materialValueId] of nextValueIds.entries()) {
+    const existingId = existingByValueId.get(materialValueId)
+    if (existingId) {
+      const updateResult = await adminClient.from('product_material_value_selections').update({ sort_order: index + 1 }).eq('id', existingId)
+      if (updateResult.error) return { error: updateResult.error }
+    } else {
+      const insertResult = await adminClient
+        .from('product_material_value_selections')
+        .insert({ product_id: productId, material_value_id: materialValueId, sort_order: index + 1 })
+      if (insertResult.error) return { error: insertResult.error }
+    }
+  }
+
+  return { ok: true }
+}
+
 function buildProductUpdatePayload(body: ProductPayload, includeStyleId = true) {
   const payload: Record<string, unknown> = {
     name: body.name,
@@ -157,7 +193,6 @@ function buildProductUpdatePayload(body: ProductPayload, includeStyleId = true) 
     fit_options: body.fit_options ?? [],
     fit_label: body.fit_label,
     gemstone_label: body.gemstone_label,
-    gemstone_value: body.gemstone_value,
     shapes_enabled: body.shapes_enabled ?? false,
     show_purity: body.show_purity,
     engraving_enabled: body.engraving_enabled,
@@ -199,6 +234,10 @@ function buildProductUpdatePayload(body: ProductPayload, includeStyleId = true) 
     payload.style_id = body.style_id ?? null
   }
 
+  if (body.gemstone_value !== undefined) {
+    payload.gemstone_value = body.gemstone_value
+  }
+
   return payload
 }
 
@@ -233,6 +272,7 @@ type ProductPayload = {
   fit_label: string | null
   gemstone_label: string | null
   gemstone_value: string | null
+  material_value_ids?: string[]
   shapes_enabled?: boolean
   shape_ids?: string[]
   show_purity: boolean
@@ -279,9 +319,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const { id } = await params
   const { adminClient } = access
 
-  const [productResult, metalsResult, purityPricesResult, metalMediaResult] = await Promise.all([
+  const [productResult, metalsResult, materialValuesResult, purityPricesResult, metalMediaResult] = await Promise.all([
     adminClient.from('products').select('*').eq('id', id).single(),
     adminClient.from('product_metal_selections').select('metal_id').eq('product_id', id).order('sort_order', { ascending: true }),
+    adminClient.from('product_material_value_selections').select('material_value_id').eq('product_id', id).order('sort_order', { ascending: true }),
     adminClient.from('product_purity_prices').select('*').eq('product_id', id).order('sort_order', { ascending: true }),
     adminClient.from('product_metal_media').select('*').eq('product_id', id),
   ])
@@ -297,6 +338,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     item: {
       ...(productResult.data as ProductRecord),
       metal_ids: (metalsResult.data ?? []).map((item) => item.metal_id),
+      material_value_ids:
+        materialValuesResult.error && isMissingRelation(materialValuesResult.error, 'product_material_value_selections')
+          ? []
+          : (materialValuesResult.data ?? []).map((item) => item.material_value_id),
       shape_ids: shapeIds,
       purity_prices: purityPricesResult.error && isMissingRelation(purityPricesResult.error, 'product_purity_prices') ? [] : (purityPricesResult.data ?? []),
       metal_media: metalMediaResult.error && isMissingRelation(metalMediaResult.error, 'product_metal_media') ? [] : (metalMediaResult.data ?? []),
@@ -339,7 +384,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
 
   let { data: product, error } = await updateProduct()
-  if (error && (isMissingStyleIdColumn(error) || isMissingProductColumn(error, 'shapes_enabled') || isMissingProductColumn(error, 'shipping_override_enabled') || isMissingProductColumn(error, 'care_warranty_override_enabled'))) {
+  if (error && (isMissingStyleIdColumn(error) || isMissingProductColumn(error, 'gemstone_value') || isMissingProductColumn(error, 'shapes_enabled') || isMissingProductColumn(error, 'shipping_override_enabled') || isMissingProductColumn(error, 'care_warranty_override_enabled'))) {
     ;({
       data: product,
       error,
@@ -348,6 +393,14 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       includeShapeFields: !isMissingProductColumn(error, 'shapes_enabled'),
       includeOverrideFields: !isMissingProductColumn(error, 'shipping_override_enabled') && !isMissingProductColumn(error, 'care_warranty_override_enabled'),
     }))
+    if (error && isMissingProductColumn(error, 'gemstone_value')) {
+      const retryPayload = buildProductUpdatePayload(body, !isMissingStyleIdColumn(error))
+      delete retryPayload.gemstone_value
+      if (isMissingProductColumn(error, 'shapes_enabled')) delete retryPayload.shapes_enabled
+      if (isMissingProductColumn(error, 'shipping_override_enabled')) delete retryPayload.shipping_override_enabled
+      if (isMissingProductColumn(error, 'care_warranty_override_enabled')) delete retryPayload.care_warranty_override_enabled
+      ;({ data: product, error } = await adminClient.from('products').update(retryPayload).eq('id', id).select('*').single())
+    }
   }
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -383,6 +436,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const metalMediaResult = await replaceProductMetalMedia(adminClient, id, body.metal_media ?? [])
   if ('error' in metalMediaResult && metalMediaResult.error) {
     return NextResponse.json({ error: metalMediaResult.error.message }, { status: 500 })
+  }
+
+  const materialValueResult = await replaceProductMaterialValueSelections(adminClient, id, body.material_value_ids ?? [])
+  if ('error' in materialValueResult && materialValueResult.error) {
+    return NextResponse.json({ error: materialValueResult.error.message }, { status: 500 })
   }
 
   return NextResponse.json({ item: product })

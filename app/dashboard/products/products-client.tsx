@@ -60,6 +60,8 @@ export function ProductsClient({
   const [deleteTarget, setDeleteTarget] = useState<ProductRow | null>(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
   const [page, setPage] = useState(1)
+  const [activatingDrafts, setActivatingDrafts] = useState(false)
+  const [activateDialogOpen, setActivateDialogOpen] = useState(false)
 
   const loadProducts = async () => {
     setLoading(true)
@@ -93,6 +95,10 @@ export function ProductsClient({
     const start = (page - 1) * PAGE_SIZE
     return filteredProducts.slice(start, start + PAGE_SIZE)
   }, [filteredProducts, page])
+  const draftCount = useMemo(
+    () => products.filter((product) => product.status === 'draft').length,
+    [products]
+  )
 
   const deleteProduct = async (id: string) => {
     setDeleteLoading(true)
@@ -112,6 +118,33 @@ export function ProductsClient({
     setDeleteLoading(false)
   }
 
+  const activateDraftProducts = async () => {
+    setActivatingDrafts(true)
+    const accessToken = await getAccessToken()
+    if (!accessToken) {
+      setActivatingDrafts(false)
+      return
+    }
+
+    try {
+      const response = await fetch('/api/products/activate-drafts', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ lane }),
+      })
+
+      if (response.ok) {
+        setActivateDialogOpen(false)
+        await loadProducts()
+      }
+    } finally {
+      setActivatingDrafts(false)
+    }
+  }
+
   return (
     <div className="p-8">
       <div className="mb-10 flex items-center justify-between">
@@ -119,15 +152,26 @@ export function ProductsClient({
           <h1 className="font-jakarta text-3xl font-semibold text-foreground">{title}</h1>
           <p className="mt-1 text-sm text-muted-foreground">{description}</p>
         </div>
-        {createHref && createLabel ? (
-          <Link
-            href={createHref}
-            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary/90 transition-colors duration-200"
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setActivateDialogOpen(true)}
+            disabled={draftCount === 0 || activatingDrafts}
+            className="flex items-center gap-2 rounded-lg border border-border bg-white px-4 py-2.5 text-sm font-semibold text-foreground transition-colors duration-200 hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
           >
             <Plus size={18} />
-            {createLabel}
-          </Link>
-        ) : null}
+            Mark Draft as Active
+          </button>
+          {createHref && createLabel ? (
+            <Link
+              href={createHref}
+              className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary/90 transition-colors duration-200"
+            >
+              <Plus size={18} />
+              {createLabel}
+            </Link>
+          ) : null}
+        </div>
       </div>
 
       <div className="mb-8">
@@ -203,6 +247,19 @@ export function ProductsClient({
       {filteredProducts.length > PAGE_SIZE ? (
         <TablePagination page={page} totalItems={filteredProducts.length} pageSize={PAGE_SIZE} onPageChange={setPage} />
       ) : null}
+
+      <ConfirmDialog
+        isOpen={activateDialogOpen}
+        title="Activate all draft products?"
+        description={`This will publish ${draftCount} draft product${draftCount === 1 ? '' : 's'} in this section one by one so the website can show them.`}
+        confirmText="Activate Drafts"
+        cancelText="Cancel"
+        isLoading={activatingDrafts}
+        onConfirm={() => void activateDraftProducts()}
+        onCancel={() => {
+          if (!activatingDrafts) setActivateDialogOpen(false)
+        }}
+      />
 
       <ConfirmDialog
         isOpen={Boolean(deleteTarget)}
