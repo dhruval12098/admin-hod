@@ -394,7 +394,7 @@ export default function OrderDetailPage({ params }: OrderDetailPageProps) {
               const isCurrent = index === activeStatusIndex
               return (
                 <div key={step} className="relative rounded-xl border border-border bg-secondary/10 px-4 py-4">
-                  <div className={`mb-3 flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold ${isComplete ? 'bg-foreground text-white' : 'bg-white text-muted-foreground border border-border'}`}>
+                  <div className={`mb-3 flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold ${isComplete ? 'bg-foreground text-white' : 'border border-border bg-white text-muted-foreground'}`}>
                     {index + 1}
                   </div>
                   <div className="text-sm font-semibold text-foreground">{formatStatusLabel(step)}</div>
@@ -408,7 +408,7 @@ export default function OrderDetailPage({ params }: OrderDetailPageProps) {
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
         <div className="space-y-6">
-          <div className="rounded-lg border border-border bg-white shadow-xs overflow-hidden">
+          <div className="overflow-hidden rounded-lg border border-border bg-white shadow-xs">
             <div className="border-b border-border px-6 py-4">
               <h2 className="font-jakarta text-lg font-semibold text-foreground">Order Items</h2>
             </div>
@@ -434,7 +434,7 @@ export default function OrderDetailPage({ params }: OrderDetailPageProps) {
                   </div>
                   <div className="text-right">
                     <div className="text-sm text-muted-foreground">Qty {item.quantity}</div>
-                    <div className="mt-1 font-semibold text-foreground">${Number(item.line_total || 0).toLocaleString()}</div>
+                    <div className="mt-1 text-sm font-bold text-foreground">${Number(item.line_total || 0).toLocaleString()}</div>
                   </div>
                 </div>
               ))}
@@ -481,11 +481,11 @@ export default function OrderDetailPage({ params }: OrderDetailPageProps) {
                 <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
                   <div className="rounded-2xl border border-border bg-secondary/20 px-4 py-3">
                     <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Gateway</div>
-                    <div className="mt-2 font-semibold text-foreground capitalize">{order.payment_gateway || '-'}</div>
+                    <div className="mt-2 font-semibold capitalize text-foreground">{order.payment_gateway || '-'}</div>
                   </div>
                   <div className="rounded-2xl border border-border bg-secondary/20 px-4 py-3">
                     <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Method</div>
-                    <div className="mt-2 font-semibold text-foreground capitalize">{order.razorpay_payment_method || '-'}</div>
+                    <div className="mt-2 font-semibold capitalize text-foreground">{order.razorpay_payment_method || '-'}</div>
                   </div>
                   <div className="rounded-2xl border border-border bg-secondary/20 px-4 py-3">
                     <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Gateway Order</div>

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import sharp from 'sharp'
 import { assertAdmin } from '@/lib/cms-auth'
+import { uploadProductVideoToR2 } from '@/lib/r2'
 
 const collectionBucket = process.env.SUPABASE_COLLECTION_BUCKET ?? 'hod'
 const allowedImageMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/svg+xml'])
@@ -56,25 +57,26 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Only MP4, MOV, or WEBM videos are allowed.' }, { status: 400 })
   }
 
-  const extension = file.name.includes('.') ? file.name.split('.').pop()?.toLowerCase() : ''
-  const safeExtension = extension && /^[a-z0-9]+$/.test(extension) ? extension : 'mp4'
-  const filePath = `${mediaFolder}/videos/${crypto.randomUUID()}.${safeExtension}`
-
-  const { error: uploadError } = await access.adminClient.storage
-    .from(collectionBucket)
-    .upload(filePath, buffer, {
+  try {
+    const extension = file.name.includes('.') ? file.name.split('.').pop()?.toLowerCase() : ''
+    const safeExtension = extension && /^[a-z0-9]+$/.test(extension) ? extension : 'mp4'
+    const uploadedVideo = await uploadProductVideoToR2({
+      buffer,
+      extension: safeExtension,
+      folder: mediaFolder,
       contentType: file.type || 'video/mp4',
-      upsert: false,
     })
 
-  if (uploadError) {
-    return NextResponse.json({ error: uploadError.message }, { status: 500 })
+    return NextResponse.json({
+      path: uploadedVideo.url,
+      url: uploadedVideo.url,
+    })
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : 'Unable to upload the video to Cloudflare R2.',
+      },
+      { status: 500 },
+    )
   }
-
-  const { data } = access.adminClient.storage.from(collectionBucket).getPublicUrl(filePath)
-
-  return NextResponse.json({
-    path: filePath,
-    url: data.publicUrl,
-  })
 }

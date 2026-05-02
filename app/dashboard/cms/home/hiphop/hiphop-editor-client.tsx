@@ -71,7 +71,7 @@ export function HipHopEditorClient({ initialData }: { initialData: HipHopInitial
       mobile_image_path: item.mobile_image_path ?? '',
     }))
   )
-  const [loadStatus, setLoadStatus] = useState('Hip hop hero loaded')
+  const [loadStatus, setLoadStatus] = useState('Hip Hop page hero loaded')
   const [uploadState, setUploadState] = useState<'idle' | 'uploading' | 'done' | 'error'>('idle')
   const [isSaving, setIsSaving] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -172,13 +172,13 @@ export function HipHopEditorClient({ initialData }: { initialData: HipHopInitial
     setIsSaving(false)
 
     if (!response.ok) {
-      setLoadStatus(payload?.error ?? 'Unable to save hip hop hero.')
+      setLoadStatus(payload?.error ?? 'Unable to save Hip Hop page hero.')
       return
     }
 
     setConfirmOpen(false)
-    setLoadStatus('Hip hop hero saved')
-    toast({ title: 'Saved', description: 'Hip hop hero updated successfully.' })
+    setLoadStatus('Hip Hop page hero saved')
+    toast({ title: 'Saved', description: 'Hip Hop page hero updated successfully.' })
   }
 
   return (
@@ -195,8 +195,8 @@ export function HipHopEditorClient({ initialData }: { initialData: HipHopInitial
         </div>
 
         <div className="mb-10">
-          <h1 className="font-jakarta text-3xl font-semibold text-foreground">Hip Hop Hero</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Edit text mode or switch to image slider mode for the Hip Hop page.</p>
+          <h1 className="font-jakarta text-3xl font-semibold text-foreground">Hip Hop Page Hero</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Edit text mode or switch to image slider mode for the dedicated Hip Hop page.</p>
           <p className="mt-2 text-xs text-muted-foreground">{loadStatus}</p>
         </div>
 
@@ -249,7 +249,7 @@ export function HipHopEditorClient({ initialData }: { initialData: HipHopInitial
           <div className="mt-8 max-w-5xl">
             <div className="mb-4 flex items-center justify-between gap-4">
               <div>
-                <h2 className="text-xl font-semibold text-foreground">Hero Slides</h2>
+                <h2 className="text-xl font-semibold text-foreground">Page Hero Slides</h2>
                 <p className="text-sm text-muted-foreground">Each slide needs an image, button text, and destination link.</p>
               </div>
 
@@ -320,8 +320,8 @@ export function HipHopEditorClient({ initialData }: { initialData: HipHopInitial
 
         <ConfirmDialog
           isOpen={confirmOpen}
-          title="Save hip hop hero?"
-          description="This will update the Hip Hop page hero on the live site."
+          title="Save Hip Hop page hero?"
+          description="This will update the dedicated Hip Hop page hero on the live site."
           confirmText="Save"
           cancelText="Cancel"
           type="confirm"

@@ -5,6 +5,7 @@ import sharp from 'sharp'
 import { buildAdminClient } from '@/lib/cms-auth'
 import { productImportBucket } from '@/lib/product-import-staging'
 import type { ImportJobIssueRecord, ImportJobRowRecord } from '@/lib/import-jobs'
+import { uploadProductVideoToR2 } from '@/lib/r2'
 import { slugify } from '@/lib/product-catalog'
 
 type LookupRow = { id: string; name: string }
@@ -15,6 +16,11 @@ const allowedVideoExtensions = new Set(['mp4', 'mov', 'webm'])
 
 function normalizeName(value: string | null | undefined) {
   return (value ?? '').trim().toLowerCase()
+}
+
+function isHttpUrl(value: string | null | undefined) {
+  const normalized = (value ?? '').trim().toLowerCase()
+  return normalized.startsWith('http://') || normalized.startsWith('https://')
 }
 
 function isMissingProductColumn(error: { message?: string | null } | null | undefined, column: string) {
@@ -51,7 +57,7 @@ function fileExtension(fileName: string) {
 }
 
 function isBlockingExecutionIssue(issue: ImportJobIssueRecord) {
-  return issue.issue_type === 'error' || issue.issue_code === 'existing_sku' || issue.issue_code === 'missing_archive'
+  return issue.issue_type === 'error' || issue.issue_code === 'missing_archive'
 }
 
 async function loadZipEntries(storagePath: string) {
@@ -114,18 +120,18 @@ async function uploadMediaFromArchiveEntry({
 
   if (allowedVideoExtensions.has(extension)) {
     const safeExtension = extension || 'mp4'
-    const storagePath = `${folder}/videos/${crypto.randomUUID()}.${safeExtension}`
-    const { error } = await adminClient.storage.from(productImportBucket).upload(storagePath, buffer, {
+    const uploadedVideo = await uploadProductVideoToR2({
+      buffer,
+      extension: safeExtension,
+      folder,
       contentType:
         safeExtension === 'mov'
           ? 'video/quicktime'
           : safeExtension === 'webm'
             ? 'video/webm'
             : 'video/mp4',
-      upsert: false,
     })
-    if (error) throw new Error(error.message)
-    return { kind: 'video' as const, path: storagePath }
+    return { kind: 'video' as const, path: uploadedVideo.url }
   }
 
   throw new Error(`Unsupported media file type for ${fileName}.`)
@@ -175,7 +181,64 @@ async function loadReferenceMaps() {
   }
 }
 
-async function insertProduct(adminClient: any, row: ImportJobRowRecord, mediaPaths: { image_1_path: string; image_2_path: string | null; image_3_path: string | null; image_4_path: string | null; video_path: string | null }) {
+async function replaceProductMetalSelections(adminClient: any, productId: string, metalIds: string[]) {
+  await adminClient.from('product_metal_selections').delete().eq('product_id', productId)
+
+  if (metalIds.length < 1) return
+
+  const { error } = await adminClient.from('product_metal_selections').insert(
+    metalIds.map((metalId, index) => ({ product_id: productId, metal_id: metalId, sort_order: index + 1 }))
+  )
+  if (error) throw new Error(error.message)
+}
+
+async function replaceProductMaterialValueSelections(adminClient: any, productId: string, materialValueIds: string[]) {
+  await adminClient.from('product_material_value_selections').delete().eq('product_id', productId)
+
+  if (materialValueIds.length < 1) return
+
+  const { error } = await adminClient.from('product_material_value_selections').insert(
+    materialValueIds.map((materialValueId, index) => ({
+      product_id: productId,
+      material_value_id: materialValueId,
+      sort_order: index + 1,
+    }))
+  )
+  if (error) throw new Error(error.message)
+}
+
+async function replaceProductPurityPrices(
+  adminClient: any,
+  productId: string,
+  purityRows: Array<{ purity_label: string; price: number; sort_order: number }>
+) {
+  await adminClient.from('product_purity_prices').delete().eq('product_id', productId)
+
+  if (purityRows.length < 1) {
+    await adminClient.from('products').update({ default_purity_price_id: null }).eq('id', productId)
+    return
+  }
+
+  const { data: insertedPurities, error } = await adminClient
+    .from('product_purity_prices')
+    .insert(
+      purityRows.map((entry) => ({
+        product_id: productId,
+        purity_label: entry.purity_label,
+        price: entry.price,
+        compare_at_price: null,
+        sort_order: entry.sort_order,
+      }))
+    )
+    .select('id')
+
+  if (error) throw new Error(error.message)
+
+  const defaultPurityId = insertedPurities?.[0]?.id ?? null
+  await adminClient.from('products').update({ default_purity_price_id: defaultPurityId }).eq('id', productId)
+}
+
+async function saveProduct(adminClient: any, row: ImportJobRowRecord, mediaPaths: { image_1_path: string; image_2_path: string | null; image_3_path: string | null; image_4_path: string | null; video_path: string | null }) {
   const refs = await loadReferenceMaps()
   const normalized = (row.normalized_payload ?? {}) as Record<string, unknown>
   const lane = normalizeName((normalized.lane as string | null | undefined) ?? row.lane) || 'standard'
@@ -208,7 +271,6 @@ async function insertProduct(adminClient: any, row: ImportJobRowRecord, mediaPat
   ].filter(Boolean) as Array<{ id: string; purity_label: string; price: number; sort_order: number }>
 
   const payload = {
-    slug: `${slugify(row.product_name || row.sku || 'import-product')}-${Date.now()}`,
     name: row.product_name,
     sku: row.sku,
     product_lane: lane === 'hiphop' ? 'hiphop' : lane === 'collection' ? 'collection' : 'standard',
@@ -275,14 +337,57 @@ async function insertProduct(adminClient: any, row: ImportJobRowRecord, mediaPat
     gram_weight_value: null,
   }
 
-  let { data: product, error: productError } = await adminClient.from('products').insert(payload).select('id').single()
-  if (productError && isMissingProductColumn(productError, 'gemstone_value')) {
-    const retryPayload = { ...payload }
-    delete (retryPayload as Record<string, unknown>).gemstone_value
-    ;({ data: product, error: productError } = await adminClient.from('products').insert(retryPayload).select('id').single())
+  const { data: existingProduct, error: existingProductError } = await adminClient
+    .from('products')
+    .select('id, slug')
+    .eq('sku', row.sku)
+    .maybeSingle()
+
+  if (existingProductError) {
+    throw new Error(existingProductError.message)
   }
+
+  const writePayload = existingProduct
+    ? payload
+    : {
+        slug: `${slugify(row.product_name || row.sku || 'import-product')}-${Date.now()}`,
+        ...payload,
+      }
+
+  let product: { id: string } | null = null
+  let productError: { message?: string | null } | null = null
+
+  if (existingProduct) {
+    const updatePayload = { ...writePayload }
+    delete (updatePayload as Record<string, unknown>).sku
+
+    const updateResult = await adminClient.from('products').update(updatePayload).eq('id', existingProduct.id).select('id').single()
+    product = updateResult.data
+    productError = updateResult.error
+
+    if (productError && isMissingProductColumn(productError, 'gemstone_value')) {
+      const retryPayload = { ...updatePayload }
+      delete (retryPayload as Record<string, unknown>).gemstone_value
+      const retryResult = await adminClient.from('products').update(retryPayload).eq('id', existingProduct.id).select('id').single()
+      product = retryResult.data
+      productError = retryResult.error
+    }
+  } else {
+    const insertResult = await adminClient.from('products').insert(writePayload).select('id').single()
+    product = insertResult.data
+    productError = insertResult.error
+
+    if (productError && isMissingProductColumn(productError, 'gemstone_value')) {
+      const retryPayload = { ...writePayload }
+      delete (retryPayload as Record<string, unknown>).gemstone_value
+      const retryResult = await adminClient.from('products').insert(retryPayload).select('id').single()
+      product = retryResult.data
+      productError = retryResult.error
+    }
+  }
+
   if (productError || !product) {
-    throw new Error(productError?.message ?? 'Unable to insert product.')
+    throw new Error(productError?.message ?? `Unable to ${existingProduct ? 'update' : 'insert'} product.`)
   }
 
   const metalIds = metals
@@ -292,49 +397,22 @@ async function insertProduct(adminClient: any, row: ImportJobRowRecord, mediaPat
     .map((name) => refs.materialValueMap.get(normalizeName(name))?.id)
     .filter((id): id is string => Boolean(id))
 
-  if (metalIds.length > 0) {
-    const { error: metalError } = await adminClient.from('product_metal_selections').insert(
-      metalIds.map((metalId, index) => ({ product_id: product.id, metal_id: metalId, sort_order: index + 1 }))
-    )
-    if (metalError) {
-      throw new Error(metalError.message)
-    }
+  await replaceProductMetalSelections(adminClient, product.id, metalIds)
+  await replaceProductMaterialValueSelections(adminClient, product.id, materialValueIds)
+  await replaceProductPurityPrices(
+    adminClient,
+    product.id,
+    purityRows.map((entry) => ({
+      purity_label: entry.purity_label,
+      price: entry.price,
+      sort_order: entry.sort_order,
+    }))
+  )
+
+  return {
+    id: product.id as string,
+    mode: existingProduct ? 'updated' as const : 'created' as const,
   }
-
-  if (materialValueIds.length > 0) {
-    const { error: materialValueError } = await adminClient.from('product_material_value_selections').insert(
-      materialValueIds.map((materialValueId, index) => ({ product_id: product.id, material_value_id: materialValueId, sort_order: index + 1 }))
-    )
-    if (materialValueError) {
-      throw new Error(materialValueError.message)
-    }
-  }
-
-  if (purityRows.length > 0) {
-    const { data: insertedPurities, error: purityError } = await adminClient
-      .from('product_purity_prices')
-      .insert(
-        purityRows.map((entry) => ({
-          product_id: product.id,
-          purity_label: entry.purity_label,
-          price: entry.price,
-          compare_at_price: null,
-          sort_order: entry.sort_order,
-        }))
-      )
-      .select('id')
-
-    if (purityError) {
-      throw new Error(purityError.message)
-    }
-
-    const defaultPurityId = insertedPurities?.[0]?.id ?? null
-    if (defaultPurityId) {
-      await adminClient.from('products').update({ default_purity_price_id: defaultPurityId }).eq('id', product.id)
-    }
-  }
-
-  return product.id as string
 }
 
 function issuePayload(rowId: string, issue_type: 'warning' | 'error', issue_code: string, message: string, field_name: string | null = null) {
@@ -430,6 +508,10 @@ export async function executeImportJob(jobId: string) {
 
       for (const [key, fileName] of Object.entries(mediaNames)) {
         if (!fileName) continue
+        if (key === 'video' && isHttpUrl(fileName)) {
+          resolvedMedia.video_path = fileName
+          continue
+        }
         const entry = zipEntries.get(fileName.toLowerCase())
         if (!entry) {
           throw new Error(`File "${fileName}" was not found inside the staged ZIP archive.`)
@@ -452,7 +534,7 @@ export async function executeImportJob(jobId: string) {
         throw new Error('Primary image could not be uploaded during execution.')
       }
 
-      await insertProduct(adminClient, row, resolvedMedia as {
+      const saveResult = await saveProduct(adminClient, row, resolvedMedia as {
         image_1_path: string
         image_2_path: string | null
         image_3_path: string | null
@@ -465,7 +547,10 @@ export async function executeImportJob(jobId: string) {
         .from('import_job_rows')
         .update({
           status: 'imported',
-          import_message: 'Imported successfully as a draft product.',
+          import_message:
+            saveResult.mode === 'updated'
+              ? 'Updated existing product from this import row and refreshed media in draft status.'
+              : 'Imported successfully as a draft product.',
         })
         .eq('id', row.id)
     } catch (error) {

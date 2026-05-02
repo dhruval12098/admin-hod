@@ -31,6 +31,11 @@ function normalizeName(value: string | null | undefined) {
   return (value ?? '').trim().toLowerCase()
 }
 
+function isHttpUrl(value: string | null | undefined) {
+  const normalized = (value ?? '').trim().toLowerCase()
+  return normalized.startsWith('http://') || normalized.startsWith('https://')
+}
+
 function splitPipeList(value: string | null | undefined) {
   return (value ?? '')
     .split('|')
@@ -241,7 +246,7 @@ function validateRow(
     addIssue('error', 'sku', 'duplicate_sku_in_batch', `SKU "${row.sku}" appears more than once in this import batch.`)
   }
   if (sku && lookups.existingSkus.has(sku)) {
-    addIssue('warning', 'sku', 'existing_sku', `SKU "${row.sku}" already exists in the live product catalog and may require update logic later.`)
+    addIssue('warning', 'sku', 'existing_sku', `SKU "${row.sku}" already exists in the live product catalog and this import will update that product instead of creating a duplicate.`)
   }
   if (featured === 'invalid') {
     addIssue('warning', 'featured', 'invalid_boolean', 'Featured should use TRUE or FALSE.')
@@ -249,7 +254,7 @@ function validateRow(
   if (readyToShip === 'invalid') {
     addIssue('warning', 'ready_to_ship', 'invalid_boolean', 'Ready To Ship should use TRUE or FALSE.')
   }
-  if (!hasArchive && (row.image_1 || row.image_2 || row.image_3 || row.image_4 || row.video)) {
+  if (!hasArchive && (row.image_1 || row.image_2 || row.image_3 || row.image_4 || (row.video && !isHttpUrl(row.video)))) {
     addIssue('warning', 'image_1', 'missing_archive', 'No ZIP archive has been uploaded yet, so file matching cannot be validated in this phase.')
   }
 

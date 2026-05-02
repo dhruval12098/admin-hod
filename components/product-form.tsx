@@ -3,7 +3,7 @@
 import type { Dispatch, FormEvent, ReactNode, SetStateAction } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ChevronLeft, Eye, EyeOff, Loader2, Plus, Trash2, Upload, Video, X } from 'lucide-react'
+import { ChevronLeft, Eye, EyeOff, Loader2, Plus, Trash2, Video, X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/hooks/use-toast'
 import {
@@ -210,7 +210,6 @@ function applyProductPayload(
     setImagePaths: Dispatch<SetStateAction<(string | null)[]>>
     setImageSlots: Dispatch<SetStateAction<string[]>>
     setVideoPath: Dispatch<SetStateAction<string | null>>
-    setVideoFileName: Dispatch<SetStateAction<string>>
     setShowImageSlots: Dispatch<SetStateAction<boolean[]>>
     setShowVideo: Dispatch<SetStateAction<boolean>>
     setCustomOrderEnabled: Dispatch<SetStateAction<boolean>>
@@ -304,7 +303,6 @@ function applyProductPayload(
     item.image_4_path ?? '',
   ])
   setters.setVideoPath(item.video_path ?? null)
-  setters.setVideoFileName(item.video_path ?? '')
   setters.setShowImageSlots([
     item.show_image_1 ?? true,
     item.show_image_2 ?? true,
@@ -477,13 +475,11 @@ export function ProductForm({
   const [detailSections, setDetailSections] = useState<ProductDetailSection[]>([emptySection()])
   const [imageSlots, setImageSlots] = useState<string[]>(['', '', '', ''])
   const [imagePaths, setImagePaths] = useState<(string | null)[]>([null, null, null, null])
-  const [videoFileName, setVideoFileName] = useState('')
   const [videoPath, setVideoPath] = useState<string | null>(null)
   const [showImageSlots, setShowImageSlots] = useState([true, true, true, true])
   const [showVideo, setShowVideo] = useState(true)
   const [activeMetalMediaId, setActiveMetalMediaId] = useState('')
   const [uploadingSlots, setUploadingSlots] = useState<Record<string, boolean>>({})
-  const [uploadingVideos, setUploadingVideos] = useState<Record<string, boolean>>({})
   const [customOrderEnabled, setCustomOrderEnabled] = useState(false)
   const [readyToShip, setReadyToShip] = useState(false)
   const [hiphopBadges, setHiphopBadges] = useState<string[]>([])
@@ -567,7 +563,6 @@ export function ProductForm({
       setImagePaths,
       setImageSlots,
       setVideoPath,
-      setVideoFileName,
       setShowImageSlots,
       setShowVideo,
       setCustomOrderEnabled,
@@ -2032,25 +2027,11 @@ export function ProductForm({
                 </div>
 
                 <div className="mt-4">
-                  <MediaVideoRow
-                    fileName={videoFileName || null}
-                    uploading={Boolean(uploadingVideos.base)}
-                    onUpload={async (file) => {
-                      setUploadingVideos((prev) => ({ ...prev, base: true }))
-                      try {
-                        const path = await uploadMedia(file, 'video', isHiphopProduct ? 'hiphop' : 'products')
-                        setVideoFileName(path)
-                        setVideoPath(path)
-                        toast({ title: 'Uploaded', description: 'Product video uploaded successfully.' })
-                      } catch (error) {
-                        toast({
-                          title: 'Upload failed',
-                          description: error instanceof Error ? error.message : 'Unable to upload video.',
-                          variant: 'destructive',
-                        })
-                      } finally {
-                        setUploadingVideos((prev) => ({ ...prev, base: false }))
-                      }
+                  <MediaVideoUrlRow
+                    value={videoPath ?? ''}
+                    onChange={(nextValue) => {
+                      const trimmed = nextValue.trim()
+                      setVideoPath(trimmed || null)
                     }}
                   />
                 </div>
@@ -2061,7 +2042,7 @@ export function ProductForm({
                     <div>
                       <h3 className="text-lg font-semibold text-foreground">Metal Based Media</h3>
                       <p className="mt-2 text-xs text-muted-foreground">
-                        Upload up to four images and one optional video per selected metal. If a metal has no own media, storefront falls back to the shared base media first, then to the selected fallback metal when needed.
+                        Upload up to four images and set one optional video URL per selected metal. If a metal has no own media, storefront falls back to the shared base media first, then to the selected fallback metal when needed.
                       </p>
                     </div>
                   </div>
@@ -2161,24 +2142,12 @@ export function ProductForm({
                         </div>
 
                         <div className="mt-4">
-                          <MediaVideoRow
-                            fileName={mediaEntry.video_path || null}
-                            uploading={Boolean(uploadingVideos[`metal-${activeMetalMediaId}`])}
-                            onUpload={async (file) => {
-                              setUploadingVideos((prev) => ({ ...prev, [`metal-${activeMetalMediaId}`]: true }))
-                              try {
-                                const uploadedPath = await uploadMedia(file, 'video', isHiphopProduct ? 'hiphop' : 'products')
-                                updateMetalMediaEntry(activeMetalMediaId, (entry) => ({ ...entry, video_path: uploadedPath }))
-                                toast({ title: 'Uploaded', description: `${metal.name} video uploaded successfully.` })
-                              } catch (error) {
-                                toast({
-                                  title: 'Upload failed',
-                                  description: error instanceof Error ? error.message : `Unable to upload ${metal.name} video.`,
-                                  variant: 'destructive',
-                                })
-                              } finally {
-                                setUploadingVideos((prev) => ({ ...prev, [`metal-${activeMetalMediaId}`]: false }))
-                              }
+                          <MediaVideoUrlRow
+                            value={mediaEntry.video_path ?? ''}
+                            label={`${metal.name} Video URL`}
+                            onChange={(nextValue) => {
+                              const trimmed = nextValue.trim()
+                              updateMetalMediaEntry(activeMetalMediaId, (entry) => ({ ...entry, video_path: trimmed || null }))
                             }}
                           />
                         </div>
@@ -2646,41 +2615,46 @@ function MediaThumbnailSlot({
   )
 }
 
-function MediaVideoRow({
-  fileName,
-  uploading = false,
-  onUpload,
+function MediaVideoUrlRow({
+  value,
+  label = 'Video URL',
+  onChange,
 }: {
-  fileName: string | null | undefined
-  uploading?: boolean
-  onUpload: (file: File) => void | Promise<void>
+  value: string
+  label?: string
+  onChange: (value: string) => void
 }) {
   return (
-    <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-border bg-white px-4 py-3 transition-colors hover:border-primary">
-      <div className="flex min-w-0 items-center gap-3">
+    <div className="rounded-xl border border-border bg-white px-4 py-3">
+      <div className="flex min-w-0 items-start gap-3">
         <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-secondary/30 text-foreground">
           <Video size={16} />
         </span>
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-foreground">Video</p>
-          <p className="truncate text-xs text-muted-foreground">{fileName || 'No video'}</p>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-foreground">{label}</p>
+          <p className="mt-1 text-xs text-muted-foreground">Paste the public video URL to be used on the storefront.</p>
+          <div className="mt-3 flex items-center gap-2">
+            <input
+              type="url"
+              value={value}
+              onChange={(event) => onChange(event.target.value)}
+              placeholder="https://..."
+              className={inputClassName}
+            />
+            {value ? (
+              <button
+                type="button"
+                onClick={() => onChange('')}
+                className="inline-flex h-10 w-10 items-center justify-center rounded border border-border bg-white text-foreground transition-colors hover:border-primary"
+                aria-label={`Clear ${label}`}
+              >
+                <X size={16} />
+              </button>
+            ) : null}
+          </div>
         </div>
       </div>
-      <span className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-white">
-        {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-        {uploading ? 'Uploading' : 'Upload'}
-      </span>
-      <input
-        type="file"
-        accept="video/*"
-        className="hidden"
-        onChange={(event) => {
-          const file = event.target.files?.[0]
-          if (!file) return
-          void onUpload(file)
-        }}
-      />
-    </label>
+    </div>
   )
 }
 

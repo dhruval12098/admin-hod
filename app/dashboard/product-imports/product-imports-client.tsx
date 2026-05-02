@@ -84,7 +84,7 @@ export function ProductImportsClient({ overview }: { overview: ImportJobsOvervie
             </div>
             <h2 className="mt-5 text-2xl font-semibold text-foreground">Start your first import</h2>
             <p className="mt-3 text-sm leading-6 text-muted-foreground">
-              Download the Smart Excel Template, fill one row per product, upload the workbook and image ZIP, then validate before import.
+              Download the Smart Excel Template (.xlsx), fill one row per product, upload the workbook and image ZIP, then validate before import. CSV files are only plain fallbacks and do not include dropdowns.
             </p>
             <Link
               href="/dashboard/product-imports/new"

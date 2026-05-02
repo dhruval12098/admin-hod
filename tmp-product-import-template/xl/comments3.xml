@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<comments xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><authors><author>Author</author></authors><commentList><comment ref="A1" authorId="0"><text><r><t xml:space="preserve">Product Name
+
+Customer-facing name of the product.
+
+Example: Celeste Diamond Ring</t></r></text></comment><comment ref="B1" authorId="0"><text><r><t xml:space="preserve">SKU
+
+Unique product code used to match images and avoid duplicates.
+
+Example: HDR-1001</t></r></text></comment><comment ref="C1" authorId="0"><text><r><t xml:space="preserve">Lane
+
+Decides whether the product belongs to the standard, hiphop, or collection flow.
+
+Example: standard</t></r></text></comment><comment ref="D1" authorId="0"><text><r><t xml:space="preserve">Category
+
+Main category name exactly as it exists in the catalog.
+
+Example: Rings</t></r></text></comment><comment ref="E1" authorId="0"><text><r><t xml:space="preserve">Subcategory
+
+Subcategory name when the selected category uses one.
+
+Example: Engagement Rings</t></r></text></comment><comment ref="F1" authorId="0"><text><r><t xml:space="preserve">Option
+
+Option name when the selected subcategory uses one.
+
+Example: Solitaire</t></r></text></comment><comment ref="G1" authorId="0"><text><r><t xml:space="preserve">Style
+
+Style name from the catalog setup.
+
+Example: Classic</t></r></text></comment><comment ref="H1" authorId="0"><text><r><t xml:space="preserve">Description
+
+Main product description shown on the storefront.
+
+Example: Elegant solitaire ring crafted for everyday luxury.</t></r></text></comment><comment ref="I1" authorId="0"><text><r><t xml:space="preserve">Stock Quantity
+
+Available stock count. Use 0 if unavailable.
+
+Example: 5</t></r></text></comment><comment ref="J1" authorId="0"><text><r><t xml:space="preserve">Discount Price
+
+Optional discounted selling price.
+
+Example: 54999</t></r></text></comment><comment ref="K1" authorId="0"><text><r><t xml:space="preserve">GST Slab
+
+GST slab name exactly as configured in the catalog.
+
+Example: GST 3%</t></r></text></comment><comment ref="L1" authorId="0"><text><r><t xml:space="preserve">Metal 1
+
+Primary metal selection from the catalog master table.
+
+Example: 14K Yellow Gold</t></r></text></comment><comment ref="M1" authorId="0"><text><r><t xml:space="preserve">Metal 2
+
+Optional second metal selection.
+
+Example: Platinum</t></r></text></comment><comment ref="N1" authorId="0"><text><r><t xml:space="preserve">Metal 3
+
+Optional third metal selection.
+
+Example: </t></r></text></comment><comment ref="O1" authorId="0"><text><r><t xml:space="preserve">Certificate 1
+
+Primary certificate selection from the catalog master table.
+
+Example: IGI</t></r></text></comment><comment ref="P1" authorId="0"><text><r><t xml:space="preserve">Certificate 2
+
+Optional second certificate selection.
+
+Example: GIA</t></r></text></comment><comment ref="Q1" authorId="0"><text><r><t xml:space="preserve">Material Value 1
+
+Primary material selector value from the catalog master table.
+
+Example: Glossy Finish</t></r></text></comment><comment ref="R1" authorId="0"><text><r><t xml:space="preserve">Material Value 2
+
+Optional second material selector value.
+
+Example: Comfort Fit</t></r></text></comment><comment ref="S1" authorId="0"><text><r><t xml:space="preserve">Material Value 3
+
+Optional third material selector value.
+
+Example: </t></r></text></comment><comment ref="T1" authorId="0"><text><r><t xml:space="preserve">Material Value 4
+
+Optional fourth material selector value.
+
+Example: </t></r></text></comment><comment ref="U1" authorId="0"><text><r><t xml:space="preserve">Purity 1 Label
+
+First purity label. The importer will use purity rows to build pricing.
+
+Example: 18K</t></r></text></comment><comment ref="V1" authorId="0"><text><r><t xml:space="preserve">Purity 1 Price
+
+Price for the first purity row.
+
+Example: 59999</t></r></text></comment><comment ref="W1" authorId="0"><text><r><t xml:space="preserve">Purity 2 Label
+
+Optional second purity label.
+
+Example: 22K</t></r></text></comment><comment ref="X1" authorId="0"><text><r><t xml:space="preserve">Purity 2 Price
+
+Optional price for the second purity row.
+
+Example: 64999</t></r></text></comment><comment ref="Y1" authorId="0"><text><r><t xml:space="preserve">Purity 3 Label
+
+Optional third purity label.
+
+Example: Pt 950</t></r></text></comment><comment ref="Z1" authorId="0"><text><r><t xml:space="preserve">Purity 3 Price
+
+Optional price for the third purity row.
+
+Example: 68999</t></r></text></comment><comment ref="AA1" authorId="0"><text><r><t xml:space="preserve">Image 1
+
+Main image filename only, not a full path.
+
+Example: HDR-1001_main.jpg</t></r></text></comment><comment ref="AB1" authorId="0"><text><r><t xml:space="preserve">Image 2
+
+Second image filename if available.
+
+Example: HDR-1001_side.jpg</t></r></text></comment><comment ref="AC1" authorId="0"><text><r><t xml:space="preserve">Image 3
+
+Third image filename if available.
+
+Example: HDR-1001_top.jpg</t></r></text></comment><comment ref="AD1" authorId="0"><text><r><t xml:space="preserve">Image 4
+
+Fourth image filename if available.
+
+Example: HDR-1001_detail.jpg</t></r></text></comment><comment ref="AE1" authorId="0"><text><r><t xml:space="preserve">Video
+
+Optional product video filename only.
+
+Example: HDR-1001_video.mp4</t></r></text></comment><comment ref="AF1" authorId="0"><text><r><t xml:space="preserve">Specification 1 Key
+
+Optional product specification label.
+
+Example: Occasion</t></r></text></comment><comment ref="AG1" authorId="0"><text><r><t xml:space="preserve">Specification 1 Value
+
+Optional product specification value.
+
+Example: Bridal</t></r></text></comment><comment ref="AH1" authorId="0"><text><r><t xml:space="preserve">Specification 2 Key
+
+Optional second product specification label.
+
+Example: Setting</t></r></text></comment><comment ref="AI1" authorId="0"><text><r><t xml:space="preserve">Specification 2 Value
+
+Optional second product specification value.
+
+Example: Prong</t></r></text></comment><comment ref="AJ1" authorId="0"><text><r><t xml:space="preserve">Specification 3 Key
+
+Optional third product specification label.
+
+Example: Finish</t></r></text></comment><comment ref="AK1" authorId="0"><text><r><t xml:space="preserve">Specification 3 Value
+
+Optional third product specification value.
+
+Example: High Polish</t></r></text></comment><comment ref="AL1" authorId="0"><text><r><t xml:space="preserve">Specification 4 Key
+
+Optional fourth product specification label.
+
+Example: </t></r></text></comment><comment ref="AM1" authorId="0"><text><r><t xml:space="preserve">Specification 4 Value
+
+Optional fourth product specification value.
+
+Example: </t></r></text></comment><comment ref="AN1" authorId="0"><text><r><t xml:space="preserve">Engraving Label
+
+Leave blank if engraving is not needed.
+
+Example: Complimentary Engraving</t></r></text></comment></commentList></comments>

@@ -26,19 +26,19 @@ import type { ProductImportColumn } from '@/lib/product-import-templates'
 
 const DOWNLOAD_ITEMS = [
   {
-    title: 'Smart Excel Template',
-    description: 'Best for clients. It includes row-by-row dropdowns from your live master tables.',
+    title: 'Smart Excel Template (.xlsx)',
+    description: 'Best for clients. This is the only template with category, subcategory, and option dropdowns from your live master tables.',
     href: '/api/product-imports/templates/excel-template',
     primary: true,
   },
   {
-    title: 'Blank CSV Template',
-    description: 'Fallback if the client cannot use Excel.',
+    title: 'Blank CSV Template (No Dropdowns)',
+    description: 'Fallback only if the client cannot use Excel. CSV files cannot show dropdowns or dependent lists.',
     href: '/api/product-imports/templates/blank-csv',
   },
   {
-    title: 'Sample CSV',
-    description: 'Use this to understand how example rows should look.',
+    title: 'Sample CSV (No Dropdowns)',
+    description: 'Use this to understand how example rows should look. This is a plain CSV example, not a smart dropdown template.',
     href: '/api/product-imports/templates/sample-csv',
   },
   {
@@ -51,7 +51,7 @@ const DOWNLOAD_ITEMS = [
 const GUIDE_STEPS = [
   {
     title: 'Download the template',
-    description: 'Use the Smart Excel Template so every row already has dropdowns from your live master data.',
+    description: 'Use the Smart Excel Template so every row already has dropdowns from your live master data. CSV files do not support dropdowns.',
   },
   {
     title: 'Fill one row per product',
@@ -210,6 +210,10 @@ export function ProductImportWizardClient({ columns }: { columns: ProductImportC
           </a>
 
           <div className="mt-5 rounded-xl bg-secondary/10 p-4">
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
+              Use the <span className="font-semibold">Smart Excel Template (.xlsx)</span> if you want category, subcategory,
+              and option dropdowns. Plain CSV files never show those dropdowns, even when they are empty.
+            </div>
             <p className="text-sm font-semibold text-foreground">Other downloads</p>
             <div className="mt-3 space-y-3">
               {DOWNLOAD_ITEMS.slice(1).map((item) => (
@@ -337,7 +341,9 @@ export function ProductImportWizardClient({ columns }: { columns: ProductImportC
                   >
                     <div>
                       <p className="text-sm font-medium text-foreground">Choose workbook</p>
-                      <p className="mt-1 text-sm text-muted-foreground">Upload the Smart Excel Template directly, or use CSV as a fallback.</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Upload the Smart Excel Template directly if you need dropdowns. CSV is only a plain fallback and will not show category, subcategory, or option lists.
+                      </p>
                     </div>
                     <FileSpreadsheet size={18} className="text-muted-foreground" />
                   </button>

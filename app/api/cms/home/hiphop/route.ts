@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { buildAdminClient, buildAuthClient } from '@/lib/cms-auth'
 
 const sectionKey = 'hiphop_hero'
+const legacySectionKey = 'home_hiphop_showcase'
 
 type HipHopSection = {
   eyebrow: string
@@ -15,6 +16,22 @@ type HipHopSection = {
     button_text: string
     button_link: string
   }>
+}
+
+function isMissingTableError(message?: string | null) {
+  return Boolean(message?.includes("Could not find the table"))
+}
+
+function buildFallbackPayload() {
+  return {
+    section: {
+      eyebrow: 'Hip Hop',
+      headline: 'Hip Hop Jewellery',
+      subtitle: 'Fully iced chains, grillz, pendants and statement rings - handcrafted with CVD diamonds in 14K and 18K gold.',
+      slider_enabled: false,
+    },
+    items: [],
+  }
 }
 
 async function assertAdmin(request: Request) {
@@ -60,18 +77,54 @@ export async function GET(request: Request) {
     .eq('section_key', sectionKey)
     .maybeSingle()
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error && !isMissingTableError(error.message)) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  if (!section) {
+  if (isMissingTableError(error?.message)) {
+    const { data: legacySection, error: legacyError } = await adminClient
+      .from('hiphop_showcase_section')
+      .select('eyebrow, heading_line_1, heading_line_2, heading_emphasis, cta_label, cta_link, image_path')
+      .eq('section_key', legacySectionKey)
+      .maybeSingle()
+
+    if (legacyError && !isMissingTableError(legacyError.message)) {
+      return NextResponse.json({ error: legacyError.message }, { status: 500 })
+    }
+
+    if (!legacySection) {
+      return NextResponse.json(buildFallbackPayload())
+    }
+
+    const legacyHeadline = [
+      legacySection.heading_line_1,
+      legacySection.heading_line_2,
+      legacySection.heading_emphasis,
+    ]
+      .filter((part) => typeof part === 'string' && part.trim().length > 0)
+      .join(' ')
+
     return NextResponse.json({
       section: {
-        eyebrow: 'Hip Hop',
-        headline: 'Hip Hop Jewellery',
+        eyebrow: legacySection.eyebrow ?? 'Hip Hop',
+        headline: legacyHeadline || 'Hip Hop Jewellery',
         subtitle: 'Fully iced chains, grillz, pendants and statement rings - handcrafted with CVD diamonds in 14K and 18K gold.',
-        slider_enabled: false,
+        slider_enabled: Boolean(legacySection.image_path),
       },
-      items: [],
+      items: legacySection.image_path
+        ? [
+            {
+              sort_order: 1,
+              image_path: legacySection.image_path,
+              mobile_image_path: legacySection.image_path,
+              button_text: legacySection.cta_label ?? 'Explore',
+              button_link: legacySection.cta_link ?? '/hiphop',
+            },
+          ]
+        : [],
     })
+  }
+
+  if (!section) {
+    return NextResponse.json(buildFallbackPayload())
   }
 
   const { data: items, error: itemsError } = await adminClient
@@ -122,6 +175,44 @@ export async function POST(request: Request) {
     },
     { onConflict: 'section_key' }
   ).select('id').single()
+
+  if (isMissingTableError(error?.message)) {
+    const primarySlide =
+      body.items
+        .filter((item) => typeof item.image_path === 'string' && item.image_path.trim().length > 0)
+        .sort((left, right) => {
+          const leftOrder = Number.isFinite(Number(left.sort_order)) ? Number(left.sort_order) : 9999
+          const rightOrder = Number.isFinite(Number(right.sort_order)) ? Number(right.sort_order) : 9999
+          return leftOrder - rightOrder
+        })[0] ?? null
+
+    const headlineParts = body.headline
+      .split(/\r?\n+/)
+      .map((part) => part.trim())
+      .filter(Boolean)
+
+    const { error: legacySaveError } = await adminClient.from('hiphop_showcase_section').upsert(
+      {
+        section_key: legacySectionKey,
+        eyebrow: body.eyebrow,
+        heading_line_1: headlineParts[0] ?? body.headline,
+        heading_line_2: headlineParts[1] ?? '',
+        heading_emphasis: headlineParts.slice(2).join(' '),
+        cta_label: primarySlide?.button_text ?? 'Explore',
+        cta_link: primarySlide?.button_link ?? '/hiphop',
+        image_path: primarySlide?.image_path ?? '',
+        image_alt: 'House of Diams Hip Hop Collection',
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'section_key' }
+    )
+
+    if (legacySaveError) {
+      return NextResponse.json({ error: legacySaveError.message }, { status: 500 })
+    }
+
+    return NextResponse.json({ ok: true, mode: 'legacy' })
+  }
 
   if (error || !section) return NextResponse.json({ error: error?.message ?? 'Unable to save hero.' }, { status: 500 })
 

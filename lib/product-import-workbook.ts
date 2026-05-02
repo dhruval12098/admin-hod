@@ -42,7 +42,7 @@ type LookupMap = {
 const WORKSHEET_NAME = 'Product Upload'
 const INSTRUCTIONS_SHEET = 'Instructions'
 const LOOKUPS_SHEET = 'Lookups'
-const MAX_TEMPLATE_ROWS = 500
+const MAX_TEMPLATE_ROWS = 200
 
 function sanitizeRangeName(value: string) {
   const cleaned = value
@@ -56,7 +56,7 @@ function sanitizeRangeName(value: string) {
 }
 
 function excelNameExpression(cellRef: string) {
-  return `SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(TRIM(${cellRef}),"&"," and "),"/"," "),"-"," "),"."," "),"("," "),")"," "),"'"," ")`
+  return `SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(TRIM(${cellRef}),"&"," and "),"/"," "),"-"," "),"."," "),"("," "),")"," "),"'"," ")," ","_")`
 }
 
 async function loadLookupMap(adminClient: AdminClient): Promise<LookupMap> {
@@ -130,7 +130,8 @@ function addInstructionsSheet(workbook: ExcelJS.Workbook) {
     ['7. Shipping and care & warranty are applied automatically from the current active master rules.'],
     ['8. Featured and Ready To Ship are defaulted by the importer, so the client does not need to fill them.'],
     ['9. Image columns should contain file names only, such as SKU_main.jpg.'],
-    ['10. Upload this workbook directly in Bulk Imports together with the image ZIP.'],
+    ['10. Video can be a public URL or a ZIP filename. Use a full URL when the video already lives in Cloudflare R2 or another CDN.'],
+    ['11. Upload this workbook directly in Bulk Imports together with the image ZIP.'],
   ]
 
   lines.forEach((row) => sheet.addRow(row))
@@ -141,7 +142,7 @@ function addInstructionsSheet(workbook: ExcelJS.Workbook) {
 function defineNamedRange(workbook: ExcelJS.Workbook, name: string, sheetName: string, fromColumn: number, fromRow: number, toRow: number) {
   if (toRow < fromRow) return
   const column = columnLetter(fromColumn)
-  workbook.definedNames.add(name, `'${sheetName}'!$${column}$${fromRow}:$${column}$${toRow}`)
+  workbook.definedNames.add(`'${sheetName}'!$${column}$${fromRow}:$${column}$${toRow}`, name)
 }
 
 function addLookupsSheet(workbook: ExcelJS.Workbook, lookups: LookupMap) {
@@ -269,25 +270,66 @@ export async function buildProductImportWorkbook(adminClient: AdminClient) {
     sheet.getColumn(index + 1).width = Math.max(16, Math.min(32, column.key.length + 6))
   })
 
-  const categoryColumn = columnLetter(columns.findIndex((column) => column.key === 'category') + 1)
-  const subcategoryColumn = columnLetter(columns.findIndex((column) => column.key === 'subcategory') + 1)
+  const categoryColumnIndex = columns.findIndex((column) => column.key === 'category') + 1
+  const subcategoryColumnIndex = columns.findIndex((column) => column.key === 'subcategory') + 1
+  const categoryColumn = columnLetter(categoryColumnIndex)
+  const subcategoryColumn = columnLetter(subcategoryColumnIndex)
+
+  const helperCategoryKeyColumnIndex = columns.length + 2
+  const helperSubcategoryKeyColumnIndex = columns.length + 3
+  const helperSubcategoryRangeColumnIndex = columns.length + 4
+  const helperOptionRangeColumnIndex = columns.length + 5
+
+  const helperColumns = [
+    { index: helperCategoryKeyColumnIndex, label: 'Category Key' },
+    { index: helperSubcategoryKeyColumnIndex, label: 'Subcategory Key' },
+    { index: helperSubcategoryRangeColumnIndex, label: 'Subcategory Range' },
+    { index: helperOptionRangeColumnIndex, label: 'Option Range' },
+  ]
+
+  helperColumns.forEach((helper) => {
+    sheet.getCell(1, helper.index).value = helper.label
+    sheet.getColumn(helper.index).hidden = true
+    sheet.getColumn(helper.index).width = 20
+  })
+
+  for (let row = 2; row <= MAX_TEMPLATE_ROWS + 1; row += 1) {
+    const categoryCellRef = `$${categoryColumn}${row}`
+    const subcategoryCellRef = `$${subcategoryColumn}${row}`
+
+    sheet.getCell(row, helperCategoryKeyColumnIndex).value = {
+      formula: excelNameExpression(categoryCellRef),
+    }
+
+    sheet.getCell(row, helperSubcategoryKeyColumnIndex).value = {
+      formula: excelNameExpression(subcategoryCellRef),
+    }
+
+    sheet.getCell(row, helperSubcategoryRangeColumnIndex).value = {
+      formula: `"subcat_"&${columnLetter(helperCategoryKeyColumnIndex)}${row}`,
+    }
+
+    sheet.getCell(row, helperOptionRangeColumnIndex).value = {
+      formula: `"opt_"&${columnLetter(helperCategoryKeyColumnIndex)}${row}&"__"&${columnLetter(helperSubcategoryKeyColumnIndex)}${row}`,
+    }
+  }
 
   const validationTargets = new Map<string, string>([
-    ['lane', '=lanes'],
-    ['category', '=categories'],
-    ['subcategory', `=INDIRECT("subcat_"&SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(TRIM($${categoryColumn}{row}),"&"," and "),"/"," "),"-"," "),"."," "),"("," "),")"," "),"'"," ")," ","_"))`],
-    ['option_name', `=INDIRECT("opt_"&SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(TRIM($${categoryColumn}{row}),"&"," and "),"/"," "),"-"," "),"."," "),"("," "),")"," "),"'"," ")," ","_")&"__"&SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(TRIM($${subcategoryColumn}{row}),"&"," and "),"/"," "),"-"," "),"."," "),"("," "),")"," "),"'"," ")," ","_"))`],
-    ['style_name', '=styles'],
-    ['gst_slab_name', '=gst_slabs'],
-    ['metal_1', '=metals'],
-    ['metal_2', '=metals'],
-    ['metal_3', '=metals'],
-    ['certificate_1', '=certificates'],
-    ['certificate_2', '=certificates'],
-    ['material_value_1', '=material_values'],
-    ['material_value_2', '=material_values'],
-    ['material_value_3', '=material_values'],
-    ['material_value_4', '=material_values'],
+    ['lane', 'lanes'],
+    ['category', 'categories'],
+    ['subcategory', `INDIRECT($${columnLetter(helperSubcategoryRangeColumnIndex)}{row})`],
+    ['option_name', `INDIRECT($${columnLetter(helperOptionRangeColumnIndex)}{row})`],
+    ['style_name', 'styles'],
+    ['gst_slab_name', 'gst_slabs'],
+    ['metal_1', 'metals'],
+    ['metal_2', 'metals'],
+    ['metal_3', 'metals'],
+    ['certificate_1', 'certificates'],
+    ['certificate_2', 'certificates'],
+    ['material_value_1', 'material_values'],
+    ['material_value_2', 'material_values'],
+    ['material_value_3', 'material_values'],
+    ['material_value_4', 'material_values'],
   ])
 
   columns.forEach((column, index) => {
