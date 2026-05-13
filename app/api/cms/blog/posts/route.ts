@@ -17,6 +17,17 @@ type BlogPayload = {
   is_published?: boolean
   sort_order?: number
   tags?: string[]
+  content_blocks?: Array<{
+    id?: number
+    block_type?: 'text' | 'image' | 'heading' | 'quote'
+    sort_order?: number
+    heading?: string
+    body_html?: string
+    image_path?: string
+    image_alt?: string
+    image_caption?: string
+    is_enabled?: boolean
+  }>
 }
 
 export async function GET(request: Request) {
@@ -78,6 +89,30 @@ export async function POST(request: Request) {
   if (rows.length > 0) {
     const { error: tagsError } = await adminClient.from('blog_post_tags').insert(rows)
     if (tagsError) return NextResponse.json({ error: tagsError.message }, { status: 500 })
+  }
+
+  const contentBlocks = Array.isArray(body.content_blocks) ? body.content_blocks : []
+  const blockRows = contentBlocks
+    .map((block, index) => ({
+      post_id: post.id,
+      block_type: block.block_type ?? 'text',
+      sort_order: Number(block.sort_order) || index + 1,
+      heading: String(block.heading ?? '').trim() || null,
+      body_html: String(block.body_html ?? '').trim() || null,
+      image_path: String(block.image_path ?? '').trim() || null,
+      image_alt: String(block.image_alt ?? '').trim() || null,
+      image_caption: String(block.image_caption ?? '').trim() || null,
+      is_enabled: block.is_enabled !== false,
+    }))
+    .filter((block) => {
+      if (block.block_type === 'image') return Boolean(block.image_path)
+      if (block.block_type === 'heading') return Boolean(block.heading)
+      return Boolean(block.body_html)
+    })
+
+  if (blockRows.length > 0) {
+    const { error: blocksError } = await adminClient.from('blog_post_content_blocks').insert(blockRows)
+    if (blocksError) return NextResponse.json({ error: blocksError.message }, { status: 500 })
   }
 
   return NextResponse.json({ ok: true, id: post.id })

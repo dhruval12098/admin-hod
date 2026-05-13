@@ -1,6 +1,7 @@
 import 'server-only'
 
 import { buildAdminClient } from '@/lib/cms-auth'
+import { buildNormalizedLookupSet, normalizeImportValue } from '@/lib/import-normalization'
 import type { ImportJobIssueRecord, ImportJobRowRecord } from '@/lib/import-jobs'
 
 type CatalogLookupSets = {
@@ -28,12 +29,16 @@ type RowValidationResult = {
 }
 
 function normalizeName(value: string | null | undefined) {
-  return (value ?? '').trim().toLowerCase()
+  return normalizeImportValue(value)
 }
 
 function isHttpUrl(value: string | null | undefined) {
   const normalized = (value ?? '').trim().toLowerCase()
   return normalized.startsWith('http://') || normalized.startsWith('https://')
+}
+
+function isDirectMediaReference(value: string | null | undefined) {
+  return isHttpUrl(value)
 }
 
 function splitPipeList(value: string | null | undefined) {
@@ -69,18 +74,6 @@ async function loadLookupSets() {
     if (row.kind === 'care_warranty') careWarrantyRules.add(normalized)
   }
 
-  const normalizedCategories = (categories.data ?? [])
-    .map((row: { name: string }) => normalizeName(row.name))
-    .filter(Boolean)
-
-  const normalizedSubcategories = (subcategories.data ?? [])
-    .map((row: { name: string }) => normalizeName(row.name))
-    .filter(Boolean)
-
-  const normalizedOptions = (options.data ?? [])
-    .map((row: { name: string }) => normalizeName(row.name))
-    .filter(Boolean)
-
   const categoryNameById = new Map<string, string>(
     (categories.data ?? [])
       .map((row: { id?: string; name: string }) => [String((row as { id?: string }).id ?? ''), normalizeName(row.name)] as const)
@@ -112,16 +105,16 @@ async function loadLookupSets() {
   }
 
   return {
-    categories: new Set(normalizedCategories),
-    subcategories: new Set(normalizedSubcategories),
-    options: new Set(normalizedOptions),
+    categories: buildNormalizedLookupSet(categories.data as Array<{ name: string }>),
+    subcategories: buildNormalizedLookupSet(subcategories.data as Array<{ name: string }>),
+    options: buildNormalizedLookupSet(options.data as Array<{ name: string }>),
     categorySubcategoryPairs,
     subcategoryOptionPairs,
-    styles: new Set((styles.data ?? []).map((row: { name: string }) => normalizeName(row.name)).filter(Boolean)),
-    gstSlabs: new Set((gstSlabs.data ?? []).map((row: { name: string }) => normalizeName(row.name)).filter(Boolean)),
-    metals: new Set((metals.data ?? []).map((row: { name: string }) => normalizeName(row.name)).filter(Boolean)),
-    certificates: new Set((certificates.data ?? []).map((row: { name: string }) => normalizeName(row.name)).filter(Boolean)),
-    materialValues: new Set((materialValues.data ?? []).map((row: { name: string }) => normalizeName(row.name)).filter(Boolean)),
+    styles: buildNormalizedLookupSet(styles.data as Array<{ name: string }>),
+    gstSlabs: buildNormalizedLookupSet(gstSlabs.data as Array<{ name: string }>),
+    metals: buildNormalizedLookupSet(metals.data as Array<{ name: string }>),
+    certificates: buildNormalizedLookupSet(certificates.data as Array<{ name: string }>),
+    materialValues: buildNormalizedLookupSet(materialValues.data as Array<{ name: string }>),
     shippingRules,
     careWarrantyRules,
     existingSkus: new Set((existingProducts.data ?? []).map((row: { sku: string }) => normalizeName(row.sku)).filter(Boolean)),
@@ -254,7 +247,11 @@ function validateRow(
   if (readyToShip === 'invalid') {
     addIssue('warning', 'ready_to_ship', 'invalid_boolean', 'Ready To Ship should use TRUE or FALSE.')
   }
-  if (!hasArchive && (row.image_1 || row.image_2 || row.image_3 || row.image_4 || (row.video && !isHttpUrl(row.video)))) {
+  const localMediaReferences = [row.image_1, row.image_2, row.image_3, row.image_4]
+    .map((entry) => (entry ?? '').trim())
+    .filter((entry) => entry.length > 0 && !isDirectMediaReference(entry))
+
+  if (!hasArchive && (localMediaReferences.length > 0 || (row.video && !isHttpUrl(row.video)))) {
     addIssue('warning', 'image_1', 'missing_archive', 'No ZIP archive has been uploaded yet, so file matching cannot be validated in this phase.')
   }
 

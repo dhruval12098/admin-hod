@@ -99,7 +99,7 @@ export function HipHopEditorClient({ initialData }: { initialData: HipHopInitial
     const formData = new FormData()
     formData.append('file', file)
 
-    const response = await fetch('/api/cms/uploads/hiphop-showcase', {
+    const response = await fetch('/api/cms/uploads/hiphop-hero', {
       method: 'POST',
       headers: { authorization: `Bearer ${accessToken}` },
       body: formData,

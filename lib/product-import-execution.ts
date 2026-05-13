@@ -3,6 +3,7 @@ import 'server-only'
 import JSZip from 'jszip'
 import sharp from 'sharp'
 import { buildAdminClient } from '@/lib/cms-auth'
+import { buildNormalizedLookupMap, normalizeImportValue } from '@/lib/import-normalization'
 import { productImportBucket } from '@/lib/product-import-staging'
 import type { ImportJobIssueRecord, ImportJobRowRecord } from '@/lib/import-jobs'
 import { uploadProductVideoToR2 } from '@/lib/r2'
@@ -15,7 +16,7 @@ const allowedImageExtensions = new Set(['jpg', 'jpeg', 'png', 'webp', 'avif', 's
 const allowedVideoExtensions = new Set(['mp4', 'mov', 'webm'])
 
 function normalizeName(value: string | null | undefined) {
-  return (value ?? '').trim().toLowerCase()
+  return normalizeImportValue(value)
 }
 
 function isHttpUrl(value: string | null | undefined) {
@@ -153,8 +154,7 @@ async function loadReferenceMaps() {
     adminClient.from('product_content_rules').select('id, name, kind').eq('status', 'active').order('display_order', { ascending: true }),
   ])
 
-  const mapByName = (rows: LookupRow[] | null | undefined) =>
-    new Map((rows ?? []).map((row) => [normalizeName(row.name), row]))
+  const mapByName = (rows: LookupRow[] | null | undefined) => buildNormalizedLookupMap(rows)
 
   const shippingRuleMap = new Map<string, RuleLookupRow>()
   const careRuleMap = new Map<string, RuleLookupRow>()
@@ -445,9 +445,6 @@ export async function executeImportJob(jobId: string) {
 
   if (jobError || !job) throw new Error(jobError?.message ?? 'Import job not found.')
   if (rowsError) throw new Error(rowsError.message)
-  if (!job.zip_storage_path) {
-    throw new Error('A staged ZIP archive is required before import execution can safely process product media.')
-  }
   if (job.status !== 'ready') {
     throw new Error('Only validated jobs in ready status can be executed.')
   }
@@ -461,7 +458,7 @@ export async function executeImportJob(jobId: string) {
     }
   }
 
-  const zipEntries = await loadZipEntries(job.zip_storage_path)
+  const zipEntries = job.zip_storage_path ? await loadZipEntries(job.zip_storage_path) : new Map<string, JSZip.JSZipObject>()
   const typedRows = ((rows ?? []) as ImportJobRowRecord[]).map((row) => ({
     ...row,
     issues: issueMap.get(row.id) ?? [],
@@ -508,8 +505,12 @@ export async function executeImportJob(jobId: string) {
 
       for (const [key, fileName] of Object.entries(mediaNames)) {
         if (!fileName) continue
-        if (key === 'video' && isHttpUrl(fileName)) {
-          resolvedMedia.video_path = fileName
+        if (isHttpUrl(fileName)) {
+          if (key === 'video') {
+            resolvedMedia.video_path = fileName
+          } else {
+            resolvedMedia[`${key}_path` as keyof typeof resolvedMedia] = fileName
+          }
           continue
         }
         const entry = zipEntries.get(fileName.toLowerCase())

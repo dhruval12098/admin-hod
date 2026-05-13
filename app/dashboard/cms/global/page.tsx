@@ -5,7 +5,6 @@ import { CMSSectionTable } from '@/components/cms-section-table'
 
 const GLOBAL_SECTIONS = [
   { id: 'announcement', label: 'Announcement Bar', description: 'Site-wide announcement message' },
-  { id: 'footer', label: 'Footer', description: 'Footer content and links' },
 ]
 
 export default function GlobalCMSEditor() {

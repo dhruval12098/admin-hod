@@ -18,20 +18,18 @@ export async function POST(request: Request) {
 
   const buffer = Buffer.from(await file.arrayBuffer())
   const isSvg = file.type === 'image/svg+xml'
-  const fileName = isSvg ? `hero/${crypto.randomUUID()}.svg` : `hero/${crypto.randomUUID()}.webp`
+  const fileName = isSvg ? `collection-page/${crypto.randomUUID()}.svg` : `collection-page/${crypto.randomUUID()}.webp`
   const uploadBuffer = isSvg
     ? buffer
-    : await sharp(buffer).rotate().resize({ width: 2200, withoutEnlargement: true }).webp({ quality: 84 }).toBuffer()
+    : await sharp(buffer).rotate().resize({ width: 1600, withoutEnlargement: true }).webp({ quality: 82 }).toBuffer()
 
-  const { adminClient } = access
-  const { error: uploadError } = await adminClient.storage.from(bucket).upload(fileName, uploadBuffer, {
+  const { error } = await access.adminClient.storage.from(bucket).upload(fileName, uploadBuffer, {
     contentType: isSvg ? 'image/svg+xml' : 'image/webp',
     upsert: false,
   })
-  if (uploadError) return NextResponse.json({ error: uploadError.message }, { status: 500 })
 
-  const { data } = adminClient.storage.from(bucket).getPublicUrl(fileName)
-  if (!data?.publicUrl) return NextResponse.json({ error: 'Failed to generate public URL.' }, { status: 500 })
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
+  const { data } = access.adminClient.storage.from(bucket).getPublicUrl(fileName)
   return NextResponse.json({ path: fileName, url: data.publicUrl })
 }

@@ -13,6 +13,18 @@ import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 
 type BlogTag = { clientId: string; value: string }
+type BlogContentBlock = {
+  clientId: string
+  id?: number
+  block_type: 'text' | 'image' | 'heading' | 'quote'
+  sort_order: number
+  heading: string
+  body_html: string
+  image_path: string
+  image_alt: string
+  image_caption: string
+  is_enabled: boolean
+}
 
 type BlogForm = {
   slug: string
@@ -34,7 +46,35 @@ type BlogForm = {
 type Payload = {
   post?: BlogForm & { id: number }
   tags?: Array<{ id: number; tag: string; sort_order: number }>
+  content_blocks?: Array<{
+    id: number
+    block_type: 'text' | 'image' | 'heading' | 'quote'
+    sort_order: number
+    heading: string | null
+    body_html: string | null
+    image_path: string | null
+    image_alt: string | null
+    image_caption: string | null
+    is_enabled: boolean | null
+  }>
   error?: string
+}
+
+function createEmptyBlock(
+  type: BlogContentBlock['block_type'],
+  sortOrder: number
+): BlogContentBlock {
+  return {
+    clientId: `block-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    block_type: type,
+    sort_order: sortOrder,
+    heading: '',
+    body_html: type === 'text' ? '<p></p>' : '',
+    image_path: '',
+    image_alt: '',
+    image_caption: '',
+    is_enabled: true,
+  }
 }
 
 function RichTextEditor({ value, onChange }: { value: string; onChange: (value: string) => void }) {
@@ -99,6 +139,7 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
   const router = useRouter()
   const [form, setForm] = useState<BlogForm>(emptyForm)
   const [tags, setTags] = useState<BlogTag[]>([{ clientId: `tag-${Date.now()}`, value: '' }])
+  const [contentBlocks, setContentBlocks] = useState<BlogContentBlock[]>([])
   const [status, setStatus] = useState(mode === 'create' ? 'Create a new blog post.' : 'Loading blog post...')
   const [isSaving, setIsSaving] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -120,6 +161,20 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
 
       setForm(payload.post)
       setTags((payload.tags ?? []).map((tag) => ({ clientId: `tag-${tag.id}`, value: tag.tag })))
+      setContentBlocks(
+        (payload.content_blocks ?? []).map((block, index) => ({
+          clientId: `block-${block.id}`,
+          id: block.id,
+          block_type: block.block_type,
+          sort_order: block.sort_order ?? index + 1,
+          heading: block.heading ?? '',
+          body_html: block.body_html ?? '',
+          image_path: block.image_path ?? '',
+          image_alt: block.image_alt ?? '',
+          image_caption: block.image_caption ?? '',
+          is_enabled: block.is_enabled !== false,
+        }))
+      )
       setStatus('Blog post loaded')
     }
 
@@ -150,6 +205,32 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
     setStatus('Blog image uploaded successfully')
   }
 
+  const uploadBlockImage = async (clientId: string, file: File) => {
+    const { data: sessionData } = await supabase.auth.getSession()
+    const accessToken = sessionData.session?.access_token
+    if (!accessToken) return setStatus('You are not signed in.')
+
+    setUploading(true)
+    setStatus('Uploading block image...')
+    const formData = new FormData()
+    formData.append('file', file)
+
+    const response = await fetch('/api/cms/uploads/blog', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${accessToken}` },
+      body: formData,
+    })
+
+    const payload = (await response.json().catch(() => null)) as { path?: string; error?: string } | null
+    setUploading(false)
+    if (!response.ok || !payload?.path) return setStatus(payload?.error ?? 'Unable to upload image.')
+
+    setContentBlocks((prev) =>
+      prev.map((block) => (block.clientId === clientId ? { ...block, image_path: payload.path ?? '' } : block))
+    )
+    setStatus('Block image uploaded successfully')
+  }
+
   const save = async () => {
     const { data: sessionData } = await supabase.auth.getSession()
     const accessToken = sessionData.session?.access_token
@@ -160,7 +241,21 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` },
-      body: JSON.stringify({ ...form, tags: cleanedTags }),
+      body: JSON.stringify({
+        ...form,
+        tags: cleanedTags,
+        content_blocks: contentBlocks.map((block, index) => ({
+          id: block.id,
+          block_type: block.block_type,
+          sort_order: index + 1,
+          heading: block.heading,
+          body_html: block.body_html,
+          image_path: block.image_path,
+          image_alt: block.image_alt,
+          image_caption: block.image_caption,
+          is_enabled: block.is_enabled,
+        })),
+      }),
     })
 
     const payload = (await response.json().catch(() => null)) as { id?: number; error?: string } | null
@@ -249,6 +344,118 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
       <div className="mt-6 max-w-6xl rounded-lg border border-border bg-white p-6 shadow-xs">
         <label className="mb-3 block text-sm font-semibold text-foreground">Blog Body</label>
         <RichTextEditor value={form.body_html} onChange={(value) => setForm((prev) => ({ ...prev, body_html: value }))} />
+      </div>
+
+      <div className="mt-6 max-w-6xl rounded-lg border border-border bg-white p-6 shadow-xs">
+        <div className="mb-4 flex items-center justify-between gap-4">
+          <div>
+            <label className="block text-sm font-semibold text-foreground">Content Blocks</label>
+            <p className="mt-1 text-xs text-muted-foreground">Add repeatable image, text, heading, or quote sections below the main article body.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {(['image', 'text', 'heading', 'quote'] as const).map((type) => (
+              <button
+                key={type}
+                type="button"
+                onClick={() => setContentBlocks((prev) => [...prev, createEmptyBlock(type, prev.length + 1)])}
+                className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-semibold text-foreground hover:bg-secondary"
+              >
+                <Plus size={14} />
+                Add {type.charAt(0).toUpperCase() + type.slice(1)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          {contentBlocks.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+              No extra blocks added yet.
+            </div>
+          ) : null}
+
+          {contentBlocks.map((block, index) => (
+            <div key={block.clientId} className="rounded-lg border border-border bg-[#fcfcfd] p-4">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div className="text-sm font-semibold text-foreground">
+                  Block {index + 1} · {block.block_type}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setContentBlocks((prev) => prev.filter((entry) => entry.clientId !== block.clientId).map((entry, order) => ({ ...entry, sort_order: order + 1 })))
+                    }
+                    className="rounded-lg border border-red-200 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+
+              {block.block_type === 'image' ? (
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-foreground">Image</label>
+                    <div className="flex items-center gap-3">
+                      <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary">
+                        <Upload size={14} />
+                        {uploading ? 'Uploading...' : 'Upload Block Image'}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          disabled={uploading}
+                          onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                            const file = e.target.files?.[0]
+                            if (file) void uploadBlockImage(block.clientId, file)
+                          }}
+                        />
+                      </label>
+                      <span className="text-xs text-muted-foreground">{block.image_path || 'No image uploaded yet'}</span>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-foreground">Image Alt</label>
+                    <input
+                      value={block.image_alt}
+                      onChange={(e) => setContentBlocks((prev) => prev.map((entry) => (entry.clientId === block.clientId ? { ...entry, image_alt: e.target.value } : entry)))}
+                      className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="mb-2 block text-sm font-semibold text-foreground">Image Caption</label>
+                    <textarea
+                      value={block.image_caption}
+                      onChange={(e) => setContentBlocks((prev) => prev.map((entry) => (entry.clientId === block.clientId ? { ...entry, image_caption: e.target.value } : entry)))}
+                      rows={3}
+                      className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm"
+                    />
+                  </div>
+                </div>
+              ) : block.block_type === 'heading' ? (
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-foreground">Heading</label>
+                  <input
+                    value={block.heading}
+                    onChange={(e) => setContentBlocks((prev) => prev.map((entry) => (entry.clientId === block.clientId ? { ...entry, heading: e.target.value } : entry)))}
+                    className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm"
+                  />
+                </div>
+              ) : (
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-foreground">{block.block_type === 'quote' ? 'Quote HTML' : 'Text HTML'}</label>
+                  <RichTextEditor
+                    value={block.body_html || '<p></p>'}
+                    onChange={(value) =>
+                      setContentBlocks((prev) => prev.map((entry) => (entry.clientId === block.clientId ? { ...entry, body_html: value } : entry)))
+                    }
+                  />
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
 
       <ConfirmDialog

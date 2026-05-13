@@ -33,6 +33,16 @@ type OptionFormState = {
   status: 'Active' | 'Hidden'
 }
 
+type CategoryBannerFormState = {
+  bannerEnabled: boolean
+  desktopImagePath: string
+  mobileImagePath: string
+  title: string
+  subtitle: string
+  ctaLabel: string
+  ctaLink: string
+}
+
 type CategoryDetailClientProps = {
   categorySlug: string
   initialData: {
@@ -97,6 +107,31 @@ async function uploadCatalogSvg(kind: 'subcategories' | 'options', file: File) {
   const data = await response.json().catch(() => null)
   if (!response.ok || !data?.path) {
     throw new Error(data?.error ?? 'Unable to upload SVG.')
+  }
+
+  return data.path as string
+}
+
+async function uploadCategoryBanner(file: File, slug: string, variant: 'desktop' | 'mobile') {
+  const accessToken = await getAccessToken()
+  if (!accessToken) {
+    throw new Error('You must be signed in to upload banner images.')
+  }
+
+  const payload = new FormData()
+  payload.append('file', file)
+  payload.append('slug', slug)
+  payload.append('variant', variant)
+
+  const response = await fetch('/api/catalog/categories/upload', {
+    method: 'POST',
+    headers: { authorization: `Bearer ${accessToken}` },
+    body: payload,
+  })
+
+  const data = await response.json().catch(() => null)
+  if (!response.ok || !data?.path) {
+    throw new Error(data?.error ?? 'Unable to upload category banner image.')
   }
 
   return data.path as string
@@ -198,6 +233,8 @@ export function CategoryDetailClient({ categorySlug, initialData }: CategoryDeta
         ) : null}
       </div>
 
+      <CategoryBannerPanel category={category} onChange={loadData} />
+
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as CatalogDetailTab)} className="w-full">
         <TabsList className="grid w-full max-w-md grid-cols-2">
           <TabsTrigger value="subcategories">Subcategories</TabsTrigger>
@@ -217,6 +254,198 @@ export function CategoryDetailClient({ categorySlug, initialData }: CategoryDeta
         <div className="mt-8 text-sm text-muted-foreground">Updating category details...</div>
       ) : null}
     </div>
+  )
+}
+
+function CategoryBannerPanel({
+  category,
+  onChange,
+}: {
+  category: CatalogCategory
+  onChange: () => Promise<void>
+}) {
+  const { toast } = useToast()
+  const [isPanelOpen, setIsPanelOpen] = useState(false)
+  const [formData, setFormData] = useState<CategoryBannerFormState>({
+    bannerEnabled: Boolean(category.banner_enabled),
+    desktopImagePath: category.banner_desktop_image_path ?? '',
+    mobileImagePath: category.banner_mobile_image_path ?? '',
+    title: category.banner_title ?? category.name,
+    subtitle: category.banner_subtitle ?? `Browse ${category.name} from the live catalog.`,
+    ctaLabel: category.banner_cta_label ?? 'Explore Collection',
+    ctaLink: category.banner_cta_link ?? `/${category.slug}`,
+  })
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [uploadingDesktop, setUploadingDesktop] = useState(false)
+  const [uploadingMobile, setUploadingMobile] = useState(false)
+
+  useEffect(() => {
+    setFormData({
+      bannerEnabled: Boolean(category.banner_enabled),
+      desktopImagePath: category.banner_desktop_image_path ?? '',
+      mobileImagePath: category.banner_mobile_image_path ?? '',
+      title: category.banner_title ?? category.name,
+      subtitle: category.banner_subtitle ?? `Browse ${category.name} from the live catalog.`,
+      ctaLabel: category.banner_cta_label ?? 'Explore Collection',
+      ctaLink: category.banner_cta_link ?? `/${category.slug}`,
+    })
+  }, [category])
+
+  const saveBanner = async () => {
+    const response = await authedFetch(`/api/catalog/categories/${category.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        banner_enabled: formData.bannerEnabled,
+        banner_desktop_image_path: formData.desktopImagePath || null,
+        banner_mobile_image_path: formData.mobileImagePath || null,
+        banner_title: formData.title || null,
+        banner_subtitle: formData.subtitle || null,
+        banner_cta_label: formData.ctaLabel || null,
+        banner_cta_link: formData.ctaLink || null,
+      }),
+    })
+
+    if (response.ok) {
+      await onChange()
+      setConfirmOpen(false)
+      setIsPanelOpen(false)
+      toast({ title: 'Banner saved', description: `${category.name} banner updated successfully.` })
+    } else {
+      const payload = await response.json().catch(() => null)
+      toast({ title: 'Save failed', description: payload?.error ?? 'Unable to save category banner.' })
+    }
+  }
+
+  const handleBannerUpload = async (variant: 'desktop' | 'mobile', file: File) => {
+    if (variant === 'desktop') setUploadingDesktop(true)
+    else setUploadingMobile(true)
+
+    try {
+      const path = await uploadCategoryBanner(file, category.slug, variant)
+      setFormData((current) => ({
+        ...current,
+        desktopImagePath: variant === 'desktop' ? path : current.desktopImagePath,
+        mobileImagePath: variant === 'mobile' ? path : current.mobileImagePath,
+      }))
+      toast({ title: 'Image uploaded', description: `${variant === 'desktop' ? 'Desktop' : 'Mobile'} banner image uploaded successfully.` })
+    } catch (error) {
+      toast({ title: 'Upload failed', description: error instanceof Error ? error.message : 'Unable to upload category banner image.' })
+    } finally {
+      if (variant === 'desktop') setUploadingDesktop(false)
+      else setUploadingMobile(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="mb-8 rounded-xl border border-border bg-white p-6 shadow-xs">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="font-jakarta text-lg font-semibold text-foreground">Category Banner</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Control the storefront hero/banner for the {category.name} category page.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsPanelOpen(true)}
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90"
+          >
+            Edit Banner
+          </button>
+        </div>
+      </div>
+
+      <Dialog open={isPanelOpen} onOpenChange={setIsPanelOpen}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle className="font-jakarta text-lg font-semibold text-foreground">Edit Category Banner</DialogTitle>
+            <DialogDescription>Update the storefront banner settings for {category.name}.</DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-5 md:grid-cols-2">
+            <Field label="Banner Enabled">
+              <ToggleRow
+                options={['Enabled', 'Disabled']}
+                value={formData.bannerEnabled ? 'Enabled' : 'Disabled'}
+                onChange={(value) => setFormData((prev) => ({ ...prev, bannerEnabled: value === 'Enabled' }))}
+              />
+            </Field>
+            <div />
+            <Field label="Banner Title">
+              <input value={formData.title} onChange={(e) => setFormData((prev) => ({ ...prev, title: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm" />
+            </Field>
+            <Field label="CTA Link">
+              <input value={formData.ctaLink} onChange={(e) => setFormData((prev) => ({ ...prev, ctaLink: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm" />
+            </Field>
+            <Field label="Banner Subtitle">
+              <textarea value={formData.subtitle} onChange={(e) => setFormData((prev) => ({ ...prev, subtitle: e.target.value }))} rows={4} className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm" />
+            </Field>
+            <Field label="CTA Label">
+              <input value={formData.ctaLabel} onChange={(e) => setFormData((prev) => ({ ...prev, ctaLabel: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm" />
+            </Field>
+            <Field label="Desktop Banner Image">
+              <div className="space-y-3">
+                <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary">
+                  Upload Desktop Image
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/avif"
+                    className="hidden"
+                    disabled={uploadingDesktop}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0]
+                      if (file) void handleBannerUpload('desktop', file)
+                    }}
+                  />
+                </label>
+                {formData.desktopImagePath ? (
+                  <button type="button" onClick={() => setFormData((prev) => ({ ...prev, desktopImagePath: '' }))} className="rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50">
+                    Remove Desktop Image
+                  </button>
+                ) : null}
+                <p className="text-xs text-muted-foreground">{uploadingDesktop ? 'Uploading desktop image...' : formData.desktopImagePath || 'No desktop image uploaded yet'}</p>
+              </div>
+            </Field>
+            <Field label="Mobile Banner Image">
+              <div className="space-y-3">
+                <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary">
+                  Upload Mobile Image
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/avif"
+                    className="hidden"
+                    disabled={uploadingMobile}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0]
+                      if (file) void handleBannerUpload('mobile', file)
+                    }}
+                  />
+                </label>
+                {formData.mobileImagePath ? (
+                  <button type="button" onClick={() => setFormData((prev) => ({ ...prev, mobileImagePath: '' }))} className="rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50">
+                    Remove Mobile Image
+                  </button>
+                ) : null}
+                <p className="text-xs text-muted-foreground">{uploadingMobile ? 'Uploading mobile image...' : formData.mobileImagePath || 'No mobile image uploaded yet'}</p>
+              </div>
+            </Field>
+          </div>
+
+          <div className="mt-6 flex gap-3">
+            <button type="button" onClick={() => setConfirmOpen(true)} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90">Save Banner</button>
+            <button type="button" onClick={() => setIsPanelOpen(false)} className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary">Cancel</button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <ConfirmDialog
+        isOpen={confirmOpen}
+        title="Save category banner?"
+        description={`This will update the live banner for ${category.name}.`}
+        confirmText="Save"
+        onConfirm={() => void saveBanner()}
+        onCancel={() => setConfirmOpen(false)}
+      />
+    </>
   )
 }
 

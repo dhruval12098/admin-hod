@@ -1,0 +1,308 @@
+import 'server-only'
+
+import ExcelJS from 'exceljs'
+import { parseString } from '@fast-csv/parse'
+import type { ParsedProductImportRow } from '@/lib/product-import-staging'
+
+export type GoogleSheetSyncTab = 'Ring_Final' | 'Earring_Final' | 'Pendant_Final' | 'BrcBg'
+
+export const SUPPORTED_GOOGLE_SHEET_TABS: GoogleSheetSyncTab[] = ['Ring_Final', 'Earring_Final', 'Pendant_Final', 'BrcBg']
+
+type WideSheetRow = Record<string, string>
+
+function normalizeCellValue(value: ExcelJS.CellValue | undefined): string {
+  if (value == null) return ''
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value).trim()
+  }
+  if (value instanceof Date) return value.toISOString()
+  if (typeof value === 'object' && 'text' in value && typeof value.text === 'string') return value.text.trim()
+  if (typeof value === 'object' && 'result' in value && value.result != null) return String(value.result).trim()
+  return String(value).trim()
+}
+
+function normalizeLabel(value: string | null | undefined) {
+  return (value ?? '').trim().toLowerCase()
+}
+
+function extractSpreadsheetId(sheetUrl: string) {
+  const match = sheetUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/)
+  return match?.[1] ?? null
+}
+
+function buildWorkbookExportUrl(sheetUrl: string) {
+  const spreadsheetId = extractSpreadsheetId(sheetUrl)
+  if (!spreadsheetId) {
+    throw new Error('Invalid Google Sheet link. Please use the full Google Sheets share URL.')
+  }
+
+  return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=xlsx`
+}
+
+function buildCsvExportUrl(sheetUrl: string, tabName: string) {
+  const spreadsheetId = extractSpreadsheetId(sheetUrl)
+  if (!spreadsheetId) {
+    throw new Error('Invalid Google Sheet link. Please use the full Google Sheets share URL.')
+  }
+
+  return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv&sheet=${encodeURIComponent(tabName)}`
+}
+
+async function loadWorkbookFromSheetUrl(sheetUrl: string) {
+  const exportUrl = buildWorkbookExportUrl(sheetUrl)
+  const response = await fetch(exportUrl, {
+    headers: {
+      'user-agent': 'HouseOfDiams-Admin-Sync/1.0',
+    },
+    cache: 'no-store',
+  })
+
+  if (!response.ok) {
+    throw new Error(`Unable to fetch Google Sheet workbook. Received ${response.status} from Google.`)
+  }
+
+  const arrayBuffer = await response.arrayBuffer()
+  const workbook = new ExcelJS.Workbook()
+  await workbook.xlsx.load(arrayBuffer as never)
+  return workbook
+}
+
+async function loadCsvRowsFromSheetUrl(sheetUrl: string, tabName: string) {
+  const exportUrl = buildCsvExportUrl(sheetUrl, tabName)
+  const response = await fetch(exportUrl, {
+    headers: {
+      'user-agent': 'HouseOfDiams-Admin-Sync/1.0',
+    },
+    cache: 'no-store',
+  })
+
+  if (!response.ok) {
+    throw new Error(`Unable to fetch Google Sheet tab as CSV. Received ${response.status} from Google.`)
+  }
+
+  const csvText = await response.text()
+  return new Promise<string[][]>((resolve, reject) => {
+    const rows: string[][] = []
+    parseString(csvText, { headers: false, trim: false, ignoreEmpty: false })
+      .on('error', reject)
+      .on('data', (row: string[]) => {
+        rows.push(Array.isArray(row) ? row.map((entry) => String(entry ?? '')) : [])
+      })
+      .on('end', () => resolve(rows))
+  })
+}
+
+function parseNumericString(value: string) {
+  const cleaned = value.replace(/,/g, '').trim()
+  if (!cleaned) return ''
+  const asNumber = Number(cleaned)
+  return Number.isFinite(asNumber) ? String(asNumber) : ''
+}
+
+function titleFromFallback(row: WideSheetRow, tabName: GoogleSheetSyncTab) {
+  const explicit = row['Title']
+  if (explicit) return explicit
+
+  const styleNo = row['Style No.'] || row['SKU'] || 'Imported'
+  const shape = row['By Shape'] || ''
+  const category = row['Category'] || tabName.replace('_Final', '').replace('BrcBg', 'Bracelet')
+  return `${styleNo} ${shape} ${category}`.replace(/\s+/g, ' ').trim()
+}
+
+function descriptionFromFallback(row: WideSheetRow, tabName: GoogleSheetSyncTab) {
+  const explicit = row['Description']
+  if (explicit) return explicit
+
+  const material = row['Material'] || 'fine jewellery'
+  const theme = row['Design Theme'] || 'signature'
+  return `Imported from Google Sheet (${tabName}). ${material} product in a ${theme.toLowerCase()} style. Please review and enrich this description before publishing.`
+}
+
+function categoryMapping(row: WideSheetRow, tabName: GoogleSheetSyncTab) {
+  const rawCategory = normalizeLabel(row['Category'])
+  const rawSubcategory = normalizeLabel(row['Sub-Cat.'])
+  const rawShape = normalizeLabel(row['By Shape'])
+
+  if (tabName === 'Ring_Final' || rawCategory === 'ring') {
+    return {
+      category: 'Engagement Rings',
+      subcategory: rawShape.includes('round') ? 'Round rings' : 'star diamond',
+      option_name: '',
+      lane: 'standard',
+    }
+  }
+
+  if (tabName === 'Earring_Final' || rawCategory === 'earring' || rawCategory === 's925earring') {
+    return {
+      category: 'Fine Jewellery',
+      subcategory: 'Earrings',
+      option_name: rawSubcategory.includes('hoop') ? 'Huggies & Hoops' : 'Diamond Earrings',
+      lane: 'standard',
+    }
+  }
+
+  if (tabName === 'Pendant_Final' || rawCategory === 'pendant' || rawCategory === 's925pendant') {
+    return {
+      category: 'Fine Jewellery',
+      subcategory: 'Necklaces',
+      option_name: 'Diamond Pendants',
+      lane: 'standard',
+    }
+  }
+
+  if (tabName === 'BrcBg' || rawCategory === 'bracelet' || rawCategory === 's925bracelet') {
+    return {
+      category: 'Fine Jewellery',
+      subcategory: 'Bracelet',
+      option_name: rawSubcategory.includes('bangle') ? 'Bangles' : 'Tennis',
+      lane: 'standard',
+    }
+  }
+
+  return {
+    category: 'Fine Jewellery',
+    subcategory: '',
+    option_name: '',
+    lane: 'standard',
+  }
+}
+
+function deriveMetalName(row: WideSheetRow) {
+  const color = normalizeLabel(row['Col'])
+
+  if (color.includes('yellow')) return 'Yellow Gold'
+  if (color.includes('rose')) return 'Rose Gold'
+  if (color.includes('white')) return 'White Gold'
+  return ''
+}
+
+function derivePurityLabel(row: WideSheetRow) {
+  const ktCode = normalizeLabel(row['KT\nCode'] || row['KT Code'])
+  if (ktCode === '925') return '925'
+  if (ktCode === '10') return '10K'
+  if (ktCode === '14') return '14K'
+  if (ktCode === '18') return '18K'
+  return (row['KT\nCode'] || row['KT Code'] || '').trim()
+}
+
+function normalizeGender(row: WideSheetRow) {
+  const gender = normalizeLabel(row['Gender'])
+  if (gender.includes('men')) return 'for_him'
+  if (gender.includes('women')) return 'for_her'
+  return ''
+}
+
+function mapWideRowToImportRow(row: WideSheetRow, tabName: GoogleSheetSyncTab): ParsedProductImportRow {
+  const mapping = categoryMapping(row, tabName)
+  const imageValue = row['Image'] || row['Image 1'] || ''
+
+  return {
+    product_name: titleFromFallback(row, tabName),
+    sku: (row['SKU'] || '').trim(),
+    lane: mapping.lane,
+    category: mapping.category,
+    subcategory: mapping.subcategory,
+    option_name: mapping.option_name,
+    style_name: (row['Design Theme'] || '').trim(),
+    description: descriptionFromFallback(row, tabName),
+    stock_quantity: '1',
+    discount_price: parseNumericString(row['NSP\nPrice'] || row['Nsp price (discounted price)'] || ''),
+    gst_slab_name: 'GST 3%',
+    metal_1: deriveMetalName(row),
+    metal_2: '',
+    metal_3: '',
+    certificate_1: '',
+    certificate_2: '',
+    material_value_1: (row['Material'] || '').trim(),
+    material_value_2: '',
+    material_value_3: '',
+    material_value_4: '',
+    purity_1_label: derivePurityLabel(row),
+    purity_1_price: parseNumericString(row['Display\nPrice'] || row['Display price (without discount price)'] || ''),
+    purity_2_label: '',
+    purity_2_price: '',
+    purity_3_label: '',
+    purity_3_price: '',
+    image_1: imageValue.trim(),
+    image_2: '',
+    image_3: '',
+    image_4: '',
+    video: (row['Video URL'] || row['Video'] || '').trim(),
+    spec_1_key: row['Size/\nLength'] || row['Inch'] ? 'Size/Length' : '',
+    spec_1_value: (row['Size/\nLength'] || row['Inch'] || '').trim(),
+    spec_2_key: row['Width'] ? 'Width' : '',
+    spec_2_value: (row['Width'] || '').trim(),
+    spec_3_key: row['Height'] ? 'Height' : '',
+    spec_3_value: (row['Height'] || '').trim(),
+    spec_4_key: row['By Shape'] ? 'Shape' : '',
+    spec_4_value: (row['By Shape'] || '').trim(),
+    engraving_label: '',
+    // raw business helpers carried through for downstream review/mapping visibility
+    source_tab: tabName,
+    source_category: (row['Category'] || '').trim(),
+    source_subcategory: (row['Sub-Cat.'] || '').trim(),
+    source_shape: (row['By Shape'] || '').trim(),
+    source_gender: normalizeGender(row),
+    source_material: (row['Material'] || '').trim(),
+    source_gold_colour: (row['Col'] || '').trim(),
+    source_kt_code: (row['KT\nCode'] || row['KT Code'] || '').trim(),
+    source_style_no: (row['Style No.'] || '').trim(),
+  }
+}
+
+export async function fetchGoogleSheetImportRows(sheetUrl: string, tabName: GoogleSheetSyncTab) {
+  const headerRowIndex = 5
+  const dataStartRowIndex = 6
+  const csvRows = await loadCsvRowsFromSheetUrl(sheetUrl, tabName)
+  const headerValues = csvRows[headerRowIndex - 1] ?? []
+  const headers = headerValues.map((cell) => normalizeCellValue(cell))
+
+  if (!headers.some((header: string) => normalizeLabel(header) === 'sku')) {
+    throw new Error(`The tab "${tabName}" does not look like the expected wide client format.`)
+  }
+
+  const rows: Array<{ rowNumber: number; values: ParsedProductImportRow }> = []
+
+  for (let rowIndex = dataStartRowIndex; rowIndex <= csvRows.length; rowIndex += 1) {
+    const row = csvRows[rowIndex - 1] ?? []
+    const wideRow: WideSheetRow = {}
+    let hasAnyValue = false
+
+    headers.forEach((header: string, headerIndex: number) => {
+      if (!header) return
+      const value = normalizeCellValue(row[headerIndex])
+      wideRow[header] = value
+      if (value) hasAnyValue = true
+    })
+
+    if (!hasAnyValue) continue
+    if (!(wideRow['SKU'] || '').trim()) continue
+
+    rows.push({
+      rowNumber: rowIndex,
+      values: mapWideRowToImportRow(wideRow, tabName),
+    })
+  }
+
+  if (rows.length < 1) {
+    throw new Error(`The tab "${tabName}" does not contain any filled product rows with SKU values.`)
+  }
+
+  return {
+    workbookName: `google-sheet-${tabName}`,
+    rows,
+  }
+}
+
+export async function fetchGoogleSheetTabs(sheetUrl: string) {
+  const workbook = await loadWorkbookFromSheetUrl(sheetUrl)
+  const tabs = workbook.worksheets.map((worksheet) => worksheet.name)
+  const supportedTabs = tabs.filter((tab): tab is GoogleSheetSyncTab =>
+    SUPPORTED_GOOGLE_SHEET_TABS.includes(tab as GoogleSheetSyncTab)
+  )
+
+  return {
+    tabs,
+    supportedTabs,
+  }
+}

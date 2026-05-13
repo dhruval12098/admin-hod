@@ -81,7 +81,7 @@ export function MaterialStripEditorClient({ initialData }: { initialData: Materi
     const formData = new FormData()
     formData.append('file', file)
 
-    const response = await fetch('/api/cms/uploads/collection', {
+    const response = await fetch('/api/cms/uploads/material-strip', {
       method: 'POST',
       headers: { authorization: `Bearer ${accessToken}` },
       body: formData,

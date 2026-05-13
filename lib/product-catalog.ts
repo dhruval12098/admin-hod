@@ -25,6 +25,13 @@ export type CatalogCategory = {
   show_in_nav?: boolean
   nav_type: 'mega_menu' | 'direct_link' | null
   direct_link_url: string | null
+  banner_desktop_image_path?: string | null
+  banner_mobile_image_path?: string | null
+  banner_title?: string | null
+  banner_subtitle?: string | null
+  banner_cta_label?: string | null
+  banner_cta_link?: string | null
+  banner_enabled?: boolean
   display_order: number
   status: CatalogStatus
 }
@@ -56,8 +63,20 @@ export type CatalogMetal = {
   id: string
   name: string
   slug: string
+  color_hex?: string | null
+  composition_description?: string | null
   display_order: number
   status: CatalogStatus
+  composition_parts?: MetalCompositionPart[]
+}
+
+export type MetalCompositionPart = {
+  id?: number | string
+  metal_id?: string
+  part_name: string
+  percentage: number
+  color_hex?: string | null
+  sort_order: number
 }
 
 export type CatalogMaterialValue = {

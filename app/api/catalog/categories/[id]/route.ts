@@ -18,24 +18,54 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (existingCategoryError) return NextResponse.json({ error: existingCategoryError.message }, { status: 500 })
 
   if (existingCategory?.is_system_locked) {
-    return NextResponse.json(
-      { error: `${existingCategory.name} is a protected system category and cannot be edited here.` },
-      { status: 403 }
-    )
+    const allowedBannerOnly =
+      typeof body.banner_enabled === 'boolean' ||
+      'banner_desktop_image_path' in body ||
+      'banner_mobile_image_path' in body ||
+      'banner_title' in body ||
+      'banner_subtitle' in body ||
+      'banner_cta_label' in body ||
+      'banner_cta_link' in body
+
+    if (!allowedBannerOnly) {
+      return NextResponse.json(
+        { error: `${existingCategory.name} is a protected system category and cannot be edited here.` },
+        { status: 403 }
+      )
+    }
   }
+
+  const updatePayload = existingCategory?.is_system_locked
+    ? {
+        banner_desktop_image_path: body.banner_desktop_image_path ?? null,
+        banner_mobile_image_path: body.banner_mobile_image_path ?? null,
+        banner_title: body.banner_title ?? null,
+        banner_subtitle: body.banner_subtitle ?? null,
+        banner_cta_label: body.banner_cta_label ?? null,
+        banner_cta_link: body.banner_cta_link ?? null,
+        banner_enabled: body.banner_enabled ?? false,
+      }
+    : {
+        code: body.code,
+        name: body.name,
+        slug: body.slug,
+        show_in_nav: body.show_in_nav ?? true,
+        nav_type: body.show_in_nav === false ? null : body.nav_type ?? null,
+        direct_link_url: body.direct_link_url ?? null,
+        banner_desktop_image_path: body.banner_desktop_image_path ?? null,
+        banner_mobile_image_path: body.banner_mobile_image_path ?? null,
+        banner_title: body.banner_title ?? null,
+        banner_subtitle: body.banner_subtitle ?? null,
+        banner_cta_label: body.banner_cta_label ?? null,
+        banner_cta_link: body.banner_cta_link ?? null,
+        banner_enabled: body.banner_enabled ?? false,
+        display_order: body.display_order ?? 0,
+        status: body.status ?? 'active',
+      }
 
   const { data, error } = await access.adminClient
     .from('catalog_categories')
-    .update({
-      code: body.code,
-      name: body.name,
-      slug: body.slug,
-      show_in_nav: body.show_in_nav ?? true,
-      nav_type: body.show_in_nav === false ? null : body.nav_type ?? null,
-      direct_link_url: body.direct_link_url ?? null,
-      display_order: body.display_order ?? 0,
-      status: body.status ?? 'active',
-    })
+    .update(updatePayload)
     .eq('id', id)
     .select('*')
     .single()

@@ -36,7 +36,7 @@ export function CollectionPageEditorClient({ initialData }: { initialData: Colle
 
     const body = new FormData()
     body.append('file', file)
-    const response = await fetch('/api/cms/uploads/collection', {
+    const response = await fetch('/api/cms/uploads/collection-page', {
       method: 'POST',
       headers: { authorization: `Bearer ${accessToken}` },
       body,

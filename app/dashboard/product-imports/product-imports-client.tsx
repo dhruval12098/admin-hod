@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { ArrowRight, Clock3, FileSpreadsheet, PlusCircle } from 'lucide-react'
+import { ArrowRight, Clock3, FileSpreadsheet, Link2, PlusCircle } from 'lucide-react'
 import type { ImportJobsOverview, ImportJobRecord } from '@/lib/import-jobs'
 
 function formatJobDate(value: string | null) {
@@ -53,6 +53,13 @@ export function ProductImportsClient({ overview }: { overview: ImportJobsOvervie
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <Link
+            href="/dashboard/product-imports/google-sheet"
+            className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
+          >
+            <Link2 size={16} />
+            Google Sheet Sync
+          </Link>
+          <Link
             href="/dashboard/product-imports/new"
             className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary/90"
           >
@@ -74,6 +81,24 @@ export function ProductImportsClient({ overview }: { overview: ImportJobsOvervie
         <OverviewCard label="Active Jobs" value={overview.totals.activeJobs} hint="Uploaded, validating, ready, or importing." />
         <OverviewCard label="Ready To Import" value={overview.totals.readyJobs} hint="Validated and waiting for execution." />
         <OverviewCard label="Needs Attention" value={overview.totals.failedJobs} hint="Failed or completed with row issues." />
+      </section>
+
+      <section className="mb-8 rounded-xl border border-border bg-white p-6 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-semibold text-foreground">Google Sheet Sync</h2>
+            <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
+              Use this when the client keeps updating a shared Google Sheet. We pull one supported tab, stage it into the same review pipeline, then validate before importing drafts.
+            </p>
+          </div>
+          <Link
+            href="/dashboard/product-imports/google-sheet"
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary/90"
+          >
+            <Link2 size={16} />
+            Open Google Sync
+          </Link>
+        </div>
       </section>
 
       {!hasJobs ? (

@@ -357,7 +357,7 @@ export default function DocsEditorPage() {
       />
 
       <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
-        <DialogContent className="sm:max-w-xl">
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>Edit Block</DialogTitle>
             <DialogDescription>Update heading, description, and body text.</DialogDescription>
