@@ -1,8 +1,11 @@
 'use client'
 
 import Link from 'next/link'
-import { ArrowRight, Clock3, FileSpreadsheet, Link2, PlusCircle } from 'lucide-react'
+import { useState } from 'react'
+import { ArrowRight, Clock3, FileSpreadsheet, Link2, PlusCircle, Trash2 } from 'lucide-react'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import type { ImportJobsOverview, ImportJobRecord } from '@/lib/import-jobs'
+import { useToast } from '@/hooks/use-toast'
 
 function formatJobDate(value: string | null) {
   if (!value) return 'Not started'
@@ -40,7 +43,40 @@ function statusTone(status: ImportJobRecord['status']) {
 }
 
 export function ProductImportsClient({ overview }: { overview: ImportJobsOverview }) {
-  const hasJobs = overview.jobs.length > 0
+  const { toast } = useToast()
+  const [jobs, setJobs] = useState(overview.jobs)
+  const [deletingJobId, setDeletingJobId] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<ImportJobRecord | null>(null)
+  const hasJobs = jobs.length > 0
+
+  const handleDeleteJob = async (job: ImportJobRecord) => {
+    const label = job.job_name || job.csv_file_name || 'this import job'
+    setDeletingJobId(job.id)
+    try {
+      const response = await fetch(`/api/product-imports/jobs/${job.id}`, {
+        method: 'DELETE',
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok) {
+        throw new Error(payload?.error ?? 'Unable to delete this import job.')
+      }
+
+      setJobs((current) => current.filter((entry) => entry.id !== job.id))
+      setDeleteTarget(null)
+      toast({
+        title: 'Import job deleted',
+        description: `${label} was removed from recent jobs.`,
+      })
+    } catch (error) {
+      toast({
+        title: 'Delete failed',
+        description: error instanceof Error ? error.message : 'Unable to delete this import job.',
+        variant: 'destructive',
+      })
+    } finally {
+      setDeletingJobId(null)
+    }
+  }
 
   return (
     <div className="p-8">
@@ -135,10 +171,11 @@ export function ProductImportsClient({ overview }: { overview: ImportJobsOvervie
                   <th className="px-4 py-3 text-left text-xs font-semibold text-foreground">Status</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-foreground">Rows</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-foreground">Updated</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-foreground">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {overview.jobs.map((job) => (
+                {jobs.map((job) => (
                   <tr key={job.id} className="border-b border-border/70 last:border-b-0">
                     <td className="px-4 py-3 text-sm text-foreground">
                       <Link href={`/dashboard/product-imports/${job.id}`} className="font-medium hover:underline">
@@ -156,6 +193,17 @@ export function ProductImportsClient({ overview }: { overview: ImportJobsOvervie
                       {job.imported_rows ?? 0} imported / {job.total_rows ?? 0} total
                     </td>
                     <td className="px-4 py-3 text-sm text-muted-foreground">{formatJobDate(job.updated_at)}</td>
+                    <td className="px-4 py-3 text-sm text-muted-foreground">
+                      <button
+                        type="button"
+                        onClick={() => setDeleteTarget(job)}
+                        disabled={deletingJobId === job.id}
+                        className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-60"
+                      >
+                        <Trash2 size={14} />
+                        {deletingJobId === job.id ? 'Deleting...' : 'Delete'}
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -163,6 +211,28 @@ export function ProductImportsClient({ overview }: { overview: ImportJobsOvervie
           </div>
         </section>
       )}
+
+      <ConfirmDialog
+        isOpen={Boolean(deleteTarget)}
+        title="Delete import job?"
+        description={
+          deleteTarget
+            ? `Are you sure you want to delete "${deleteTarget.job_name || deleteTarget.csv_file_name || 'this import job'}"? This removes the staged job history and cannot be undone.`
+            : undefined
+        }
+        confirmText="Delete"
+        cancelText="Cancel"
+        type="delete"
+        isLoading={Boolean(deleteTarget && deletingJobId === deleteTarget.id)}
+        onConfirm={() => {
+          if (!deleteTarget) return
+          void handleDeleteJob(deleteTarget)
+        }}
+        onCancel={() => {
+          if (deletingJobId) return
+          setDeleteTarget(null)
+        }}
+      />
     </div>
   )
 }

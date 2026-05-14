@@ -3,6 +3,7 @@ import { assertAdmin } from '@/lib/cms-auth'
 
 const collectionBucket = process.env.SUPABASE_COLLECTION_BUCKET ?? 'hod'
 const PUBLIC_PREFIX = '/storage/v1/object/public/'
+const R2_PUBLIC_BASE = process.env.CLOUDFLARE_R2_PUBLIC_BASE_URL?.trim().replace(/\/+$/, '') ?? ''
 
 type SectionSource = {
   key: string
@@ -13,7 +14,8 @@ type SectionSource = {
 
 const SECTION_SOURCES: SectionSource[] = [
   { key: 'products', label: 'Products', table: 'products', columns: ['image_1_path', 'image_2_path', 'image_3_path', 'image_4_path', 'video_path'] },
-  { key: 'hero', label: 'Hero Slider', table: 'homepage_hero_slider_items', columns: ['image_path'] },
+  { key: 'product-metal-media', label: 'Product Metal Media', table: 'product_metal_media', columns: ['image_1_path', 'image_2_path', 'image_3_path', 'image_4_path', 'video_path'] },
+  { key: 'hero', label: 'Hero Slider', table: 'homepage_hero_slider_items', columns: ['image_path', 'mobile_image_path'] },
   { key: 'collection', label: 'Collection', table: 'collection_items', columns: ['image_path'] },
   { key: 'collection-page-config', label: 'Collection Page', table: 'collection_page_config', columns: ['showcase_image_path', 'showcase_mobile_image_path'] },
   { key: 'hiphop', label: 'Hip Hop Showcase', table: 'hiphop_showcase_section', columns: ['image_path'] },
@@ -26,9 +28,18 @@ const SECTION_SOURCES: SectionSource[] = [
   { key: 'contact-info', label: 'Contact Info', table: 'contact_info', columns: ['icon_path'] },
   { key: 'founders', label: 'Founders', table: 'about_founders', columns: ['image_path'] },
   { key: 'blog', label: 'Blog Posts', table: 'blog_posts', columns: ['hero_image_path'] },
+  { key: 'blog-content-blocks', label: 'Blog Content Blocks', table: 'blog_post_content_blocks', columns: ['image_path'] },
   { key: 'bespoke-process', label: 'Bespoke Manufacturing', table: 'bespoke_process_steps', columns: ['image_path'] },
   { key: 'bespoke-hero', label: 'Bespoke Hero Slider', table: 'bespoke_hero_slider_items', columns: ['image_path', 'mobile_image_path'] },
+  { key: 'bespoke-portfolio', label: 'Bespoke Portfolio', table: 'bespoke_portfolio_items', columns: ['media_path', 'thumbnail_path'] },
+  { key: 'promotion-popup', label: 'Promotion Popup', table: 'promotion_popup', columns: ['image_path'] },
   { key: 'navbar-featured', label: 'Navbar Featured Cards', table: 'navbar_featured_cards', columns: ['image_path'] },
+  { key: 'navbar-sections', label: 'Navbar Section Icons', table: 'navbar_sections', columns: ['icon_svg_path'] },
+  { key: 'catalog-categories', label: 'Catalog Category Banners', table: 'catalog_categories', columns: ['banner_desktop_image_path', 'banner_mobile_image_path'] },
+  { key: 'catalog-subcategories', label: 'Catalog Subcategory Icons', table: 'catalog_subcategories', columns: ['icon_svg_path'] },
+  { key: 'catalog-options', label: 'Catalog Option Icons', table: 'catalog_options', columns: ['icon_svg_path'] },
+  { key: 'catalog-stone-shapes', label: 'Catalog Stone Shapes', table: 'catalog_stone_shapes', columns: ['svg_asset_url'] },
+  { key: 'catalog-styles', label: 'Catalog Styles', table: 'catalog_styles', columns: ['icon_svg_path'] },
 ]
 
 function normalizePath(value: unknown) {
@@ -36,16 +47,46 @@ function normalizePath(value: unknown) {
   const trimmed = value.trim()
   if (!trimmed) return null
 
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+  const withoutHash = trimmed.split('#')[0] ?? trimmed
+  const withoutQuery = withoutHash.split('?')[0] ?? withoutHash
+  const normalizedInput = withoutQuery.trim()
+  if (!normalizedInput) return null
+
+  if (R2_PUBLIC_BASE && (normalizedInput.startsWith(`${R2_PUBLIC_BASE}/`) || normalizedInput === R2_PUBLIC_BASE)) {
+    return decodeURIComponent(normalizedInput.slice(R2_PUBLIC_BASE.length).replace(/^\/+/, ''))
+  }
+
+  if (normalizedInput.startsWith('http://') || normalizedInput.startsWith('https://')) {
+    let pathname = normalizedInput
+    try {
+      pathname = new URL(normalizedInput).pathname
+    } catch {
+      pathname = normalizedInput
+    }
+
     const marker = `${PUBLIC_PREFIX}${collectionBucket}/`
-    const index = trimmed.indexOf(marker)
+    const index = pathname.indexOf(marker)
     if (index >= 0) {
-      return decodeURIComponent(trimmed.slice(index + marker.length))
+      return decodeURIComponent(pathname.slice(index + marker.length))
     }
     return null
   }
 
-  return trimmed.replace(/^\/+/, '')
+  const rootRelativeMarker = `${PUBLIC_PREFIX}${collectionBucket}/`
+  if (normalizedInput.startsWith(rootRelativeMarker)) {
+    return decodeURIComponent(normalizedInput.slice(rootRelativeMarker.length))
+  }
+
+  const noLeadingSlashMarker = rootRelativeMarker.replace(/^\//, '')
+  if (normalizedInput.startsWith(noLeadingSlashMarker)) {
+    return decodeURIComponent(normalizedInput.slice(noLeadingSlashMarker.length))
+  }
+
+  if (normalizedInput.startsWith(`${collectionBucket}/`)) {
+    return decodeURIComponent(normalizedInput.slice(collectionBucket.length + 1))
+  }
+
+  return decodeURIComponent(normalizedInput.replace(/^\/+/, ''))
 }
 
 async function listAllFiles(adminClient: any, folder = ''): Promise<Array<{ name: string; path: string }>> {

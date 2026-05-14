@@ -3,7 +3,8 @@
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { CheckCircle2, Link2, RefreshCcw, TableProperties } from 'lucide-react'
+import { CheckCircle2, Link2, RefreshCcw, TableProperties, Trash2 } from 'lucide-react'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
 
@@ -64,6 +65,8 @@ export function GoogleSheetSyncClient() {
     unchangedRows: number
     noChanges: boolean
   } | null>(null)
+  const [deletingSourceId, setDeletingSourceId] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<ConnectedSource | null>(null)
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -133,6 +136,51 @@ export function GoogleSheetSyncClient() {
     ].slice(0, 12)
 
     setConnectedSources(nextSources)
+  }
+
+  const handleDeleteSource = async (source: ConnectedSource) => {
+    setDeletingSourceId(source.id)
+    try {
+      const { data } = await supabase.auth.getSession()
+      const accessToken = data.session?.access_token
+      if (!accessToken) throw new Error('Admin session not found. Please sign in again and retry.')
+
+      const response = await fetch(`/api/product-imports/google-sync/${source.id}`, {
+        method: 'DELETE',
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+        },
+      })
+
+      const payload = await response.json().catch(() => null)
+      if (!response.ok) {
+        throw new Error(payload?.error ?? 'Unable to delete this connected sheet.')
+      }
+
+      setConnectedSources((current) => current.filter((entry) => entry.id !== source.id))
+
+      if (sheetUrl === source.sheetUrl && tabName === source.tabName) {
+        setEditingSource(true)
+        setCreatedJobId(null)
+        setSyncSummary(null)
+        setActiveView('new')
+      }
+
+      setDeleteTarget(null)
+
+      toast({
+        title: 'Connected sheet deleted',
+        description: `${source.name} was removed from Sync Existing.`,
+      })
+    } catch (error) {
+      toast({
+        title: 'Delete failed',
+        description: error instanceof Error ? error.message : 'Unable to delete this connected sheet.',
+        variant: 'destructive',
+      })
+    } finally {
+      setDeletingSourceId(null)
+    }
   }
 
   const loadTabs = async (nextSheetUrl?: string) => {
@@ -386,6 +434,7 @@ export function GoogleSheetSyncClient() {
                   <th className="px-4 py-3 text-left text-xs font-semibold text-foreground">Latest State</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-foreground">Changes</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-foreground">Updated</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-foreground">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -417,6 +466,20 @@ export function GoogleSheetSyncClient() {
                     <td className="px-4 py-3 text-sm text-muted-foreground">
                       {new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(source.lastSyncedAt))}
                     </td>
+                    <td className="px-4 py-3 text-sm text-muted-foreground">
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          setDeleteTarget(source)
+                        }}
+                        disabled={deletingSourceId === source.id}
+                        className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-60"
+                      >
+                        <Trash2 size={14} />
+                        {deletingSourceId === source.id ? 'Deleting...' : 'Delete'}
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -424,6 +487,28 @@ export function GoogleSheetSyncClient() {
           </div>
         </section>
       ) : null}
+
+      <ConfirmDialog
+        isOpen={Boolean(deleteTarget)}
+        title="Delete connected sheet?"
+        description={
+          deleteTarget
+            ? `Are you sure you want to remove "${deleteTarget.name}" from Sync Existing? You can reconnect it later if needed.`
+            : undefined
+        }
+        confirmText="Delete"
+        cancelText="Cancel"
+        type="delete"
+        isLoading={Boolean(deleteTarget && deletingSourceId === deleteTarget.id)}
+        onConfirm={() => {
+          if (!deleteTarget) return
+          void handleDeleteSource(deleteTarget)
+        }}
+        onCancel={() => {
+          if (deletingSourceId) return
+          setDeleteTarget(null)
+        }}
+      />
 
       {createdJobId || syncSummary?.noChanges ? (
         <section className="rounded-2xl border border-green-200 bg-green-50 p-8 shadow-sm">

@@ -67,71 +67,6 @@ async function loadWorkbookFromSheetUrl(sheetUrl: string) {
   return workbook
 }
 
-async function loadCsvRowsFromSheetUrl(sheetUrl: string, tabName: string) {
-  const exportUrl = buildCsvExportUrl(sheetUrl, tabName)
-  const response = await fetch(exportUrl, {
-    headers: {
-      'user-agent': 'HouseOfDiams-Admin-Sync/1.0',
-    },
-    cache: 'no-store',
-  })
-
-  if (!response.ok) {
-    throw new Error(`Unable to fetch Google Sheet tab as CSV. Received ${response.status} from Google.`)
-  }
-
-  const csvText = await response.text()
-  return parseCsvText(csvText)
-}
-
-function parseCsvText(csvText: string) {
-  const rows: string[][] = []
-  let currentRow: string[] = []
-  let currentCell = ''
-  let inQuotes = false
-
-  for (let index = 0; index < csvText.length; index += 1) {
-    const char = csvText[index]
-    const nextChar = csvText[index + 1]
-
-    if (char === '"') {
-      if (inQuotes && nextChar === '"') {
-        currentCell += '"'
-        index += 1
-      } else {
-        inQuotes = !inQuotes
-      }
-      continue
-    }
-
-    if (!inQuotes && char === ',') {
-      currentRow.push(currentCell)
-      currentCell = ''
-      continue
-    }
-
-    if (!inQuotes && (char === '\n' || char === '\r')) {
-      if (char === '\r' && nextChar === '\n') {
-        index += 1
-      }
-      currentRow.push(currentCell)
-      rows.push(currentRow)
-      currentRow = []
-      currentCell = ''
-      continue
-    }
-
-    currentCell += char
-  }
-
-  if (currentCell.length > 0 || currentRow.length > 0) {
-    currentRow.push(currentCell)
-    rows.push(currentRow)
-  }
-
-  return rows
-}
-
 function parseNumericString(value: string) {
   const cleaned = value.replace(/,/g, '').trim()
   if (!cleaned) return ''
@@ -405,8 +340,14 @@ function mapWideRowToImportRow(row: WideSheetRow, tabName: GoogleSheetSyncTab): 
 export async function fetchGoogleSheetImportRows(sheetUrl: string, tabName: GoogleSheetSyncTab) {
   const headerRowIndex = 5
   const dataStartRowIndex = 6
-  const csvRows = await loadCsvRowsFromSheetUrl(sheetUrl, tabName)
-  const headerValues = csvRows[headerRowIndex - 1] ?? []
+  const workbook = await loadWorkbookFromSheetUrl(sheetUrl)
+  const worksheet = workbook.getWorksheet(tabName)
+
+  if (!worksheet) {
+    throw new Error(`The tab "${tabName}" was not found in the Google Sheet export.`)
+  }
+
+  const headerValues = (worksheet.getRow(headerRowIndex).values as ExcelJS.CellValue[] | undefined) ?? []
   const headers = headerValues.map((cell) => normalizeCellValue(cell))
 
   if (!headers.some((header: string) => normalizeLabel(header) === 'sku')) {
@@ -415,8 +356,8 @@ export async function fetchGoogleSheetImportRows(sheetUrl: string, tabName: Goog
 
   const rows: Array<{ rowNumber: number; values: ParsedProductImportRow }> = []
 
-  for (let rowIndex = dataStartRowIndex; rowIndex <= csvRows.length; rowIndex += 1) {
-    const row = csvRows[rowIndex - 1] ?? []
+  for (let rowIndex = dataStartRowIndex; rowIndex <= worksheet.rowCount; rowIndex += 1) {
+    const row = ((worksheet.getRow(rowIndex).values as ExcelJS.CellValue[] | undefined) ?? [])
     const wideRow: WideSheetRow = {}
     let hasAnyValue = false
 

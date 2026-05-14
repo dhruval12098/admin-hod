@@ -114,6 +114,27 @@ function useNavbarBuilderState(initialData: NavbarBuilderInitialData): NavbarBui
   }
 }
 
+async function uploadFeaturedImage(file: File) {
+  const accessToken = await getAccessToken()
+  if (!accessToken) throw new Error('Missing access token.')
+
+  const formData = new FormData()
+  formData.append('file', file)
+
+  const response = await fetch('/api/navbar/featured-image', {
+    method: 'POST',
+    headers: { authorization: `Bearer ${accessToken}` },
+    body: formData,
+  })
+
+  const payload = await response.json().catch(() => null)
+  if (!response.ok || !payload?.path) {
+    throw new Error(payload?.error ?? 'Unable to upload featured image.')
+  }
+
+  return payload.path as string
+}
+
 function sectionSummary(section: NavbarSection) {
   if (section.type === 'Subcategory Options') return section.sourceLabel || 'No subcategory selected'
   if (section.type === 'Category Link') return section.sourceLabel || 'No category selected'
@@ -217,6 +238,7 @@ export function NavbarItemEditor({ itemId, initialData }: { itemId: string; init
   const { items, catalog, setItems, reload } = useNavbarBuilderState(initialData)
   const [saving, setSaving] = useState(false)
   const [sectionSaving, setSectionSaving] = useState(false)
+  const [featuredImageUploading, setFeaturedImageUploading] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [pendingDeleteSectionId, setPendingDeleteSectionId] = useState<string | null>(null)
@@ -421,6 +443,25 @@ export function NavbarItemEditor({ itemId, initialData }: { itemId: string; init
     })
   }
 
+  const updateFeaturedImage = (updater: NonNullable<NavbarItem['featuredImage']> | ((current: NonNullable<NavbarItem['featuredImage']>) => NonNullable<NavbarItem['featuredImage']>)) => {
+    updateItem((item) => {
+      const currentFeatured = item.featuredImage ?? {
+        enabled: false,
+        imageUrl: '',
+        buttonLabel: '',
+        buttonUrl: '',
+        imageAlt: item.label,
+      }
+
+      return {
+        ...item,
+        featuredImage: typeof updater === 'function'
+          ? (updater as (current: NonNullable<NavbarItem['featuredImage']>) => NonNullable<NavbarItem['featuredImage']>)(currentFeatured)
+          : updater,
+      }
+    })
+  }
+
   return (
     <div className="p-8">
       <div className="mb-8 flex items-start justify-between gap-4">
@@ -539,6 +580,103 @@ export function NavbarItemEditor({ itemId, initialData }: { itemId: string; init
                     </div>
                   ) : null}
                 </div>
+
+                <div className="rounded-2xl border border-border bg-secondary/10 p-5">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <h3 className="font-jakarta text-base font-semibold text-foreground">Featured Image</h3>
+                      <p className="mt-1 text-sm text-muted-foreground">Enable one mega menu image for the right-side promo area.</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { label: 'Enabled', value: true },
+                        { label: 'Disabled', value: false },
+                      ].map((option) => (
+                        <button
+                          key={option.label}
+                          type="button"
+                          onClick={() =>
+                            updateFeaturedImage((current) => ({
+                              ...current,
+                              enabled: option.value,
+                              imageAlt: current.imageAlt || selectedItem.label,
+                            }))
+                          }
+                          className={`rounded-full px-4 py-2 text-sm font-semibold ${
+                            Boolean(selectedItem.featuredImage?.enabled) === option.value
+                              ? 'bg-primary text-white'
+                              : 'border border-border text-foreground hover:bg-white'
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 space-y-3">
+                    <div className="flex flex-wrap gap-2">
+                      <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-white px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary">
+                        <Upload size={14} />
+                        {featuredImageUploading ? 'Uploading...' : 'Upload Image'}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          disabled={featuredImageUploading}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0]
+                            if (!file) return
+                            setFeaturedImageUploading(true)
+                            void uploadFeaturedImage(file)
+                              .then((path) => {
+                                updateFeaturedImage((current) => ({
+                                  ...current,
+                                  enabled: true,
+                                  imageUrl: path,
+                                  imageAlt: selectedItem.label,
+                                }))
+                                toast({
+                                  title: 'Uploaded',
+                                  description: 'Mega menu featured image uploaded successfully.',
+                                })
+                              })
+                              .catch((error) =>
+                                toast({
+                                  title: 'Upload failed',
+                                  description: error instanceof Error ? error.message : 'Unable to upload featured image.',
+                                  variant: 'destructive',
+                                })
+                              )
+                              .finally(() => {
+                                setFeaturedImageUploading(false)
+                              })
+                          }}
+                        />
+                      </label>
+                      {selectedItem.featuredImage?.imageUrl ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateFeaturedImage((current) => ({
+                              ...current,
+                              imageUrl: '',
+                            }))
+                          }
+                          className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
+                        >
+                          <Trash2 size={14} />
+                          Remove Image
+                        </button>
+                      ) : null}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {featuredImageUploading
+                        ? 'Uploading featured image...'
+                        : selectedItem.featuredImage?.imageUrl || 'No featured image uploaded yet'}
+                    </p>
+                  </div>
+                </div>
               </div>
             ) : (
               <div>
@@ -558,14 +696,17 @@ export function NavbarItemEditor({ itemId, initialData }: { itemId: string; init
               <h2 className="font-jakarta text-lg font-semibold text-foreground">Layout Preview</h2>
               <div className="mt-4 space-y-3 text-sm text-foreground">
                 {selectedItem.type === 'mega' ? (
-                  previewColumns.map((column) => (
-                    <p key={column.column}>
-                      Column {column.column}:{' '}
-                      {column.sections.length > 0
-                        ? column.sections.map((section) => section.title || 'Untitled Section').join(', ')
-                        : 'Empty'}
-                    </p>
-                  ))
+                  <>
+                    {previewColumns.map((column) => (
+                      <p key={column.column}>
+                        Column {column.column}:{' '}
+                        {column.sections.length > 0
+                          ? column.sections.map((section) => section.title || 'Untitled Section').join(', ')
+                          : 'Empty'}
+                      </p>
+                    ))}
+                    <p>Featured image: {selectedItem.featuredImage?.enabled && selectedItem.featuredImage?.imageUrl ? 'Enabled' : 'Disabled'}</p>
+                  </>
                 ) : (
                   <p>Direct link item with no mega menu columns.</p>
                 )}
