@@ -135,7 +135,7 @@ function normalizeCellValue(value: ExcelJS.CellValue | undefined): string {
 
 export async function parseProductImportWorkbook(buffer: Buffer) {
   const workbook = new ExcelJS.Workbook()
-  await workbook.xlsx.load(buffer)
+  await workbook.xlsx.load(buffer as any)
 
   const sheet =
     workbook.getWorksheet('Product Upload') ??
@@ -146,9 +146,9 @@ export async function parseProductImportWorkbook(buffer: Buffer) {
   }
 
   const headerRow = sheet.getRow(1)
-  const headers = headerRow.values
-    .slice(1)
-    .map((cell) => normalizeCellValue(cell))
+  const headerValues = Array.isArray(headerRow.values) ? headerRow.values.slice(1) : []
+  const headers = headerValues
+    .map((cell: ExcelJS.CellValue | undefined) => normalizeCellValue(cell))
     .filter((cell) => cell.length > 0)
 
   const missingHeaders = requiredHeaders.filter((key) => !headers.includes(key))
@@ -156,7 +156,7 @@ export async function parseProductImportWorkbook(buffer: Buffer) {
     throw new Error(`Workbook is missing required columns: ${missingHeaders.join(', ')}`)
   }
 
-  const unknownHeaders = headers.filter((header) => !expectedHeaders.includes(header))
+  const unknownHeaders = headers.filter((header: string) => !expectedHeaders.includes(header))
   if (unknownHeaders.length > 0) {
     throw new Error(`Workbook includes unsupported columns: ${unknownHeaders.join(', ')}`)
   }
@@ -168,7 +168,7 @@ export async function parseProductImportWorkbook(buffer: Buffer) {
     const record: ParsedProductImportRow = {}
     let hasAnyValue = false
 
-    headers.forEach((header, headerIndex) => {
+    headers.forEach((header: string, headerIndex: number) => {
       const value = normalizeCellValue(row.getCell(headerIndex + 1).value)
       record[header] = value
       if (value.length > 0) hasAnyValue = true

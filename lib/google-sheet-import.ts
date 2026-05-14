@@ -1,7 +1,6 @@
 import 'server-only'
 
 import ExcelJS from 'exceljs'
-import { parseString } from '@fast-csv/parse'
 import type { ParsedProductImportRow } from '@/lib/product-import-staging'
 
 export type GoogleSheetSyncTab = 'Ring_Final' | 'Earring_Final' | 'Pendant_Final' | 'BrcBg'
@@ -81,15 +80,55 @@ async function loadCsvRowsFromSheetUrl(sheetUrl: string, tabName: string) {
   }
 
   const csvText = await response.text()
-  return new Promise<string[][]>((resolve, reject) => {
-    const rows: string[][] = []
-    parseString(csvText, { headers: false, trim: false, ignoreEmpty: false })
-      .on('error', reject)
-      .on('data', (row: string[]) => {
-        rows.push(Array.isArray(row) ? row.map((entry) => String(entry ?? '')) : [])
-      })
-      .on('end', () => resolve(rows))
-  })
+  return parseCsvText(csvText)
+}
+
+function parseCsvText(csvText: string) {
+  const rows: string[][] = []
+  let currentRow: string[] = []
+  let currentCell = ''
+  let inQuotes = false
+
+  for (let index = 0; index < csvText.length; index += 1) {
+    const char = csvText[index]
+    const nextChar = csvText[index + 1]
+
+    if (char === '"') {
+      if (inQuotes && nextChar === '"') {
+        currentCell += '"'
+        index += 1
+      } else {
+        inQuotes = !inQuotes
+      }
+      continue
+    }
+
+    if (!inQuotes && char === ',') {
+      currentRow.push(currentCell)
+      currentCell = ''
+      continue
+    }
+
+    if (!inQuotes && (char === '\n' || char === '\r')) {
+      if (char === '\r' && nextChar === '\n') {
+        index += 1
+      }
+      currentRow.push(currentCell)
+      rows.push(currentRow)
+      currentRow = []
+      currentCell = ''
+      continue
+    }
+
+    currentCell += char
+  }
+
+  if (currentCell.length > 0 || currentRow.length > 0) {
+    currentRow.push(currentCell)
+    rows.push(currentRow)
+  }
+
+  return rows
 }
 
 function parseNumericString(value: string) {

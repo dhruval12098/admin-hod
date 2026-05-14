@@ -518,7 +518,7 @@ export async function POST(request: Request) {
     return {
       slug: baseInsert.slug,
       ...payload,
-    }
+    } as Record<string, unknown>
   }
 
   let { data: product, error } = await adminClient.from('products').insert(buildInsertPayload()).select('*').single()

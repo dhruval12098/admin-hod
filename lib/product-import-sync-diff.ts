@@ -5,6 +5,21 @@ import { normalizeImportValue } from '@/lib/import-normalization'
 import type { ParsedProductImportRow } from '@/lib/product-import-staging'
 
 type LookupRow = { id: string; name: string }
+type ProductLookupRow = {
+  id: string
+  sku: string | null
+  name: string | null
+  description: string | null
+  main_category_id: string | null
+  subcategory_id: string | null
+  option_id: string | null
+  style_id: string | null
+  discount_price: number | string | null
+  image_1_path: string | null
+}
+type MetalSelectionRow = { product_id: string; metal_id: string }
+type PurityRow = { product_id: string; purity_label: string; price: number | string | null }
+type MaterialSelectionRow = { product_id: string; material_value_id: string }
 
 type ExistingProductSnapshot = {
   id: string
@@ -47,11 +62,11 @@ async function loadReferenceMaps(adminClient: any) {
   ])
 
   return {
-    categoriesById: new Map((categories.data ?? []).map((row: LookupRow) => [row.id, row.name])),
-    subcategoriesById: new Map((subcategories.data ?? []).map((row: LookupRow) => [row.id, row.name])),
-    optionsById: new Map((options.data ?? []).map((row: LookupRow) => [row.id, row.name])),
-    stylesById: new Map((styles.data ?? []).map((row: LookupRow) => [row.id, row.name])),
-    materialValuesById: new Map((materialValues.data ?? []).map((row: LookupRow) => [row.id, row.name])),
+    categoriesById: new Map<string, string>(((categories.data ?? []) as LookupRow[]).map((row) => [row.id, row.name])),
+    subcategoriesById: new Map<string, string>(((subcategories.data ?? []) as LookupRow[]).map((row) => [row.id, row.name])),
+    optionsById: new Map<string, string>(((options.data ?? []) as LookupRow[]).map((row) => [row.id, row.name])),
+    stylesById: new Map<string, string>(((styles.data ?? []) as LookupRow[]).map((row) => [row.id, row.name])),
+    materialValuesById: new Map<string, string>(((materialValues.data ?? []) as LookupRow[]).map((row) => [row.id, row.name])),
   }
 }
 
@@ -83,10 +98,10 @@ export async function classifyGoogleSheetRows(
   if (purityResult.error) throw new Error(purityResult.error.message)
   if (materialSelectionsResult.error) throw new Error(materialSelectionsResult.error.message)
 
-  const metalNameById = new Map((metalsResult.data ?? []).map((row: LookupRow) => [row.id, row.name]))
+  const metalNameById = new Map<string, string>(((metalsResult.data ?? []) as LookupRow[]).map((row) => [row.id, row.name]))
 
   const metalsByProduct = new Map<string, string[]>()
-  for (const row of metalSelectionsResult.data ?? []) {
+  for (const row of (metalSelectionsResult.data ?? []) as MetalSelectionRow[]) {
     const current = metalsByProduct.get(row.product_id) ?? []
     const metalName = metalNameById.get(row.metal_id)
     if (metalName) current.push(metalName)
@@ -94,14 +109,14 @@ export async function classifyGoogleSheetRows(
   }
 
   const purityByProduct = new Map<string, Array<{ purity_label: string; price: number }>>()
-  for (const row of purityResult.data ?? []) {
+  for (const row of (purityResult.data ?? []) as PurityRow[]) {
     const current = purityByProduct.get(row.product_id) ?? []
     current.push({ purity_label: row.purity_label, price: Number(row.price ?? 0) })
     purityByProduct.set(row.product_id, current)
   }
 
   const materialValuesByProduct = new Map<string, string[]>()
-  for (const row of materialSelectionsResult.data ?? []) {
+  for (const row of (materialSelectionsResult.data ?? []) as MaterialSelectionRow[]) {
     const current = materialValuesByProduct.get(row.product_id) ?? []
     const name = refs.materialValuesById.get(row.material_value_id)
     if (name) current.push(name)
@@ -109,7 +124,7 @@ export async function classifyGoogleSheetRows(
   }
 
   const snapshotsBySku = new Map<string, ExistingProductSnapshot>()
-  for (const product of productsResult.data ?? []) {
+  for (const product of (productsResult.data ?? []) as ProductLookupRow[]) {
     const purityRows = purityByProduct.get(product.id) ?? []
     const firstPurity = purityRows[0] ?? null
     snapshotsBySku.set(normalizeImportValue(product.sku), {
