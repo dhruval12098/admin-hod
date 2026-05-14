@@ -24,7 +24,7 @@ function normalizeLabel(value: string | null | undefined) {
   return (value ?? '').trim().toLowerCase()
 }
 
-function extractSpreadsheetId(sheetUrl: string) {
+export function extractSpreadsheetId(sheetUrl: string) {
   const match = sheetUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/)
   return match?.[1] ?? null
 }

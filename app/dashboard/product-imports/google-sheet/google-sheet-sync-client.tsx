@@ -18,13 +18,13 @@ const STORAGE_KEYS = {
   sheetUrl: 'hod_google_sync_sheet_url',
   tabName: 'hod_google_sync_tab_name',
   lane: 'hod_google_sync_lane',
-  sources: 'hod_google_sync_sources',
 } as const
 
 type ConnectedSource = {
-  key: string
+  id: string
   name: string
   sheetUrl: string
+  spreadsheetId: string
   tabName: string
   lane: 'mixed' | 'standard' | 'hiphop' | 'collection'
   lastJobId: string | null
@@ -38,10 +38,6 @@ type ConnectedSource = {
     unchangedRows: number
     noChanges: boolean
   }
-}
-
-function buildSourceKey(sheetUrl: string, tabName: string) {
-  return `${sheetUrl.trim()}::${tabName.trim()}`
 }
 
 export function GoogleSheetSyncClient() {
@@ -79,17 +75,37 @@ export function GoogleSheetSyncClient() {
     if (nextTabName) setTabName(nextTabName)
     if (nextLane && ['mixed', 'standard', 'hiphop', 'collection'].includes(nextLane)) setLane(nextLane)
     if (nextSheetUrl) setEditingSource(false)
-    if (nextSheetUrl) setActiveView('existing')
+  }, [])
 
-    const rawSources = window.localStorage.getItem(STORAGE_KEYS.sources)
-    if (rawSources) {
+  useEffect(() => {
+    let active = true
+
+    const loadConnectedSources = async () => {
       try {
-        const parsed = JSON.parse(rawSources) as ConnectedSource[]
-        if (Array.isArray(parsed)) {
-          setConnectedSources(parsed)
-          if (parsed.length > 0) setActiveView('existing')
+        const { data } = await supabase.auth.getSession()
+        const accessToken = data.session?.access_token
+        if (!accessToken) return
+
+        const response = await fetch('/api/product-imports/google-sync?listSources=1', {
+          headers: {
+            authorization: `Bearer ${accessToken}`,
+          },
+        })
+        const payload = await response.json().catch(() => null)
+        if (!response.ok || !payload) return
+
+        if (active && Array.isArray(payload.items)) {
+          setConnectedSources(payload.items as ConnectedSource[])
+          if (payload.items.length > 0) {
+            setActiveView('existing')
+          }
         }
       } catch {}
+    }
+
+    void loadConnectedSources()
+    return () => {
+      active = false
     }
   }, [])
 
@@ -98,7 +114,7 @@ export function GoogleSheetSyncClient() {
     const sourceKey = searchParams.get('source')
     if (!sourceKey || connectedSources.length < 1) return
 
-    const selected = connectedSources.find((source) => source.key === sourceKey)
+    const selected = connectedSources.find((source) => source.id === sourceKey)
     if (!selected) return
 
     setSheetUrl(selected.sheetUrl)
@@ -111,15 +127,12 @@ export function GoogleSheetSyncClient() {
   }, [searchParams, connectedSources])
 
   const persistConnectedSource = (source: ConnectedSource) => {
-    if (typeof window === 'undefined') return
-
     const nextSources = [
       source,
-      ...connectedSources.filter((entry) => entry.key !== source.key),
+      ...connectedSources.filter((entry) => entry.id !== source.id),
     ].slice(0, 12)
 
     setConnectedSources(nextSources)
-    window.localStorage.setItem(STORAGE_KEYS.sources, JSON.stringify(nextSources))
   }
 
   const loadTabs = async (nextSheetUrl?: string) => {
@@ -232,24 +245,9 @@ export function GoogleSheetSyncClient() {
         noChanges: payload.item.status === 'no_changes',
       })
 
-      persistConnectedSource({
-        key: buildSourceKey(sheetUrl, tabName),
-        name: jobName.trim() || `${tabName} Sync`,
-        sheetUrl: sheetUrl.trim(),
-        tabName,
-        lane,
-        lastJobId: payload.item.id ?? null,
-        lastStatus: payload.item.status === 'no_changes' ? 'up_to_date' : 'staged',
-        lastSyncedAt: new Date().toISOString(),
-        summary: {
-          totalRows: Number(payload.item.totalRows ?? 0),
-          actionableRows: Number(payload.item.actionableRows ?? 0),
-          newRows: Number(payload.item.newRows ?? 0),
-          updatedRows: Number(payload.item.updatedRows ?? 0),
-          unchangedRows: Number(payload.item.unchangedRows ?? 0),
-          noChanges: payload.item.status === 'no_changes',
-        },
-      })
+      if (payload.item.source) {
+        persistConnectedSource(payload.item.source as ConnectedSource)
+      }
 
       if (payload.item.status === 'no_changes') {
         toast({
@@ -393,10 +391,10 @@ export function GoogleSheetSyncClient() {
               <tbody>
                 {connectedSources.map((source) => (
                   <tr
-                    key={source.key}
+                    key={source.id}
                     className="cursor-pointer border-b border-border/70 last:border-b-0 hover:bg-secondary/20"
                     onClick={() => {
-                      router.push(`/dashboard/product-imports/google-sheet?source=${encodeURIComponent(source.key)}`)
+                      router.push(`/dashboard/product-imports/google-sheet?source=${encodeURIComponent(source.id)}`)
                     }}
                   >
                     <td className="px-4 py-3 text-sm text-foreground">
