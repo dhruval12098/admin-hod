@@ -21,7 +21,7 @@ const SECTION_SOURCES: SectionSource[] = [
   { key: 'couples', label: 'Couples', table: 'couples_items', columns: ['image_path'] },
   { key: 'certifications', label: 'Certifications', table: 'certifications_items', columns: ['icon_path'] },
   { key: 'material-strip', label: 'Material Strip', table: 'material_strip_items', columns: ['icon_path'] },
-  { key: 'diamond-info', label: 'Diamond Info', table: 'diamond_info_config', columns: ['video_path', 'video_poster_path'] },
+  { key: 'diamond-info', label: 'Video Highlights', table: 'diamond_info_config', columns: ['video_path', 'video_poster_path'] },
   { key: 'about-values', label: 'About Values', table: 'about_values', columns: ['icon_path'] },
   { key: 'contact-info', label: 'Contact Info', table: 'contact_info', columns: ['icon_path'] },
   { key: 'founders', label: 'Founders', table: 'about_founders', columns: ['image_path'] },
@@ -172,24 +172,29 @@ export async function DELETE(request: Request) {
   if ('error' in access) return access.error
 
   const body = await request.json().catch(() => null)
-  const path = normalizePath(body?.path)
+  const paths = Array.isArray(body?.paths)
+    ? body.paths.map(normalizePath).filter((value): value is string => Boolean(value))
+    : []
+  const singlePath = normalizePath(body?.path)
+  const normalizedPaths = paths.length > 0 ? [...new Set(paths)] : singlePath ? [singlePath] : []
 
-  if (!path) {
+  if (normalizedPaths.length === 0) {
     return NextResponse.json({ error: 'Missing file path.' }, { status: 400 })
   }
 
   try {
     const referencedByPath = await collectReferencedPaths(access.adminClient)
-    if (referencedByPath.has(path)) {
-      return NextResponse.json({ error: 'This file is still marked as used and cannot be deleted.' }, { status: 400 })
+    const blockedPath = normalizedPaths.find((path) => referencedByPath.has(path))
+    if (blockedPath) {
+      return NextResponse.json({ error: 'One or more selected files are still marked as used and cannot be deleted.' }, { status: 400 })
     }
 
-    const { error } = await access.adminClient.storage.from(collectionBucket).remove([path])
+    const { error } = await access.adminClient.storage.from(collectionBucket).remove(normalizedPaths)
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true, deletedCount: normalizedPaths.length })
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unable to delete file.' },

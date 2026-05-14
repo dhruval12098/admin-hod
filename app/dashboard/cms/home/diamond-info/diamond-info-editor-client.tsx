@@ -1,8 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { useState, type ChangeEvent } from 'react'
-import { ArrowLeft, Edit2, Loader2, Upload } from 'lucide-react'
+import { useMemo, useState, type ChangeEvent } from 'react'
+import { ArrowDown, ArrowLeft, ArrowUp, Edit2, Loader2, Plus, Trash2, Upload } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -14,27 +14,41 @@ import {
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
 
-type DiamondInfoItem = {
+type DiamondInfoFeatureItem = {
+  id?: string
   sort_order: number
-  label: string
-  heading: string
-  paragraph: string
-}
-
-type ApiPayload = {
-  items?: DiamondInfoItem[]
-  config?: DiamondInfoConfig
-  error?: string
+  icon_svg: string
+  title: string
+  description: string
+  is_active: boolean
 }
 
 type DiamondInfoConfig = {
   video_enabled: boolean
   video_path: string
   video_poster_path: string
+  layout_mode: string
+  eyebrow: string
+  section_heading: string
+  section_subtext: string
+  cta_label: string
+  cta_link: string
+}
+
+type ApiPayload = {
+  features?: DiamondInfoFeatureItem[]
+  config?: DiamondInfoConfig
+  error?: string
+}
+
+type UploadPayload = {
+  path?: string
+  url?: string
+  error?: string
 }
 
 export type DiamondInfoInitialData = {
-  items: DiamondInfoItem[]
+  features: DiamondInfoFeatureItem[]
   config: DiamondInfoConfig
 }
 
@@ -46,114 +60,125 @@ function toPublicUrl(path: string) {
   return projectUrl ? `${projectUrl}/storage/v1/object/public/${bucket}/${path}` : path
 }
 
+function isSvgMarkup(value: string) {
+  return value.trim().startsWith('<svg')
+}
+
+function createFeature(sortOrder: number): DiamondInfoFeatureItem {
+  return {
+    sort_order: sortOrder,
+    icon_svg: '',
+    title: '',
+    description: '',
+    is_active: true,
+  }
+}
+
+function normalizeFeatures(features: DiamondInfoFeatureItem[]) {
+  return features.map((feature, index) => ({
+    ...feature,
+    sort_order: index + 1,
+  }))
+}
+
 export function DiamondInfoEditorClient({ initialData }: { initialData: DiamondInfoInitialData }) {
   const { toast } = useToast()
-  const [items, setItems] = useState<DiamondInfoItem[]>(initialData.items)
+  const [features, setFeatures] = useState<DiamondInfoFeatureItem[]>(
+    initialData.features.length ? normalizeFeatures(initialData.features) : [createFeature(1), createFeature(2), createFeature(3), createFeature(4)]
+  )
   const [config, setConfig] = useState<DiamondInfoConfig>(initialData.config)
-  const [videoPreviewUrl, setVideoPreviewUrl] = useState(initialData.config.video_path ? toPublicUrl(initialData.config.video_path) : '')
-  const [posterPreviewUrl, setPosterPreviewUrl] = useState(initialData.config.video_poster_path ? toPublicUrl(initialData.config.video_poster_path) : '')
-  const [loadStatus, setLoadStatus] = useState(initialData.items.some((item) => item.label || item.heading || item.paragraph) ? 'Diamond Info loaded' : 'No Diamond Info rows found yet')
-  const [editorOpen, setEditorOpen] = useState(false)
-  const [editorItem, setEditorItem] = useState<DiamondInfoItem | null>(null)
+  const [loadStatus, setLoadStatus] = useState('Video Highlights ready')
+  const [isSaving, setIsSaving] = useState(false)
   const [isUploadingVideo, setIsUploadingVideo] = useState(false)
   const [isUploadingPoster, setIsUploadingPoster] = useState(false)
+  const [editorOpen, setEditorOpen] = useState(false)
+  const [editorIndex, setEditorIndex] = useState<number | null>(null)
+  const [editorMode, setEditorMode] = useState<'add' | 'edit'>('edit')
+  const [editorItem, setEditorItem] = useState<DiamondInfoFeatureItem>(createFeature(1))
+  const [isUploadingIcon, setIsUploadingIcon] = useState(false)
 
-  const handleChange = (sortOrder: number, field: keyof DiamondInfoItem, value: string) => {
-    setItems((prev) => prev.map((item) => (item.sort_order === sortOrder ? { ...item, [field]: value } : item)))
-  }
+  const videoPreviewUrl = toPublicUrl(config.video_path)
+  const posterPreviewUrl = toPublicUrl(config.video_poster_path)
+  const editorIconPreview = useMemo(
+    () => (isSvgMarkup(editorItem.icon_svg) ? '' : toPublicUrl(editorItem.icon_svg)),
+    [editorItem.icon_svg]
+  )
 
-  const openEditor = (item: DiamondInfoItem) => {
-    setEditorItem(item)
-    setEditorOpen(true)
-  }
-
-  const updateAndSave = async () => {
-    if (!editorItem) return
-
-    const nextItems = items.map((item) => (item.sort_order === editorItem.sort_order ? editorItem : item))
-    setItems(nextItems)
-    setEditorOpen(false)
-    setLoadStatus('Saving Diamond Info item...')
-
+  const withSessionToken = async () => {
     const { data: sessionData } = await supabase.auth.getSession()
     const accessToken = sessionData.session?.access_token
 
     if (!accessToken) {
       setLoadStatus('You are not signed in.')
-      return
+      toast({
+        title: 'Sign in required',
+        description: 'Please sign in again before saving.',
+        variant: 'destructive',
+      })
+      return null
     }
 
-    const response = await fetch('/api/cms/home/diamond-info', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({ items: nextItems, config }),
-    })
-
-    const payload = (await response.json().catch(() => null)) as ApiPayload | null
-
-    if (!response.ok) {
-      setLoadStatus(payload?.error ?? 'Unable to save Diamond Info.')
-      return
-    }
-
-    setLoadStatus('Diamond Info saved')
-    toast({
-      title: 'Saved',
-      description: 'Diamond Info updated successfully.',
-    })
+    return accessToken
   }
 
-  const saveConfig = async (nextConfig: DiamondInfoConfig, statusLabel: string) => {
-    setConfig(nextConfig)
+  const persist = async (
+    nextFeatures: DiamondInfoFeatureItem[],
+    nextConfig: DiamondInfoConfig,
+    statusLabel: string,
+    successMessage: string
+  ) => {
+    const accessToken = await withSessionToken()
+    if (!accessToken) return false
+
+    setIsSaving(true)
     setLoadStatus(statusLabel)
 
-    const { data: sessionData } = await supabase.auth.getSession()
-    const accessToken = sessionData.session?.access_token
-
-    if (!accessToken) {
-      setLoadStatus('You are not signed in.')
-      return
-    }
-
     const response = await fetch('/api/cms/home/diamond-info', {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         authorization: `Bearer ${accessToken}`,
       },
-      body: JSON.stringify({ items, config: nextConfig }),
+      body: JSON.stringify({
+        features: normalizeFeatures(nextFeatures),
+        config: nextConfig,
+      }),
     })
 
     const payload = (await response.json().catch(() => null)) as ApiPayload | null
+    setIsSaving(false)
 
     if (!response.ok) {
-      setLoadStatus(payload?.error ?? 'Unable to save Diamond Info settings.')
-      return
+      setLoadStatus(payload?.error ?? 'Unable to save Video Highlights.')
+      toast({
+        title: 'Save failed',
+        description: payload?.error ?? 'Unable to save Video Highlights.',
+        variant: 'destructive',
+      })
+      return false
     }
 
-    setLoadStatus('Diamond Info settings saved')
+    setLoadStatus('Video Highlights saved')
     toast({
       title: 'Saved',
-      description: 'Diamond Info settings updated successfully.',
+      description: successMessage,
     })
+    return true
   }
 
-  const uploadAsset = async (event: ChangeEvent<HTMLInputElement>, kind: 'video' | 'poster') => {
+  const saveAll = async () => {
+    const nextFeatures = normalizeFeatures(features)
+    setFeatures(nextFeatures)
+    await persist(nextFeatures, config, 'Saving Video Highlights...', 'Video Highlights updated successfully.')
+  }
+
+  const uploadAsset = async (event: ChangeEvent<HTMLInputElement>, kind: 'video' | 'poster' | 'icon') => {
     const file = event.target.files?.[0]
     event.target.value = ''
-
     if (!file) return
 
-    const { data: sessionData } = await supabase.auth.getSession()
-    const accessToken = sessionData.session?.access_token
-
-    if (!accessToken) {
-      setLoadStatus('You are not signed in.')
-      return
-    }
+    const accessToken = await withSessionToken()
+    if (!accessToken) return
 
     const formData = new FormData()
     formData.append('file', file)
@@ -161,10 +186,13 @@ export function DiamondInfoEditorClient({ initialData }: { initialData: DiamondI
 
     if (kind === 'video') {
       setIsUploadingVideo(true)
-      setLoadStatus('Uploading Diamond Info video...')
-    } else {
+      setLoadStatus('Uploading section video...')
+    } else if (kind === 'poster') {
       setIsUploadingPoster(true)
-      setLoadStatus('Uploading Diamond Info poster...')
+      setLoadStatus('Uploading poster image...')
+    } else {
+      setIsUploadingIcon(true)
+      setLoadStatus('Uploading feature icon...')
     }
 
     const response = await fetch('/api/cms/uploads/diamond-info', {
@@ -175,13 +203,11 @@ export function DiamondInfoEditorClient({ initialData }: { initialData: DiamondI
       body: formData,
     })
 
-    const payload = (await response.json().catch(() => null)) as { path?: string; url?: string; error?: string } | null
+    const payload = (await response.json().catch(() => null)) as UploadPayload | null
 
-    if (kind === 'video') {
-      setIsUploadingVideo(false)
-    } else {
-      setIsUploadingPoster(false)
-    }
+    if (kind === 'video') setIsUploadingVideo(false)
+    if (kind === 'poster') setIsUploadingPoster(false)
+    if (kind === 'icon') setIsUploadingIcon(false)
 
     if (!response.ok || !payload?.path) {
       setLoadStatus(payload?.error ?? 'Upload failed.')
@@ -193,24 +219,101 @@ export function DiamondInfoEditorClient({ initialData }: { initialData: DiamondI
       return
     }
 
+    if (kind === 'icon') {
+      setEditorItem((prev) => ({ ...prev, icon_svg: payload.path ?? '' }))
+      setLoadStatus('Feature icon uploaded. Save the popup changes to keep it.')
+      toast({
+        title: 'Icon uploaded',
+        description: 'SVG uploaded to the diamond-info/icons folder.',
+      })
+      return
+    }
+
     const nextConfig = {
       ...config,
-      video_enabled: kind === 'video' ? true : config.video_enabled,
+      video_enabled: true,
       [kind === 'video' ? 'video_path' : 'video_poster_path']: payload.path,
     }
+    setConfig(nextConfig)
+    await persist(
+      features,
+      nextConfig,
+      kind === 'video' ? 'Saving uploaded video...' : 'Saving uploaded poster...',
+      kind === 'video' ? 'Section video uploaded successfully.' : 'Poster image uploaded successfully.'
+    )
+  }
 
-    if (kind === 'video') {
-      setVideoPreviewUrl(payload.url || toPublicUrl(payload.path))
-    } else {
-      setPosterPreviewUrl(payload.url || toPublicUrl(payload.path))
+  const openAddDialog = () => {
+    setEditorMode('add')
+    setEditorIndex(null)
+    setEditorItem(createFeature(features.length + 1))
+    setEditorOpen(true)
+  }
+
+  const openEditDialog = (index: number) => {
+    setEditorMode('edit')
+    setEditorIndex(index)
+    setEditorItem({ ...features[index] })
+    setEditorOpen(true)
+  }
+
+  const saveEditor = () => {
+    const cleaned = {
+      ...editorItem,
+      title: editorItem.title.trim(),
+      description: editorItem.description.trim(),
+      icon_svg: editorItem.icon_svg.trim(),
     }
 
-    await saveConfig(nextConfig, kind === 'video' ? 'Saving Diamond Info video...' : 'Saving Diamond Info poster...')
+    if (!cleaned.title) {
+      toast({
+        title: 'Title required',
+        description: 'Please add a title for this feature point.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    const nextFeatures =
+      editorMode === 'add'
+        ? normalizeFeatures([...features, cleaned])
+        : normalizeFeatures(
+            features.map((feature, index) => (index === editorIndex ? cleaned : feature))
+          )
+
+    setFeatures(nextFeatures)
+    setEditorOpen(false)
+    setLoadStatus('Feature updated locally. Save Video Highlights to publish.')
+    toast({
+      title: editorMode === 'add' ? 'Feature added' : 'Feature updated',
+      description: 'Save Video Highlights to publish this change on the live site.',
+    })
+  }
+
+  const removeFeature = (index: number) => {
+    const next = features.filter((_, featureIndex) => featureIndex !== index)
+    setFeatures(next.length ? normalizeFeatures(next) : [createFeature(1)])
+    setLoadStatus('Feature removed locally. Save Video Highlights to publish.')
+    toast({
+      title: 'Feature removed',
+      description: 'Save Video Highlights to publish this change on the live site.',
+    })
+  }
+
+  const moveFeature = (index: number, direction: -1 | 1) => {
+    const targetIndex = index + direction
+    if (targetIndex < 0 || targetIndex >= features.length) return
+
+    const next = [...features]
+    const [item] = next.splice(index, 1)
+    next.splice(targetIndex, 0, item)
+    setFeatures(normalizeFeatures(next))
+    setLoadStatus('Feature order updated locally. Save Video Highlights to publish.')
   }
 
   return (
     <div className="p-8">
-      <div className="mb-8 flex items-center gap-4">
+      <div className="mb-8 flex items-center justify-between gap-4">
         <Link
           href="/dashboard/cms/home"
           className="inline-flex items-center gap-2 text-sm font-semibold text-primary transition-colors hover:text-primary/80"
@@ -218,191 +321,384 @@ export function DiamondInfoEditorClient({ initialData }: { initialData: DiamondI
           <ArrowLeft size={16} />
           Back to Home
         </Link>
+
+        <button
+          type="button"
+          onClick={() => void saveAll()}
+          disabled={isSaving}
+          className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
+        >
+          {isSaving ? <Loader2 size={16} className="animate-spin" /> : null}
+          Save Video Highlights
+        </button>
       </div>
 
       <div className="mb-10">
-        <h1 className="font-jakarta text-3xl font-semibold text-foreground">Diamond Info</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Edit the three informational text blocks below the hero</p>
+        <h1 className="font-jakarta text-3xl font-semibold text-foreground">Video Highlights</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Manage the homepage split section with video, heading, CTA, and feature points.
+        </p>
         <p className="mt-2 text-xs text-muted-foreground">{loadStatus}</p>
       </div>
 
-      <div className="mb-8 max-w-5xl rounded-xl border border-border bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-          <div className="max-w-2xl">
-            <h2 className="text-xl font-bold text-foreground">Visual Mode</h2>
-            <p className="mt-3 text-sm text-muted-foreground">
-              Keep the current diamond animation by default, or switch this section to an optional uploaded video while preserving the same sticky scroll presentation.
-            </p>
-          </div>
+      <div className="grid gap-8 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,420px)]">
+        <div className="space-y-8">
+          <section className="rounded-2xl border border-border bg-white p-6 shadow-sm">
+            <div className="mb-6">
+              <h2 className="text-xl font-semibold text-foreground">Section Content</h2>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Keep this focused: one video, one strong heading, supporting copy, and a clean CTA.
+              </p>
+            </div>
 
-          <div className="flex rounded-2xl border border-border bg-secondary/30 p-1">
-            <button
-              type="button"
-              onClick={() => void saveConfig({ ...config, video_enabled: false }, 'Switching Diamond Info to 3D diamond mode...')}
-              className={`rounded-2xl px-4 py-2 text-sm font-semibold transition-colors ${
-                !config.video_enabled ? 'bg-foreground text-white shadow-md' : 'text-foreground hover:bg-secondary'
-              }`}
-            >
-              Diamond
-            </button>
-            <button
-              type="button"
-              onClick={() => void saveConfig({ ...config, video_enabled: true }, 'Switching Diamond Info to video mode...')}
-              className={`rounded-2xl px-4 py-2 text-sm font-semibold transition-colors ${
-                config.video_enabled ? 'bg-foreground text-white shadow-md' : 'text-foreground hover:bg-secondary'
-              }`}
-            >
-              Video
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-6 grid gap-6 lg:grid-cols-2">
-          <div className="rounded-xl border border-border/70 bg-secondary/20 p-5">
-            <p className="text-sm font-semibold text-foreground">Diamond Info Video</p>
-            <p className="mt-2 text-xs text-muted-foreground">Stored in `diamond-info/videos` inside the bucket.</p>
-            {config.video_path ? (
-              <div className="mt-4 overflow-hidden rounded-lg border border-border bg-black/90">
-                <video
-                  src={videoPreviewUrl || toPublicUrl(config.video_path)}
-                  poster={config.video_poster_path ? (posterPreviewUrl || toPublicUrl(config.video_poster_path)) : undefined}
-                  controls
-                  muted
-                  playsInline
-                  className="h-40 w-full object-cover"
-                />
-              </div>
-            ) : (
-              <div className="mt-4 rounded-lg border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
-                No video uploaded yet.
-              </div>
-            )}
-            <label className="mt-4 inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-white px-4 py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-secondary">
-              {isUploadingVideo ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
-              {isUploadingVideo ? 'Uploading video...' : 'Upload video'}
-              <input type="file" accept="video/mp4,video/webm,video/quicktime" className="hidden" onChange={(event) => void uploadAsset(event, 'video')} />
-            </label>
-          </div>
-
-          <div className="rounded-xl border border-border/70 bg-secondary/20 p-5">
-            <p className="text-sm font-semibold text-foreground">Video Poster</p>
-            <p className="mt-2 text-xs text-muted-foreground">Optional preview image stored in `diamond-info/posters`.</p>
-            {config.video_poster_path ? (
-              <div className="mt-4 overflow-hidden rounded-lg border border-border bg-white">
-                <img src={posterPreviewUrl || toPublicUrl(config.video_poster_path)} alt="Diamond Info poster" className="h-40 w-full object-cover" />
-              </div>
-            ) : (
-              <div className="mt-4 rounded-lg border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
-                No poster uploaded yet.
-              </div>
-            )}
-            <label className="mt-4 inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-white px-4 py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-secondary">
-              {isUploadingPoster ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
-              {isUploadingPoster ? 'Uploading poster...' : 'Upload poster'}
-              <input type="file" accept="image/jpeg,image/png,image/webp,image/avif" className="hidden" onChange={(event) => void uploadAsset(event, 'poster')} />
-            </label>
-          </div>
-        </div>
-      </div>
-
-      <div className="max-w-5xl overflow-hidden rounded-lg border border-border bg-white shadow-xs">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-border bg-secondary/40">
-              <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground">Order</th>
-              <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground">Label</th>
-              <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground">Heading</th>
-              <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground">Paragraph</th>
-              <th className="px-5 py-3 text-right text-xs font-semibold uppercase tracking-wider text-foreground">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((item) => (
-              <tr key={item.sort_order} className="border-b border-border last:border-b-0">
-                <td className="px-5 py-4 text-sm text-foreground">{item.sort_order}</td>
-                <td className="px-5 py-4 text-sm text-foreground">
-                  <input
-                    type="text"
-                    value={item.label}
-                    onChange={(e) => handleChange(item.sort_order, 'label', e.target.value)}
-                    className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm transition-colors hover:border-input focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
-                  />
-                </td>
-                <td className="px-5 py-4 text-sm text-foreground">
-                  <span className="block max-w-[220px] truncate" title={item.heading}>
-                    {item.heading}
-                  </span>
-                </td>
-                <td className="px-5 py-4 text-sm text-muted-foreground">
-                  <span className="block max-w-[420px] truncate" title={item.paragraph}>
-                    {item.paragraph}
-                  </span>
-                </td>
-                <td className="px-5 py-4">
-                  <div className="flex items-center justify-end gap-2">
-                    <button
-                      onClick={() => openEditor(item)}
-                      className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
-                    >
-                      <Edit2 size={14} />
-                      Edit
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
-        <DialogContent className="sm:max-w-xl">
-          <DialogHeader>
-            <DialogTitle>Edit Diamond Info</DialogTitle>
-            <DialogDescription>
-              Update the label, heading, and paragraph for this block.
-            </DialogDescription>
-          </DialogHeader>
-
-          {editorItem && (
-            <div className="space-y-4">
+            <div className="grid gap-5 md:grid-cols-2">
               <div>
-                <label className="mb-2 block text-sm font-semibold text-foreground">Label</label>
+                <label className="mb-2 block text-sm font-semibold text-foreground">Eyebrow</label>
                 <input
                   type="text"
-                  value={editorItem.label}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                    setEditorItem((prev) => (prev ? { ...prev, label: e.target.value } : prev))
-                  }
+                  value={config.eyebrow}
+                  onChange={(event) => setConfig((prev) => ({ ...prev, eyebrow: event.target.value }))}
+                  placeholder="Learn about the difference"
                   className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm transition-colors hover:border-input focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
                 />
               </div>
 
               <div>
-                <label className="mb-2 block text-sm font-semibold text-foreground">Heading</label>
+                <label className="mb-2 block text-sm font-semibold text-foreground">CTA label</label>
                 <input
                   type="text"
-                  value={editorItem.heading}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                    setEditorItem((prev) => (prev ? { ...prev, heading: e.target.value } : prev))
-                  }
+                  value={config.cta_label}
+                  onChange={(event) => setConfig((prev) => ({ ...prev, cta_label: event.target.value }))}
+                  placeholder="Learn about our peace of mind guarantee"
                   className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm transition-colors hover:border-input focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
                 />
               </div>
 
-              <div>
-                <label className="mb-2 block text-sm font-semibold text-foreground">Paragraph</label>
+              <div className="md:col-span-2">
+                <label className="mb-2 block text-sm font-semibold text-foreground">Section heading</label>
                 <textarea
-                  value={editorItem.paragraph}
-                  onChange={(e: ChangeEvent<HTMLTextAreaElement>) =>
-                    setEditorItem((prev) => (prev ? { ...prev, paragraph: e.target.value } : prev))
-                  }
-                  rows={5}
+                  value={config.section_heading}
+                  onChange={(event) => setConfig((prev) => ({ ...prev, section_heading: event.target.value }))}
+                  rows={3}
+                  placeholder="This is the future of jewelry buying."
+                  className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm transition-colors hover:border-input focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="mb-2 block text-sm font-semibold text-foreground">Section copy</label>
+                <textarea
+                  value={config.section_subtext}
+                  onChange={(event) => setConfig((prev) => ({ ...prev, section_subtext: event.target.value }))}
+                  rows={4}
+                  placeholder="We didn’t say that. Our customers did."
+                  className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm transition-colors hover:border-input focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="mb-2 block text-sm font-semibold text-foreground">CTA link</label>
+                <input
+                  type="text"
+                  value={config.cta_link}
+                  onChange={(event) => setConfig((prev) => ({ ...prev, cta_link: event.target.value }))}
+                  placeholder="/contact"
                   className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm transition-colors hover:border-input focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
                 />
               </div>
             </div>
-          )}
+          </section>
+
+          <section className="rounded-2xl border border-border bg-white p-6 shadow-sm">
+            <div className="mb-6 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-semibold text-foreground">Feature Points</h2>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Manage the icon, title, and description cards shown beside the video.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={openAddDialog}
+                className="inline-flex items-center gap-2 rounded-lg border border-border bg-white px-3 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-secondary"
+              >
+                <Plus size={16} />
+                Add feature
+              </button>
+            </div>
+
+            <div className="overflow-hidden rounded-xl border border-border">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border bg-secondary/40">
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground">Order</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground">Icon</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground">Title</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground">Status</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-foreground">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {features.map((feature, index) => {
+                    const iconIsSvg = isSvgMarkup(feature.icon_svg)
+                    const iconUrl = iconIsSvg ? '' : toPublicUrl(feature.icon_svg)
+
+                    return (
+                      <tr key={feature.id ?? `feature-${index}`} className="border-b border-border last:border-b-0">
+                        <td className="px-4 py-4 text-sm text-foreground">{feature.sort_order}</td>
+                        <td className="px-4 py-4">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-white text-[#0A1628]">
+                            {feature.icon_svg ? (
+                              iconIsSvg ? (
+                                <span
+                                  className="block h-5 w-5 [&>svg]:h-5 [&>svg]:w-5"
+                                  dangerouslySetInnerHTML={{ __html: feature.icon_svg }}
+                                />
+                              ) : (
+                                <img src={iconUrl} alt={feature.title || 'Feature icon'} className="h-5 w-5 object-contain" />
+                              )
+                            ) : (
+                              <span className="text-[10px] text-muted-foreground">None</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-4">
+                          <div className="text-sm font-medium text-foreground">{feature.title || 'Untitled feature'}</div>
+                          <div className="mt-1 max-w-[320px] truncate text-xs text-muted-foreground">
+                            {feature.description || 'No description added yet'}
+                          </div>
+                        </td>
+                        <td className="px-4 py-4 text-sm text-foreground">
+                          {feature.is_active ? 'Visible' : 'Hidden'}
+                        </td>
+                        <td className="px-4 py-4">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => moveFeature(index, -1)}
+                              disabled={index === 0}
+                              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-white text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              <ArrowUp size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => moveFeature(index, 1)}
+                              disabled={index === features.length - 1}
+                              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-white text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              <ArrowDown size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openEditDialog(index)}
+                              className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
+                            >
+                              <Edit2 size={14} />
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => removeFeature(index)}
+                              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-white text-destructive transition-colors hover:bg-destructive/10"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <aside className="space-y-8">
+          <section className="rounded-2xl border border-border bg-white p-6 shadow-sm">
+            <div className="mb-6">
+              <h2 className="text-xl font-semibold text-foreground">Video Source</h2>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Use a direct public URL or upload into storage. The storefront will prefer whatever is saved here.
+              </p>
+            </div>
+
+            <div className="space-y-5">
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-foreground">Video URL or storage path</label>
+                <input
+                  type="text"
+                  value={config.video_path}
+                  onChange={(event) =>
+                    setConfig((prev) => ({
+                      ...prev,
+                      video_enabled: true,
+                      video_path: event.target.value,
+                    }))
+                  }
+                  placeholder="https://..."
+                  className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm transition-colors hover:border-input focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-foreground">Poster URL or storage path</label>
+                <input
+                  type="text"
+                  value={config.video_poster_path}
+                  onChange={(event) => setConfig((prev) => ({ ...prev, video_poster_path: event.target.value }))}
+                  placeholder="https://..."
+                  className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm transition-colors hover:border-input focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+              </div>
+            </div>
+
+            <div className="mt-6 grid gap-4 sm:grid-cols-2">
+              <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-border bg-white px-4 py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-secondary">
+                {isUploadingVideo ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+                {isUploadingVideo ? 'Uploading video...' : 'Upload video'}
+                <input type="file" accept="video/mp4,video/webm,video/quicktime" className="hidden" onChange={(event) => void uploadAsset(event, 'video')} />
+              </label>
+
+              <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-border bg-white px-4 py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-secondary">
+                {isUploadingPoster ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+                {isUploadingPoster ? 'Uploading poster...' : 'Upload poster'}
+                <input type="file" accept="image/jpeg,image/png,image/webp,image/avif" className="hidden" onChange={(event) => void uploadAsset(event, 'poster')} />
+              </label>
+            </div>
+
+            <div className="mt-6 space-y-4">
+              <div className="overflow-hidden rounded-2xl border border-border bg-black/90">
+                {videoPreviewUrl ? (
+                  <video
+                    src={videoPreviewUrl}
+                    poster={posterPreviewUrl || undefined}
+                    controls
+                    muted
+                    playsInline
+                    className="aspect-[4/3] w-full object-cover"
+                  />
+                ) : (
+                  <div className="flex aspect-[4/3] items-center justify-center px-6 text-center text-sm text-white/70">
+                    Add a video URL or upload a video to preview the section.
+                  </div>
+                )}
+              </div>
+
+              <div className="overflow-hidden rounded-2xl border border-border bg-secondary/10">
+                {posterPreviewUrl ? (
+                  <img src={posterPreviewUrl} alt="Section poster preview" className="aspect-[4/3] w-full object-cover" />
+                ) : (
+                  <div className="flex aspect-[4/3] items-center justify-center px-6 text-center text-sm text-muted-foreground">
+                    Poster preview will appear here if you add one.
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+        </aside>
+      </div>
+
+      <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{editorMode === 'add' ? 'Add Feature Point' : 'Edit Feature Point'}</DialogTitle>
+            <DialogDescription>
+              Upload an SVG into the dedicated icon folder, or paste inline SVG markup directly.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-5">
+            <div>
+              <label className="mb-2 block text-sm font-semibold text-foreground">Icon</label>
+              <div className="rounded-2xl border border-border bg-secondary/10 p-4">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-border bg-white text-[#0A1628]">
+                    {editorItem.icon_svg ? (
+                      isSvgMarkup(editorItem.icon_svg) ? (
+                        <span
+                          className="block h-8 w-8 [&>svg]:h-8 [&>svg]:w-8"
+                          dangerouslySetInnerHTML={{ __html: editorItem.icon_svg }}
+                        />
+                      ) : (
+                        <img src={editorIconPreview} alt="Feature icon preview" className="h-8 w-8 object-contain" />
+                      )
+                    ) : (
+                      <span className="text-xs text-muted-foreground">No icon</span>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap gap-3">
+                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-white px-4 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-secondary">
+                      {isUploadingIcon ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                      {isUploadingIcon ? 'Uploading...' : 'Upload SVG'}
+                      <input
+                        type="file"
+                        accept=".svg,image/svg+xml"
+                        className="hidden"
+                        onChange={(event) => void uploadAsset(event, 'icon')}
+                      />
+                    </label>
+
+                    {editorItem.icon_svg ? (
+                      <button
+                        type="button"
+                        onClick={() => setEditorItem((prev) => ({ ...prev, icon_svg: '' }))}
+                        className="inline-flex items-center gap-2 rounded-lg border border-border bg-white px-4 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-secondary"
+                      >
+                        <Trash2 size={14} />
+                        Clear icon
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                    SVG markup or uploaded path
+                  </label>
+                  <textarea
+                    value={editorItem.icon_svg}
+                    onChange={(event) => setEditorItem((prev) => ({ ...prev, icon_svg: event.target.value }))}
+                    rows={5}
+                    placeholder="<svg viewBox='0 0 24 24' ...></svg> or diamond-info/icons/your-file.svg"
+                    className="w-full rounded-lg border border-border bg-white px-3 py-2 font-mono text-xs transition-colors hover:border-input focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-semibold text-foreground">Title</label>
+              <input
+                value={editorItem.title}
+                onChange={(event) => setEditorItem((prev) => ({ ...prev, title: event.target.value }))}
+                className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm transition-colors hover:border-input focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-semibold text-foreground">Description</label>
+              <textarea
+                value={editorItem.description}
+                onChange={(event) => setEditorItem((prev) => ({ ...prev, description: event.target.value }))}
+                rows={5}
+                className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm transition-colors hover:border-input focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+
+            <label className="inline-flex items-center gap-2 text-sm text-foreground">
+              <input
+                type="checkbox"
+                checked={editorItem.is_active}
+                onChange={(event) => setEditorItem((prev) => ({ ...prev, is_active: event.target.checked }))}
+                className="h-4 w-4 rounded border-border text-primary focus:ring-ring"
+              />
+              Show this feature on the storefront
+            </label>
+          </div>
 
           <DialogFooter>
             <button
@@ -412,10 +708,10 @@ export function DiamondInfoEditorClient({ initialData }: { initialData: DiamondI
               Cancel
             </button>
             <button
-              onClick={updateAndSave}
+              onClick={saveEditor}
               className="rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary/90"
             >
-              Update Item
+              {editorMode === 'add' ? 'Add Feature' : 'Update Feature'}
             </button>
           </DialogFooter>
         </DialogContent>

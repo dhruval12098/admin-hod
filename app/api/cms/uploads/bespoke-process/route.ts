@@ -3,14 +3,17 @@ import sharp from 'sharp'
 import { assertAdmin } from '@/lib/cms-auth'
 
 const collectionBucket = process.env.SUPABASE_COLLECTION_BUCKET ?? 'hod'
+const allowedMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/svg+xml'])
+const maxFileSizeBytes = 5 * 1024 * 1024
+
 export async function POST(request: Request) {
   const access = await assertAdmin(request)
   if ('error' in access) return access.error
   const formData = await request.formData().catch(() => null)
   const file = formData?.get('file')
   if (!(file instanceof File)) return NextResponse.json({ error: 'Missing file.' }, { status: 400 })
-  const allowedMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/svg+xml'])
-  if (!allowedMimeTypes.has(file.type)) return NextResponse.json({ error: 'Invalid file type.' }, { status: 400 })
+  if (!allowedMimeTypes.has(file.type)) return NextResponse.json({ error: 'Invalid file type. Use JPG, PNG, WebP, AVIF, or SVG.' }, { status: 400 })
+  if (file.size > maxFileSizeBytes) return NextResponse.json({ error: 'File too large. Max size is 5MB.' }, { status: 400 })
   const arrayBuffer = await file.arrayBuffer()
   const buffer = Buffer.from(arrayBuffer)
   const isSvg = file.type === 'image/svg+xml'

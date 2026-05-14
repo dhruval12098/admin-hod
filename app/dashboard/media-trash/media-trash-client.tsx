@@ -42,6 +42,9 @@ export function MediaTrashClient({ initialSections }: { initialSections: MediaSe
   const [showUnusedOnly, setShowUnusedOnly] = useState(true)
   const [deletingPath, setDeletingPath] = useState<string | null>(null)
   const [pendingDeletePath, setPendingDeletePath] = useState<string | null>(null)
+  const [selectedPaths, setSelectedPaths] = useState<string[]>([])
+  const [bulkDeleting, setBulkDeleting] = useState(false)
+  const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false)
   const [page, setPage] = useState(1)
 
   const totals = useMemo(() => {
@@ -69,6 +72,12 @@ export function MediaTrashClient({ initialSections }: { initialSections: MediaSe
   const paginatedItems = useMemo(() => {
     return visibleItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
   }, [page, visibleItems])
+  const selectableItems = useMemo(
+    () => paginatedItems.filter((item) => item.status === 'unused'),
+    [paginatedItems]
+  )
+  const allVisibleUnusedSelected =
+    selectableItems.length > 0 && selectableItems.every((item) => selectedPaths.includes(item.path))
 
   useEffect(() => {
     const totalPages = Math.max(1, Math.ceil(visibleItems.length / PAGE_SIZE))
@@ -76,6 +85,10 @@ export function MediaTrashClient({ initialSections }: { initialSections: MediaSe
       setPage(1)
     }
   }, [page, visibleItems.length])
+
+  useEffect(() => {
+    setSelectedPaths((prev) => prev.filter((path) => visibleItems.some((item) => item.path === path && item.status === 'unused')))
+  }, [visibleItems])
 
   const loadData = async () => {
     setRefreshing(true)
@@ -95,6 +108,7 @@ export function MediaTrashClient({ initialSections }: { initialSections: MediaSe
 
       const nextSections = Array.isArray(payload?.sections) ? payload.sections : []
       setSections(nextSections)
+      setSelectedPaths([])
       setActiveSectionName((current) => {
         if (current && nextSections.some((section: MediaSection) => section.name === current)) return current
         return nextSections[0]?.name ?? ''
@@ -142,6 +156,58 @@ export function MediaTrashClient({ initialSections }: { initialSections: MediaSe
       setDeletingPath(null)
       setPendingDeletePath(null)
     }
+  }
+
+  const handleBulkDelete = async () => {
+    setBulkDeleting(true)
+    try {
+      const accessToken = await getAccessToken()
+      if (!accessToken) throw new Error('Missing access token.')
+
+      const response = await fetch('/api/storage/trash', {
+        method: 'DELETE',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ paths: selectedPaths }),
+      })
+
+      const payload = await response.json().catch(() => null)
+      if (!response.ok) {
+        throw new Error(payload?.error ?? 'Unable to delete files.')
+      }
+
+      toast({
+        title: 'Deleted',
+        description: `${payload?.deletedCount ?? selectedPaths.length} unused file${selectedPaths.length === 1 ? '' : 's'} deleted permanently.`,
+      })
+      setBulkDeleteDialogOpen(false)
+      setSelectedPaths([])
+      await loadData()
+    } catch (error) {
+      toast({
+        title: 'Delete failed',
+        description: error instanceof Error ? error.message : 'Unable to delete files.',
+        variant: 'destructive',
+      })
+    } finally {
+      setBulkDeleting(false)
+    }
+  }
+
+  const togglePathSelection = (path: string, selected: boolean) => {
+    setSelectedPaths((prev) => (selected ? (prev.includes(path) ? prev : [...prev, path]) : prev.filter((item) => item !== path)))
+  }
+
+  const toggleVisibleUnusedSelections = (selected: boolean) => {
+    const visibleUnusedPaths = selectableItems.map((item) => item.path)
+    setSelectedPaths((prev) => {
+      if (selected) {
+        return [...new Set([...prev, ...visibleUnusedPaths])]
+      }
+      return prev.filter((path) => !visibleUnusedPaths.includes(path))
+    })
   }
 
   return (
@@ -227,6 +293,14 @@ export function MediaTrashClient({ initialSections }: { initialSections: MediaSe
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
+                  onClick={() => setBulkDeleteDialogOpen(true)}
+                  disabled={selectedPaths.length === 0 || bulkDeleting}
+                  className="rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {selectedPaths.length > 0 ? `Delete Selected (${selectedPaths.length})` : 'Select Files to Delete'}
+                </button>
+                <button
+                  type="button"
                   onClick={() => {
                     setShowUnusedOnly(true)
                     setPage(1)
@@ -256,6 +330,16 @@ export function MediaTrashClient({ initialSections }: { initialSections: MediaSe
               <table className="min-w-full border-collapse">
                 <thead>
                   <tr className="border-b border-border bg-secondary/10">
+                    <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                      <input
+                        type="checkbox"
+                        checked={allVisibleUnusedSelected}
+                        onChange={(event) => toggleVisibleUnusedSelections(event.target.checked)}
+                        disabled={selectableItems.length === 0}
+                        aria-label="Select visible unused files"
+                        className="h-4 w-4 rounded border-border text-primary focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                      />
+                    </th>
                     <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Preview</th>
                     <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">File</th>
                     <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Status</th>
@@ -267,6 +351,17 @@ export function MediaTrashClient({ initialSections }: { initialSections: MediaSe
                   {paginatedItems.length > 0 ? (
                     paginatedItems.map((item) => (
                       <tr key={item.path} className="border-b border-border last:border-b-0">
+                        <td className="px-6 py-4 align-top">
+                          {item.status === 'unused' ? (
+                            <input
+                              type="checkbox"
+                              checked={selectedPaths.includes(item.path)}
+                              onChange={(event) => togglePathSelection(item.path, event.target.checked)}
+                              aria-label={`Select file ${item.name}`}
+                              className="h-4 w-4 rounded border-border text-primary focus:ring-ring"
+                            />
+                          ) : null}
+                        </td>
                         <td className="px-6 py-4 align-top">
                           <div className="h-16 w-16 overflow-hidden rounded-xl border border-border bg-secondary/10">
                             {isImageFile(item.path) ? (
@@ -319,7 +414,7 @@ export function MediaTrashClient({ initialSections }: { initialSections: MediaSe
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={5} className="px-6 py-10 text-center text-sm text-muted-foreground">
+                      <td colSpan={6} className="px-6 py-10 text-center text-sm text-muted-foreground">
                         No files found for this view.
                       </td>
                     </tr>
@@ -345,6 +440,20 @@ export function MediaTrashClient({ initialSections }: { initialSections: MediaSe
         }}
         onCancel={() => {
           if (!deletingPath) setPendingDeletePath(null)
+        }}
+      />
+
+      <ConfirmDialog
+        isOpen={bulkDeleteDialogOpen}
+        title="Delete selected files permanently?"
+        description={`This will permanently delete ${selectedPaths.length} unused file${selectedPaths.length === 1 ? '' : 's'} from the Supabase bucket. This action cannot be undone.`}
+        confirmText="Delete Files"
+        cancelText="Cancel"
+        type="delete"
+        isLoading={bulkDeleting}
+        onConfirm={() => void handleBulkDelete()}
+        onCancel={() => {
+          if (!bulkDeleting) setBulkDeleteDialogOpen(false)
         }}
       />
     </div>

@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { CmsSaveAction } from '@/components/cms-save-action'
+import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
 
 type ManufacturingItem = {
@@ -40,6 +41,18 @@ export type BespokeManufacturingInitialData = {
   }>
 }
 
+type EditorCopy = {
+  backHref?: string
+  backLabel?: string
+  title?: string
+  description?: string
+  loadedStatus?: string
+  emptyStatus?: string
+  savedStatus?: string
+  confirmTitle?: string
+  confirmDescription?: string
+}
+
 const empty = (sortOrder: number): EditorItem => ({
   clientId: `draft-${Date.now()}`,
   sort_order: sortOrder,
@@ -50,11 +63,30 @@ const empty = (sortOrder: number): EditorItem => ({
   image_path: '',
 })
 
-export function BespokeManufacturingEditorClient({ initialData }: { initialData: BespokeManufacturingInitialData }) {
+export function BespokeManufacturingEditorClient({
+  initialData,
+  copy = {},
+}: {
+  initialData: BespokeManufacturingInitialData
+  copy?: EditorCopy
+}) {
+  const { toast } = useToast()
+  const resolvedCopy = {
+    backHref: '/dashboard/cms/bespoke',
+    backLabel: 'Back to Bespoke',
+    title: 'Manufacturing',
+    description: 'Manage the workshop cards with images',
+    loadedStatus: 'Bespoke manufacturing loaded',
+    emptyStatus: 'No workshop cards found yet',
+    savedStatus: 'Bespoke manufacturing saved',
+    confirmTitle: 'Save Bespoke Manufacturing?',
+    confirmDescription: 'This will update the Bespoke manufacturing section on the live site.',
+    ...copy,
+  }
   const [items, setItems] = useState<ManufacturingItem[]>(
     initialData.items.map((item) => ({ clientId: `id-${item.id}`, ...item }))
   )
-  const [status, setStatus] = useState(initialData.items.length ? 'Bespoke manufacturing loaded' : 'No workshop cards found yet')
+  const [status, setStatus] = useState(initialData.items.length ? resolvedCopy.loadedStatus : resolvedCopy.emptyStatus)
   const [isSaving, setIsSaving] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
@@ -70,19 +102,32 @@ export function BespokeManufacturingEditorClient({ initialData }: { initialData:
   const uploadImage = async (file: File) => {
     const { data: sessionData } = await supabase.auth.getSession()
     const accessToken = sessionData.session?.access_token
-    if (!accessToken) return
-    setUploading(true)
-    const formData = new FormData()
-    formData.append('file', file)
-    const response = await fetch('/api/cms/uploads/bespoke-process', { method: 'POST', headers: { authorization: `Bearer ${accessToken}` }, body: formData })
-    const payload = (await response.json().catch(() => null)) as { path?: string; error?: string } | null
-    setUploading(false)
-    if (!response.ok || !payload?.path) {
-      setStatus(payload?.error ?? 'Unable to upload manufacturing image.')
+    if (!accessToken) {
+      setStatus('You are not signed in.')
       return
     }
-    setEditorItem((prev) => ({ ...prev, image_path: payload.path ?? '' }))
-    setStatus('Manufacturing image uploaded')
+
+    setUploading(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const response = await fetch('/api/cms/uploads/bespoke-process', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${accessToken}` },
+        body: formData,
+      })
+      const payload = (await response.json().catch(() => null)) as { path?: string; error?: string } | null
+      if (!response.ok || !payload?.path) {
+        setStatus(payload?.error ?? 'Unable to upload manufacturing image.')
+        return
+      }
+      setEditorItem((prev) => ({ ...prev, image_path: payload.path ?? '' }))
+      setStatus('Manufacturing image uploaded')
+    } catch {
+      setStatus('Unable to upload manufacturing image.')
+    } finally {
+      setUploading(false)
+    }
   }
 
   const saveAll = async () => {
@@ -118,22 +163,23 @@ export function BespokeManufacturingEditorClient({ initialData }: { initialData:
       return
     }
     setConfirmOpen(false)
-    setStatus('Bespoke manufacturing saved')
+    setStatus(resolvedCopy.savedStatus)
+    toast({ title: 'Saved', description: resolvedCopy.savedStatus })
   }
 
   return (
     <div className="min-h-screen bg-background p-8">
       <div className="mb-8 flex items-center justify-between">
-        <Link href="/dashboard/cms/bespoke" className="inline-flex items-center gap-2 text-sm font-semibold text-primary">
+        <Link href={resolvedCopy.backHref} className="inline-flex items-center gap-2 text-sm font-semibold text-primary">
           <ArrowLeft size={16} />
-          Back to Bespoke
+          {resolvedCopy.backLabel}
         </Link>
         <CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={isSaving} position="inline" />
       </div>
 
       <div className="mb-10">
-        <h1 className="text-3xl font-semibold">Manufacturing</h1>
-        <p className="text-sm text-muted-foreground">Manage the workshop cards with images</p>
+        <h1 className="text-3xl font-semibold">{resolvedCopy.title}</h1>
+        <p className="text-sm text-muted-foreground">{resolvedCopy.description}</p>
         <p className="mt-2 text-xs text-muted-foreground">{status}</p>
       </div>
 
@@ -173,7 +219,7 @@ export function BespokeManufacturingEditorClient({ initialData }: { initialData:
         Add Step
       </button>
 
-      <ConfirmDialog isOpen={confirmOpen} title="Save Bespoke Manufacturing?" description="This will update the Bespoke manufacturing section on the live site." confirmText="Save" cancelText="Cancel" type="confirm" isLoading={isSaving} onConfirm={saveAll} onCancel={() => setConfirmOpen(false)} />
+      <ConfirmDialog isOpen={confirmOpen} title={resolvedCopy.confirmTitle} description={resolvedCopy.confirmDescription} confirmText="Save" cancelText="Cancel" type="confirm" isLoading={isSaving} onConfirm={saveAll} onCancel={() => setConfirmOpen(false)} />
 
       <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
         <DialogContent>
@@ -194,7 +240,7 @@ export function BespokeManufacturingEditorClient({ initialData }: { initialData:
                 <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold">
                   <Plus size={14} />
                   {uploading ? 'Uploading...' : 'Upload Image'}
-                  <input type="file" accept="image/*,.svg" className="hidden" onChange={(e: ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (file) void uploadImage(file) }} />
+                  <input type="file" accept="image/*,.svg" className="hidden" disabled={uploading} onChange={(e: ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (file) void uploadImage(file) }} />
                 </label>
                 <span className="text-xs text-muted-foreground">{editorItem.image_path || 'No image uploaded yet'}</span>
               </div>

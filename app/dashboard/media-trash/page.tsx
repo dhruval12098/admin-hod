@@ -21,7 +21,7 @@ const SECTION_SOURCES: SectionSource[] = [
   { key: 'couples', label: 'Couples', table: 'couples_items', columns: ['image_path'] },
   { key: 'certifications', label: 'Certifications', table: 'certifications_items', columns: ['icon_path'] },
   { key: 'material-strip', label: 'Material Strip', table: 'material_strip_items', columns: ['icon_path'] },
-  { key: 'diamond-info', label: 'Diamond Info', table: 'diamond_info_config', columns: ['video_path', 'video_poster_path'] },
+  { key: 'diamond-info', label: 'Video Highlights', table: 'diamond_info_config', columns: ['video_path', 'video_poster_path'] },
   { key: 'about-values', label: 'About Values', table: 'about_values', columns: ['icon_path'] },
   { key: 'contact-info', label: 'Contact Info', table: 'contact_info', columns: ['icon_path'] },
   { key: 'founders', label: 'Founders', table: 'about_founders', columns: ['image_path'] },

@@ -4,10 +4,10 @@ import { CMSTabs } from '@/components/cms-tabs'
 import { CMSSectionTable } from '@/components/cms-section-table'
 
 const ABOUT_SECTIONS = [
-  { id: 'hero', label: 'About Hero', description: 'Main headline and company story' },
   { id: 'founders', label: 'Founders', description: 'Founder profiles and bios' },
   { id: 'timeline', label: 'Timeline', description: 'Company history and milestones' },
   { id: 'values', label: 'Values', description: 'Core values cards and copy' },
+  { id: 'manufacturing', label: 'Manufacturing Steps', description: 'Workshop / manufacturing cards shown on the About page' },
 ]
 
 export default function AboutPageEditor() {

@@ -5,8 +5,10 @@ import { assertAdmin } from '@/lib/cms-auth'
 const bucket = process.env.SUPABASE_COLLECTION_BUCKET ?? 'hod'
 const allowedVideoMimeTypes = new Set(['video/mp4', 'video/webm', 'video/quicktime'])
 const allowedPosterMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/avif'])
+const allowedIconMimeTypes = new Set(['image/svg+xml'])
 const maxVideoSizeBytes = 100 * 1024 * 1024
 const maxPosterSizeBytes = 5 * 1024 * 1024
+const maxIconSizeBytes = 512 * 1024
 
 function normalizeKind(value: FormDataEntryValue | null) {
   return typeof value === 'string' ? value : ''
@@ -24,7 +26,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Missing file.' }, { status: 400 })
   }
 
-  if (kind !== 'video' && kind !== 'poster') {
+  if (kind !== 'video' && kind !== 'poster' && kind !== 'icon') {
     return NextResponse.json({ error: 'Invalid upload kind.' }, { status: 400 })
   }
 
@@ -42,6 +44,30 @@ export async function POST(request: Request) {
     const buffer = Buffer.from(await file.arrayBuffer())
     const { error } = await access.adminClient.storage.from(bucket).upload(path, buffer, {
       contentType: file.type,
+      upsert: false,
+    })
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    const { data } = access.adminClient.storage.from(bucket).getPublicUrl(path)
+    return NextResponse.json({ path, url: data.publicUrl })
+  }
+
+  if (kind === 'icon') {
+    if (!allowedIconMimeTypes.has(file.type)) {
+      return NextResponse.json({ error: 'Invalid icon type. Use SVG only.' }, { status: 400 })
+    }
+
+    if (file.size > maxIconSizeBytes) {
+      return NextResponse.json({ error: 'Icon too large. Max size is 512KB.' }, { status: 400 })
+    }
+
+    const path = `diamond-info/icons/${crypto.randomUUID()}.svg`
+    const buffer = Buffer.from(await file.arrayBuffer())
+    const { error } = await access.adminClient.storage.from(bucket).upload(path, buffer, {
+      contentType: 'image/svg+xml',
       upsert: false,
     })
 

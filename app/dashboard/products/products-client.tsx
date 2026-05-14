@@ -62,7 +62,9 @@ export function ProductsClient({
   const [page, setPage] = useState(1)
   const [activatingDrafts, setActivatingDrafts] = useState(false)
   const [activateDialogOpen, setActivateDialogOpen] = useState(false)
-  const [selectedDraftIds, setSelectedDraftIds] = useState<string[]>([])
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([])
+  const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false)
+  const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false)
 
   const loadProducts = async () => {
     setLoading(true)
@@ -76,7 +78,7 @@ export function ProductsClient({
       if (response.ok && payload?.items) {
         setProducts(payload.items.filter((product: ProductRow) => matchesLane(product, lane)))
         setPage(1)
-        setSelectedDraftIds([])
+        setSelectedProductIds([])
       }
     } finally {
       setLoading(false)
@@ -105,9 +107,19 @@ export function ProductsClient({
     () => visibleProducts.filter((product) => product.status === 'draft'),
     [visibleProducts]
   )
+  const selectedProducts = useMemo(
+    () => products.filter((product) => selectedProductIds.includes(product.id)),
+    [products, selectedProductIds]
+  )
+  const selectedDraftIds = useMemo(
+    () => selectedProducts.filter((product) => product.status === 'draft').map((product) => product.id),
+    [selectedProducts]
+  )
   const selectedDraftCount = selectedDraftIds.length
-  const allVisibleDraftsSelected =
-    visibleDraftProducts.length > 0 && visibleDraftProducts.every((product) => selectedDraftIds.includes(product.id))
+  const largeBulkDelete = selectedProductIds.length > 5
+  const allVisibleProductsSelected =
+    visibleProducts.length > 0 && visibleProducts.every((product) => selectedProductIds.includes(product.id))
+  const visibleUnusedSelectionIds = visibleProducts.map((product) => product.id)
 
   const deleteProduct = async (id: string) => {
     setDeleteLoading(true)
@@ -125,6 +137,34 @@ export function ProductsClient({
       await loadProducts()
     }
     setDeleteLoading(false)
+  }
+
+  const deleteSelectedProducts = async () => {
+    setBulkDeleteLoading(true)
+    const accessToken = await getAccessToken()
+    if (!accessToken) {
+      setBulkDeleteLoading(false)
+      return
+    }
+
+    try {
+      const response = await fetch('/api/products/bulk-delete', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ ids: selectedProductIds }),
+      })
+
+      if (response.ok) {
+        setBulkDeleteDialogOpen(false)
+        setSelectedProductIds([])
+        await loadProducts()
+      }
+    } finally {
+      setBulkDeleteLoading(false)
+    }
   }
 
   const activateDraftProducts = async () => {
@@ -155,19 +195,18 @@ export function ProductsClient({
     }
   }
 
-  const toggleDraftSelection = (productId: string, selected: boolean) => {
-    setSelectedDraftIds((prev) =>
+  const toggleProductSelection = (productId: string, selected: boolean) => {
+    setSelectedProductIds((prev) =>
       selected ? (prev.includes(productId) ? prev : [...prev, productId]) : prev.filter((id) => id !== productId)
     )
   }
 
-  const toggleVisibleDraftSelections = (selected: boolean) => {
-    const visibleDraftIds = visibleDraftProducts.map((product) => product.id)
-    setSelectedDraftIds((prev) => {
+  const toggleVisibleProductSelections = (selected: boolean) => {
+    setSelectedProductIds((prev) => {
       if (selected) {
-        return [...new Set([...prev, ...visibleDraftIds])]
+        return [...new Set([...prev, ...visibleUnusedSelectionIds])]
       }
-      return prev.filter((id) => !visibleDraftIds.includes(id))
+      return prev.filter((id) => !visibleUnusedSelectionIds.includes(id))
     })
   }
 
@@ -179,6 +218,15 @@ export function ProductsClient({
           <p className="mt-1 text-sm text-muted-foreground">{description}</p>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setBulkDeleteDialogOpen(true)}
+            disabled={selectedProductIds.length === 0 || bulkDeleteLoading}
+            className="flex items-center gap-2 rounded-lg border border-red-200 bg-white px-4 py-2.5 text-sm font-semibold text-red-600 transition-colors duration-200 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <Trash2 size={18} />
+            {selectedProductIds.length > 0 ? `Delete Selected (${selectedProductIds.length})` : 'Select Products to Delete'}
+          </button>
           <button
             type="button"
             onClick={() => setActivateDialogOpen(true)}
@@ -221,10 +269,10 @@ export function ProductsClient({
                 <th className="px-4 py-3.5 text-left text-xs font-semibold text-foreground">
                   <input
                     type="checkbox"
-                    checked={allVisibleDraftsSelected}
-                    onChange={(event) => toggleVisibleDraftSelections(event.target.checked)}
-                    disabled={visibleDraftProducts.length === 0}
-                    aria-label="Select visible draft products"
+                    checked={allVisibleProductsSelected}
+                    onChange={(event) => toggleVisibleProductSelections(event.target.checked)}
+                    disabled={visibleProducts.length === 0}
+                    aria-label="Select visible products"
                     className="h-4 w-4 rounded border-border text-primary focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                   />
                 </th>
@@ -242,15 +290,13 @@ export function ProductsClient({
               {visibleProducts.map((product) => (
                 <tr key={product.id} className="border-b border-border hover:bg-secondary/30 transition-colors duration-150">
                   <td className="px-4 py-3.5">
-                    {product.status === 'draft' ? (
-                      <input
-                        type="checkbox"
-                        checked={selectedDraftIds.includes(product.id)}
-                        onChange={(event) => toggleDraftSelection(product.id, event.target.checked)}
-                        aria-label={`Select draft product ${product.name}`}
-                        className="h-4 w-4 rounded border-border text-primary focus:ring-ring"
-                      />
-                    ) : null}
+                    <input
+                      type="checkbox"
+                      checked={selectedProductIds.includes(product.id)}
+                      onChange={(event) => toggleProductSelection(product.id, event.target.checked)}
+                      aria-label={`Select product ${product.name}`}
+                      className="h-4 w-4 rounded border-border text-primary focus:ring-ring"
+                    />
                   </td>
                   <td className="px-6 py-3.5 text-sm font-medium text-foreground">{product.name}</td>
                   <td className="px-6 py-3.5 text-sm text-muted-foreground">{product.categoryPath}</td>
@@ -305,6 +351,24 @@ export function ProductsClient({
         onConfirm={() => void activateDraftProducts()}
         onCancel={() => {
           if (!activatingDrafts) setActivateDialogOpen(false)
+        }}
+      />
+
+      <ConfirmDialog
+        isOpen={bulkDeleteDialogOpen}
+        title={largeBulkDelete ? 'Large product deletion?' : 'Delete selected products?'}
+        description={
+          largeBulkDelete
+            ? `You are about to permanently delete ${selectedProductIds.length} products from admin and storefront. This is a large deletion and cannot be undone. Are you sure you want to continue?`
+            : `This will permanently remove ${selectedProductIds.length} selected product${selectedProductIds.length === 1 ? '' : 's'} from admin and storefront.`
+        }
+        confirmText="Delete Products"
+        cancelText="Cancel"
+        type={largeBulkDelete ? 'warning' : 'delete'}
+        isLoading={bulkDeleteLoading}
+        onConfirm={() => void deleteSelectedProducts()}
+        onCancel={() => {
+          if (!bulkDeleteLoading) setBulkDeleteDialogOpen(false)
         }}
       />
 

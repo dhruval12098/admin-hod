@@ -138,6 +138,61 @@ function parseNumericString(value: string) {
   return Number.isFinite(asNumber) ? String(asNumber) : ''
 }
 
+function splitCommaSeparatedValues(value: string | null | undefined) {
+  return (value ?? '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+}
+
+function uniqueLimitedValues(values: string[], maxCount: number) {
+  const uniqueValues: string[] = []
+  for (const value of values) {
+    if (!uniqueValues.includes(value)) uniqueValues.push(value)
+    if (uniqueValues.length >= maxCount) break
+  }
+  return uniqueValues
+}
+
+function mapMetalLabel(value: string) {
+  const color = normalizeLabel(value)
+
+  if (color.includes('yellow')) return 'Yellow Gold'
+  if (color.includes('rose')) return 'Rose Gold'
+  if (color.includes('white')) return 'White Gold'
+  return value.trim()
+}
+
+function deriveMetalNames(row: WideSheetRow) {
+  return uniqueLimitedValues(splitCommaSeparatedValues(row['Col']).map(mapMetalLabel).filter(Boolean), 3)
+}
+
+function deriveMaterialValues(row: WideSheetRow) {
+  return uniqueLimitedValues(splitCommaSeparatedValues(row['Material']), 4)
+}
+
+function deriveCertificateValues(row: WideSheetRow) {
+  const values = [
+    ...splitCommaSeparatedValues(row['Certificate'] || row['Certificates']),
+    ...splitCommaSeparatedValues(row['Certificate 1']),
+    ...splitCommaSeparatedValues(row['Certificate 2']),
+  ]
+
+  return uniqueLimitedValues(values, 2)
+}
+
+function deriveImageValues(row: WideSheetRow) {
+  const values = [
+    ...splitCommaSeparatedValues(row['Image']),
+    ...splitCommaSeparatedValues(row['Image 1']),
+    ...splitCommaSeparatedValues(row['Image 2']),
+    ...splitCommaSeparatedValues(row['Image 3']),
+    ...splitCommaSeparatedValues(row['Image 4']),
+  ]
+
+  return uniqueLimitedValues(values, 4)
+}
+
 function titleFromFallback(row: WideSheetRow, tabName: GoogleSheetSyncTab) {
   const explicit = row['Title']
   if (explicit) return explicit
@@ -206,15 +261,6 @@ function categoryMapping(row: WideSheetRow, tabName: GoogleSheetSyncTab) {
   }
 }
 
-function deriveMetalName(row: WideSheetRow) {
-  const color = normalizeLabel(row['Col'])
-
-  if (color.includes('yellow')) return 'Yellow Gold'
-  if (color.includes('rose')) return 'Rose Gold'
-  if (color.includes('white')) return 'White Gold'
-  return ''
-}
-
 function derivePurityLabel(row: WideSheetRow) {
   const ktCode = normalizeLabel(row['KT\nCode'] || row['KT Code'])
   if (ktCode === '925') return '925'
@@ -233,7 +279,10 @@ function normalizeGender(row: WideSheetRow) {
 
 function mapWideRowToImportRow(row: WideSheetRow, tabName: GoogleSheetSyncTab): ParsedProductImportRow {
   const mapping = categoryMapping(row, tabName)
-  const imageValue = row['Image'] || row['Image 1'] || ''
+  const imageValues = deriveImageValues(row)
+  const metalValues = deriveMetalNames(row)
+  const materialValues = deriveMaterialValues(row)
+  const certificateValues = deriveCertificateValues(row)
 
   return {
     product_name: titleFromFallback(row, tabName),
@@ -247,25 +296,25 @@ function mapWideRowToImportRow(row: WideSheetRow, tabName: GoogleSheetSyncTab): 
     stock_quantity: '1',
     discount_price: parseNumericString(row['NSP\nPrice'] || row['Nsp price (discounted price)'] || ''),
     gst_slab_name: 'GST 3%',
-    metal_1: deriveMetalName(row),
-    metal_2: '',
-    metal_3: '',
-    certificate_1: '',
-    certificate_2: '',
-    material_value_1: (row['Material'] || '').trim(),
-    material_value_2: '',
-    material_value_3: '',
-    material_value_4: '',
+    metal_1: metalValues[0] || '',
+    metal_2: metalValues[1] || '',
+    metal_3: metalValues[2] || '',
+    certificate_1: certificateValues[0] || '',
+    certificate_2: certificateValues[1] || '',
+    material_value_1: materialValues[0] || '',
+    material_value_2: materialValues[1] || '',
+    material_value_3: materialValues[2] || '',
+    material_value_4: materialValues[3] || '',
     purity_1_label: derivePurityLabel(row),
     purity_1_price: parseNumericString(row['Display\nPrice'] || row['Display price (without discount price)'] || ''),
     purity_2_label: '',
     purity_2_price: '',
     purity_3_label: '',
     purity_3_price: '',
-    image_1: imageValue.trim(),
-    image_2: '',
-    image_3: '',
-    image_4: '',
+    image_1: imageValues[0] || '',
+    image_2: imageValues[1] || '',
+    image_3: imageValues[2] || '',
+    image_4: imageValues[3] || '',
     video: (row['Video URL'] || row['Video'] || '').trim(),
     spec_1_key: row['Size/\nLength'] || row['Inch'] ? 'Size/Length' : '',
     spec_1_value: (row['Size/\nLength'] || row['Inch'] || '').trim(),

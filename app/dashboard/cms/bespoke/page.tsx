@@ -5,9 +5,7 @@ import { CMSSectionTable } from '@/components/cms-section-table'
 
 const BESPOKE_SECTIONS = [
   { id: 'gallery', label: 'Portfolio Gallery', description: 'Manage custom jewelry portfolio items' },
-  { id: 'manufacturing', label: 'Manufacturing', description: 'Workshop / manufacturing cards with image' },
   { id: 'process', label: 'Process Steps', description: 'How the bespoke process works' },
-  { id: 'pricing', label: 'Pricing Guide', description: 'Bespoke pricing information' },
 ]
 
 export default function BespokePageEditor() {

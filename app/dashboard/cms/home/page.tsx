@@ -3,14 +3,13 @@ import { CMSSectionTable } from '@/components/cms-section-table'
 
 const HOME_SECTIONS = [
   { id: 'hero', label: 'Hero Section', description: 'Main headline, eyebrow, and CTAs' },
-  { id: 'diamond-info', label: 'Diamond Info', description: 'Carat, cut, and clarity text blocks' },
+  { id: 'diamond-info', label: 'Video Highlights', description: 'Split video, heading, CTA, and feature points' },
   { id: 'discover-shapes', label: 'Discover Shapes', description: 'Homepage shape carousel images, titles, and descriptions' },
   { id: 'discover-rings', label: 'Discover Rings', description: 'Homepage ring carousel images, titles, and descriptions' },
   { id: 'collection', label: 'Home Collection Cards', description: 'Homepage collection cards, images, and links' },
   { id: 'bestsellers', label: 'Best Sellers', description: 'Selected existing products shown in the best sellers grid' },
   { id: 'material-strip', label: 'Material Strip', description: 'Materials title, descriptions, and icons' },
   { id: 'stats', label: 'Statistics Strip', description: 'Key metrics and achievements' },
-  { id: 'manufacturing', label: 'Manufacturing Steps', description: 'Process steps and details' },
   { id: 'testimonials', label: 'Testimonials Marquee', description: 'Scrolling quote strip on the homepage' },
   { id: 'testimonials-cards', label: 'Testimonials Cards', description: 'Three testimonial cards on the homepage' },
   { id: 'couples', label: 'Couples', description: 'Love stories cards and popup content' },
