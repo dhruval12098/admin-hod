@@ -1,6 +1,7 @@
 import 'server-only'
 
 import ExcelJS from 'exceljs'
+import { normalizeImportValue } from '@/lib/import-normalization'
 import type { ParsedProductImportRow } from '@/lib/product-import-staging'
 
 export type GoogleSheetSyncTab = 'Ring_Final' | 'Earring_Final' | 'Pendant_Final' | 'BrcBg'
@@ -21,7 +22,7 @@ function normalizeCellValue(value: ExcelJS.CellValue | undefined): string {
 }
 
 function normalizeLabel(value: string | null | undefined) {
-  return (value ?? '').trim().toLowerCase()
+  return normalizeImportValue(value)
 }
 
 export function extractSpreadsheetId(sheetUrl: string) {
@@ -145,6 +146,10 @@ function splitCommaSeparatedValues(value: string | null | undefined) {
     .filter(Boolean)
 }
 
+function splitNormalizedValues(value: string | null | undefined) {
+  return splitCommaSeparatedValues(value).map((entry) => normalizeLabel(entry)).filter(Boolean)
+}
+
 function uniqueLimitedValues(values: string[], maxCount: number) {
   const uniqueValues: string[] = []
   for (const value of values) {
@@ -212,43 +217,102 @@ function descriptionFromFallback(row: WideSheetRow, tabName: GoogleSheetSyncTab)
   return `Imported from Google Sheet (${tabName}). ${material} product in a ${theme.toLowerCase()} style. Please review and enrich this description before publishing.`
 }
 
-function categoryMapping(row: WideSheetRow, tabName: GoogleSheetSyncTab) {
-  const rawCategory = normalizeLabel(row['Category'])
-  const rawSubcategory = normalizeLabel(row['Sub-Cat.'])
-  const rawShape = normalizeLabel(row['By Shape'])
+function hasAnySourceValue(values: string[], candidates: string[]) {
+  return candidates.some((candidate) => values.includes(normalizeLabel(candidate)))
+}
 
-  if (tabName === 'Ring_Final' || rawCategory === 'ring') {
+function resolveFromAliases(values: string[], aliases: Array<{ value: string; matchers: string[] }>) {
+  for (const alias of aliases) {
+    if (hasAnySourceValue(values, alias.matchers)) {
+      return alias.value
+    }
+  }
+  return ''
+}
+
+function categoryMapping(row: WideSheetRow, tabName: GoogleSheetSyncTab) {
+  const rawCategoryValues = splitNormalizedValues(row['Category'])
+  const rawSubcategoryValues = splitNormalizedValues(row['Sub-Cat.'])
+  const rawShapeValues = splitNormalizedValues(row['By Shape'])
+  const combinedValues = [...rawCategoryValues, ...rawSubcategoryValues, ...rawShapeValues]
+
+  if (
+    tabName === 'Ring_Final' ||
+    hasAnySourceValue(combinedValues, ['ring', 'engagement rings', 'engagement', 'anniversary rings', 'engagement anniversary rings'])
+  ) {
+    const ringSubcategory =
+      resolveFromAliases([...rawSubcategoryValues, ...rawShapeValues], [
+        { value: 'Round rings', matchers: ['round rings', 'round'] },
+        { value: 'star diamond', matchers: ['star diamond', 'star'] },
+        { value: 'new dimaodn', matchers: ['new dimaodn', 'new diamond'] },
+      ]) || 'Round rings'
+
     return {
       category: 'Engagement Rings',
-      subcategory: rawShape.includes('round') ? 'Round rings' : 'star diamond',
+      subcategory: ringSubcategory,
       option_name: '',
       lane: 'standard',
     }
   }
 
-  if (tabName === 'Earring_Final' || rawCategory === 'earring' || rawCategory === 's925earring') {
+  if (
+    tabName === 'Earring_Final' ||
+    hasAnySourceValue(combinedValues, ['earring', 'earrings', 's925earring'])
+  ) {
+    const earringOption =
+      resolveFromAliases(rawSubcategoryValues, [
+        { value: 'Stud Earrings', matchers: ['stud earrings', 'stud', 'solitaire', 'solitare'] },
+        { value: 'Drop & Dangle', matchers: ['drop & dangle', 'drop and dangle', 'drop dangle'] },
+        { value: 'Hoops & Huggies  ', matchers: ['hoops & huggies', 'hoops and huggies', 'hoops', 'huggies'] },
+        { value: 'Personalized & Charm ', matchers: ['personalized & charm', 'personalized and charm', 'personalized', 'charm'] },
+        { value: 'Tennis Earrings', matchers: ['tennis earrings', 'tennis'] },
+      ]) || 'Stud Earrings'
+
     return {
       category: 'Fine Jewellery',
       subcategory: 'Earrings',
-      option_name: rawSubcategory.includes('hoop') ? 'Huggies & Hoops' : 'Diamond Earrings',
+      option_name: earringOption,
       lane: 'standard',
     }
   }
 
-  if (tabName === 'Pendant_Final' || rawCategory === 'pendant' || rawCategory === 's925pendant') {
+  if (
+    tabName === 'Pendant_Final' ||
+    hasAnySourceValue(combinedValues, ['pendant', 'pendants', 's925pendant'])
+  ) {
+    const pendantOption =
+      resolveFromAliases(rawSubcategoryValues, [
+        { value: 'Solitare', matchers: ['solitaire', 'solitare'] },
+        { value: 'Bezel ', matchers: ['bezel'] },
+        { value: 'Teardrop ', matchers: ['teardrop'] },
+        { value: 'Tennis Necklace', matchers: ['tennis necklace'] },
+        { value: 'Charm Necklace', matchers: ['charm necklace', 'charm'] },
+        { value: 'Initials', matchers: ['initials', 'initial'] },
+        { value: 'Toi-et moi', matchers: ['toi et moi', 'toi-et moi', 'toi et moi pendant'] },
+      ]) || 'Solitare'
+
     return {
       category: 'Fine Jewellery',
       subcategory: 'Necklaces',
-      option_name: 'Diamond Pendants',
+      option_name: pendantOption,
       lane: 'standard',
     }
   }
 
-  if (tabName === 'BrcBg' || rawCategory === 'bracelet' || rawCategory === 's925bracelet') {
+  if (
+    tabName === 'BrcBg' ||
+    hasAnySourceValue(combinedValues, ['bracelet', 'bracelets', 's925bracelet'])
+  ) {
+    const braceletOption =
+      resolveFromAliases(rawSubcategoryValues, [
+        { value: 'Bangles', matchers: ['bangles', 'bangle'] },
+        { value: 'Tennis', matchers: ['tennis', 'tennis bracelet'] },
+      ]) || 'Tennis'
+
     return {
       category: 'Fine Jewellery',
       subcategory: 'Bracelet',
-      option_name: rawSubcategory.includes('bangle') ? 'Bangles' : 'Tennis',
+      option_name: braceletOption,
       lane: 'standard',
     }
   }
