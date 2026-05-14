@@ -33,6 +33,11 @@ function normalizeLane(value: unknown) {
   return 'mixed'
 }
 
+function normalizeJobLane(value: unknown) {
+  if (value === 'standard' || value === 'hiphop' || value === 'collection') return value
+  return null
+}
+
 function normalizeTabName(value: unknown) {
   if (typeof value !== 'string') return null
   return SUPPORTED_GOOGLE_SHEET_TABS.includes(value as GoogleSheetSyncTab) ? (value as GoogleSheetSyncTab) : null
@@ -189,6 +194,7 @@ export async function POST(request: Request) {
     const tabName = normalizeTabName(body.tabName)
     const jobName = normalizeText(body.jobName)
     const lane = normalizeLane(body.lane)
+    const jobLane = normalizeJobLane(body.lane)
 
     if (!sheetUrl) {
       return NextResponse.json({ error: 'Google Sheet link is required.' }, { status: 400 })
@@ -259,7 +265,7 @@ export async function POST(request: Request) {
       .insert({
         created_by: access.user.id,
         job_name: jobName ?? `Google Sheet Sync - ${tabName}`,
-        lane,
+        lane: jobLane,
         status: 'uploaded',
         csv_file_name: `${tabName}.google-sheet`,
         zip_file_name: null,
