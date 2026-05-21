@@ -41,6 +41,37 @@ type ConnectedSource = {
   }
 }
 
+type SyncPreviewRow = {
+  rowNumber: number
+  changeType: 'new' | 'updated' | 'unchanged'
+  changedFields?: string[]
+  sku: string
+  productName: string
+  tab?: string
+}
+
+function formatPreviewChanges(row: SyncPreviewRow) {
+  if (row.changeType === 'new') return 'New product row'
+  if (row.changeType === 'unchanged') return 'No changes'
+  const labels: Record<string, string> = {
+    product_name: 'Product name',
+    description: 'Description',
+    category: 'Category',
+    subcategory: 'Sub-Cat.',
+    option_name: 'Option',
+    style_name: 'Style',
+    discount_price: 'NSP Price',
+    images: 'Image',
+    metal_variants: 'Metal',
+    variant_prices: 'Variant Prices',
+    variant_images: 'Variant Images',
+    variant_videos: 'Variant Videos',
+    materials: 'Material',
+  }
+  const fields = (row.changedFields ?? []).map((field) => labels[field] ?? field)
+  return fields.length > 0 ? fields.join(', ') : 'Updated fields'
+}
+
 export function GoogleSheetSyncClient() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -65,6 +96,8 @@ export function GoogleSheetSyncClient() {
     unchangedRows: number
     noChanges: boolean
   } | null>(null)
+  const [syncPreviewRows, setSyncPreviewRows] = useState<SyncPreviewRow[]>([])
+  const [syncingSourceId, setSyncingSourceId] = useState<string | null>(null)
   const [deletingSourceId, setDeletingSourceId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<ConnectedSource | null>(null)
 
@@ -125,6 +158,7 @@ export function GoogleSheetSyncClient() {
     setLane(selected.lane)
     setCreatedJobId(selected.lastJobId)
     setSyncSummary(selected.summary)
+    setSyncPreviewRows([])
     setEditingSource(false)
     setActiveView('existing')
   }, [searchParams, connectedSources])
@@ -163,6 +197,7 @@ export function GoogleSheetSyncClient() {
         setEditingSource(true)
         setCreatedJobId(null)
         setSyncSummary(null)
+        setSyncPreviewRows([])
         setActiveView('new')
       }
 
@@ -292,6 +327,7 @@ export function GoogleSheetSyncClient() {
         unchangedRows: Number(payload.item.unchangedRows ?? 0),
         noChanges: payload.item.status === 'no_changes',
       })
+      setSyncPreviewRows(Array.isArray(payload.item.previewRows) ? payload.item.previewRows : [])
 
       if (payload.item.source) {
         persistConnectedSource(payload.item.source as ConnectedSource)
@@ -320,6 +356,82 @@ export function GoogleSheetSyncClient() {
     }
   }
 
+  const handleSyncSource = async (source: ConnectedSource) => {
+    setSyncingSourceId(source.id)
+    setCreatedJobId(null)
+    setSyncSummary(null)
+    setSyncPreviewRows([])
+    try {
+      const { data } = await supabase.auth.getSession()
+      const accessToken = data.session?.access_token
+      if (!accessToken) {
+        throw new Error('Admin session not found. Please sign in again and retry.')
+      }
+
+      const response = await fetch('/api/product-imports/google-sync', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          sheetUrl: source.sheetUrl,
+          tabName: source.tabName,
+          jobName: source.name,
+          lane: source.lane === 'mixed' ? null : source.lane,
+        }),
+      })
+
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || !payload?.item) {
+        throw new Error(payload?.error ?? 'Unable to sync this connected sheet.')
+      }
+
+      const nextSummary = {
+        totalRows: Number(payload.item.totalRows ?? 0),
+        actionableRows: Number(payload.item.actionableRows ?? 0),
+        newRows: Number(payload.item.newRows ?? 0),
+        updatedRows: Number(payload.item.updatedRows ?? 0),
+        unchangedRows: Number(payload.item.unchangedRows ?? 0),
+        noChanges: payload.item.status === 'no_changes',
+      }
+
+      setSheetUrl(source.sheetUrl)
+      setTabName(source.tabName)
+      setLane(source.lane)
+      setCreatedJobId(payload.item.id)
+      setSyncSummary(nextSummary)
+      setSyncPreviewRows(Array.isArray(payload.item.previewRows) ? payload.item.previewRows : [])
+      setEditingSource(false)
+      setActiveView('existing')
+
+      if (payload.item.source) {
+        persistConnectedSource(payload.item.source as ConnectedSource)
+      }
+
+      if (payload.item.status === 'no_changes') {
+        toast({
+          title: 'No new sync changes',
+          description: `${source.name} is already up to date.`,
+        })
+        return
+      }
+
+      toast({
+        title: 'Connected sheet synced',
+        description: `${payload.item.actionableRows} actionable row(s) were staged from ${source.tabName}.`,
+      })
+    } catch (error) {
+      toast({
+        title: 'Sync failed',
+        description: error instanceof Error ? error.message : 'Unable to sync this connected sheet.',
+        variant: 'destructive',
+      })
+    } finally {
+      setSyncingSourceId(null)
+    }
+  }
+
   return (
     <div className="p-8">
       <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
@@ -344,6 +456,7 @@ export function GoogleSheetSyncClient() {
               setEditingSource(true)
               setCreatedJobId(null)
               setSyncSummary(null)
+              setSyncPreviewRows([])
             }}
             className={`rounded-lg px-4 py-3 text-sm font-semibold transition-colors ${
               activeView === 'new' ? 'bg-primary text-white' : 'bg-transparent text-foreground hover:bg-secondary'
@@ -358,6 +471,7 @@ export function GoogleSheetSyncClient() {
               setEditingSource(false)
               setCreatedJobId(null)
               setSyncSummary(null)
+              setSyncPreviewRows([])
             }}
             className={`rounded-lg px-4 py-3 text-sm font-semibold transition-colors ${
               activeView === 'existing' ? 'bg-primary text-white' : 'bg-transparent text-foreground hover:bg-secondary'
@@ -368,60 +482,13 @@ export function GoogleSheetSyncClient() {
         </div>
       </section>
 
-      {activeView === 'existing' && !editingSource && sheetUrl.trim() ? (
-        <section className="mb-6 rounded-2xl border border-border bg-white p-6 shadow-sm">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="space-y-3">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">Connected Sheet</p>
-                <h2 className="mt-2 text-2xl font-semibold text-foreground">Sync Latest Changes</h2>
-                <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                  This sheet is already connected for testing. Use one click to pull only the latest new or updated rows.
-                </p>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-3">
-                <div className="rounded-xl border border-border bg-secondary/20 px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Sheet</p>
-                  <p className="mt-1 break-all text-sm font-medium text-foreground">{sheetUrl}</p>
-                </div>
-                <div className="rounded-xl border border-border bg-secondary/20 px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tab</p>
-                  <p className="mt-1 text-sm font-medium text-foreground">{tabName}</p>
-                </div>
-                <div className="rounded-xl border border-border bg-secondary/20 px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Lane</p>
-                  <p className="mt-1 text-sm font-medium text-foreground">
-                    {lane === 'mixed' ? 'Mixed / Infer from tab' : lane}
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setCreatedJobId(null)
-                  setSyncSummary(null)
-                  void handleSync()
-                }}
-                disabled={submitting}
-                className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:opacity-60"
-              >
-                <RefreshCcw size={16} />
-                {submitting ? 'Syncing Latest...' : 'Sync Latest'}
-              </button>
-            </div>
-          </div>
-        </section>
-      ) : null}
-
       {activeView === 'existing' && connectedSources.length > 0 ? (
         <section className="mb-6 rounded-xl border border-border bg-white p-6 shadow-sm">
           <div className="mb-5 flex items-center justify-between gap-4">
             <div>
-              <h2 className="text-xl font-semibold text-foreground">Latest Syncs</h2>
+              <h2 className="text-xl font-semibold text-foreground">Connected Sheets</h2>
               <p className="mt-2 text-sm text-muted-foreground">
-                Open an existing connected sheet, sync the latest changes, or check whether it is already up to date.
+                Sync one saved sheet at a time, or remove sheets you no longer need.
               </p>
             </div>
           </div>
@@ -467,18 +534,32 @@ export function GoogleSheetSyncClient() {
                       {new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(source.lastSyncedAt))}
                     </td>
                     <td className="px-4 py-3 text-sm text-muted-foreground">
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          setDeleteTarget(source)
-                        }}
-                        disabled={deletingSourceId === source.id}
-                        className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-60"
-                      >
-                        <Trash2 size={14} />
-                        {deletingSourceId === source.id ? 'Deleting...' : 'Delete'}
-                      </button>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            void handleSyncSource(source)
+                          }}
+                          disabled={syncingSourceId === source.id || Boolean(syncingSourceId)}
+                          className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary/90 disabled:opacity-60"
+                        >
+                          <RefreshCcw size={14} />
+                          {syncingSourceId === source.id ? 'Syncing...' : 'Sync'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            setDeleteTarget(source)
+                          }}
+                          disabled={deletingSourceId === source.id}
+                          className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-60"
+                        >
+                          <Trash2 size={14} />
+                          {deletingSourceId === source.id ? 'Deleting...' : 'Delete'}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -510,7 +591,7 @@ export function GoogleSheetSyncClient() {
         }}
       />
 
-      {createdJobId || syncSummary?.noChanges ? (
+      {createdJobId || syncSummary ? (
         <section className="rounded-2xl border border-green-200 bg-green-50 p-8 shadow-sm">
           <div className="mx-auto flex max-w-2xl flex-col items-center text-center">
             <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-green-100 text-green-700">
@@ -544,6 +625,52 @@ export function GoogleSheetSyncClient() {
                 </div>
               </div>
             ) : null}
+            {syncPreviewRows.length > 0 ? (
+              <div className="mt-6 w-full overflow-hidden rounded-xl border border-green-200 bg-white text-left">
+                <div className="border-b border-green-100 px-4 py-3">
+                  <p className="text-sm font-semibold text-green-950">Sync Row Preview</p>
+                  <p className="mt-1 text-xs text-green-900/70">
+                    Shows what this sync found before validation/import.
+                  </p>
+                </div>
+                <div className="max-h-80 overflow-auto">
+                  <table className="w-full min-w-[680px]">
+                    <thead className="bg-green-50">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-green-950">Row</th>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-green-950">Status</th>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-green-950">SKU</th>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-green-950">Product</th>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-green-950">Changed</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {syncPreviewRows.map((row) => (
+                        <tr key={`${row.rowNumber}-${row.sku}-${row.changeType}`} className="border-t border-green-100">
+                          <td className="px-4 py-2 text-xs text-green-900">{row.rowNumber}</td>
+                          <td className="px-4 py-2 text-xs">
+                            <span
+                              className={`inline-flex rounded-md px-2 py-1 font-semibold ${
+                                row.changeType === 'updated'
+                                  ? 'bg-blue-100 text-blue-700'
+                                  : row.changeType === 'new'
+                                    ? 'bg-emerald-100 text-emerald-700'
+                                    : 'bg-slate-100 text-slate-700'
+                              }`}
+                            >
+                              {row.changeType === 'updated' ? 'Updated' : row.changeType === 'new' ? 'New' : 'Unchanged'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2 text-xs font-medium text-green-950">{row.sku || 'Missing'}</td>
+                          <td className="px-4 py-2 text-xs text-green-900">{row.productName || 'Untitled product'}</td>
+                          <td className="px-4 py-2 text-xs text-green-900">{formatPreviewChanges(row)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : null}
             <div className="mt-6 flex flex-wrap justify-center gap-3">
               {createdJobId ? (
                 <button
@@ -560,6 +687,7 @@ export function GoogleSheetSyncClient() {
                   setCreatedJobId(null)
                   setJobName('')
                   setSyncSummary(null)
+                  setSyncPreviewRows([])
                   setEditingSource(false)
                   setActiveView('existing')
                 }}

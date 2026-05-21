@@ -36,6 +36,22 @@ export type CatalogCategory = {
   status: CatalogStatus
 }
 
+export type CatalogGridPoster = {
+  id: string
+  category_id: string
+  title: string | null
+  image_path: string
+  image_alt: string | null
+  link_url: string | null
+  insert_after: number
+  display_order: number
+  status: 'active' | 'draft' | 'archived'
+  starts_at?: string | null
+  ends_at?: string | null
+  created_at?: string
+  updated_at?: string
+}
+
 export type CatalogSubcategory = {
   id: string
   category_id: string
@@ -63,6 +79,10 @@ export type CatalogMetal = {
   id: string
   name: string
   slug: string
+  purity_label?: string | null
+  base_metal_name?: string | null
+  display_label?: string | null
+  is_combined_option?: boolean
   color_hex?: string | null
   composition_description?: string | null
   display_order: number
@@ -108,6 +128,26 @@ export type ProductMetalMedia = {
   image_4_path?: string | null
   video_path?: string | null
   is_default_fallback?: boolean
+}
+
+export type ProductVariantMediaItem = {
+  id?: string
+  product_id?: string
+  variant_id?: string | null
+  media_type: 'image' | 'video'
+  media_path: string
+  sort_order: number
+  is_default_fallback?: boolean
+}
+
+export type ProductMetalVariant = {
+  id?: string
+  product_id?: string
+  metal_id: string
+  price: number
+  is_default: boolean
+  sort_order: number
+  media_items?: ProductVariantMediaItem[]
 }
 
 export type CatalogStoneShape = {

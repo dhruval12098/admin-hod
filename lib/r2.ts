@@ -2,7 +2,7 @@ import 'server-only'
 
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 
-type ProductMediaFolder = 'products' | 'hiphop'
+type ProductMediaFolder = 'products' | 'hiphop' | 'bespoke'
 
 const r2AccountId = process.env.CLOUDFLARE_R2_ACCOUNT_ID?.trim() ?? ''
 const r2AccessKeyId = process.env.CLOUDFLARE_R2_ACCESS_KEY_ID?.trim() ?? ''
@@ -10,6 +10,7 @@ const r2SecretAccessKey = process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY?.trim() ??
 const r2Bucket = process.env.CLOUDFLARE_R2_BUCKET?.trim() ?? ''
 const r2PublicBaseUrl = process.env.CLOUDFLARE_R2_PUBLIC_BASE_URL?.trim() ?? ''
 const r2VideoPrefix = process.env.CLOUDFLARE_R2_VIDEO_PREFIX?.trim() || 'products/videos'
+const r2BespokeVideoPrefix = process.env.CLOUDFLARE_R2_BESPOKE_VIDEO_PREFIX?.trim() || 'bespoke/videos'
 
 let client: S3Client | null = null
 
@@ -47,16 +48,15 @@ function joinPublicUrl(baseUrl: string, key: string) {
 }
 
 function buildVideoObjectKey(folder: ProductMediaFolder, extension: string) {
-  const prefix = normalizePrefix(r2VideoPrefix)
-  const keyParts = prefix ? [prefix] : []
+  const prefix = normalizePrefix(
+    folder === 'bespoke'
+      ? r2BespokeVideoPrefix
+      : folder === 'hiphop'
+        ? `${r2VideoPrefix}/hiphop`
+        : r2VideoPrefix,
+  )
 
-  if (folder === 'hiphop') {
-    keyParts.push('hiphop')
-  }
-
-  keyParts.push(`${crypto.randomUUID()}.${extension}`)
-
-  return keyParts.join('/')
+  return prefix ? `${prefix}/${crypto.randomUUID()}.${extension}` : `${crypto.randomUUID()}.${extension}`
 }
 
 export function inferVideoContentType(extension: string, fallback?: string | null) {

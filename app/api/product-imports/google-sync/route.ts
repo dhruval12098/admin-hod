@@ -77,6 +77,42 @@ function formatSourceItem(row: GoogleSheetSyncSourceRow) {
   }
 }
 
+function buildSyncPreviewRows(
+  rows: Array<{ rowNumber: number; values: Record<string, string>; changeType: 'new' | 'updated' | 'unchanged'; changedFields?: string[] }>
+) {
+  return rows.map((entry) => ({
+    rowNumber: entry.rowNumber,
+    changeType: entry.changeType,
+    changedFields: entry.changedFields ?? [],
+    sku: entry.values.sku || '',
+    productName: entry.values.product_name || '',
+    tab: entry.values.source_tab || '',
+  }))
+}
+
+function formatChangedFields(fields: string[] | undefined) {
+  const labels: Record<string, string> = {
+    product_name: 'product name',
+    description: 'description',
+    category: 'category',
+    subcategory: 'subcategory links',
+    option_name: 'option links',
+    style_name: 'style',
+    discount_price: 'discount price',
+    images: 'fallback images',
+    metal_variants: 'metal variants',
+    variant_prices: 'variant prices',
+    variant_images: 'variant images',
+    variant_videos: 'variant videos',
+    materials: 'materials',
+    stone_shapes: 'stone shapes',
+  }
+  const readable = (fields ?? []).map((field) => labels[field] ?? field).filter(Boolean)
+  if (readable.length < 1) return 'existing product fields'
+  if (readable.length <= 4) return readable.join(', ')
+  return `${readable.slice(0, 4).join(', ')} and ${readable.length - 4} more`
+}
+
 async function upsertSourceRecord(adminClient: any, params: {
   sourceName: string
   sheetUrl: string
@@ -226,6 +262,7 @@ export async function POST(request: Request) {
     const parsed = await fetchGoogleSheetImportRows(sheetUrl, tabName)
     const classified = await classifyGoogleSheetRows(parsed.rows)
     const actionableRows = classified.rows.filter((entry) => entry.changeType !== 'unchanged')
+    const previewRows = buildSyncPreviewRows(classified.rows)
 
     if (actionableRows.length < 1) {
       const sourceUpdate = await updateSourceSyncSnapshot(access.adminClient, source.id, {
@@ -254,6 +291,7 @@ export async function POST(request: Request) {
           newRows: classified.summary.newCount,
           updatedRows: classified.summary.updatedCount,
           unchangedRows: classified.summary.unchangedCount,
+          previewRows,
           csvFileName: `${tabName}.google-sheet`,
           archiveFileName: null,
         },
@@ -279,14 +317,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: jobError?.message ?? 'Unable to create import job.' }, { status: 500 })
     }
 
-    const rowPayload = actionableRows.map(({ rowNumber, values, changeType }) => {
+    const rowPayload = actionableRows.map(({ rowNumber, values, changeType, changedFields }) => {
       const metals = collectOrderedValues(values, 'metal', 3).join('|')
       const certificates = collectOrderedValues(values, 'certificate', 2).join('|')
 
-      return {
-        import_job_id: job.id,
-        row_number: rowNumber,
-        status: 'pending',
+        return {
+          import_job_id: job.id,
+          row_number: rowNumber,
+          status: 'pending',
         sku: values.sku || null,
         product_name: values.product_name || null,
         lane: values.lane || null,
@@ -318,12 +356,12 @@ export async function POST(request: Request) {
         shipping_rule_name: null,
         care_warranty_rule_name: null,
         engraving_label: values.engraving_label || null,
-        raw_payload: values,
-        normalized_payload: null,
-        import_message:
-          changeType === 'updated'
-            ? `Existing SKU change detected from Google Sheet tab "${tabName}". Validation is pending.`
-            : `New SKU staged from Google Sheet tab "${tabName}". Validation is pending.`,
+          raw_payload: values,
+          normalized_payload: { change_type: changeType, changed_fields: changedFields ?? [] },
+          import_message:
+            changeType === 'updated'
+              ? `Update detected from Google Sheet tab "${tabName}": ${formatChangedFields(changedFields)} changed.`
+              : `New SKU staged from Google Sheet tab "${tabName}". Validation is pending.`,
       }
     })
 
@@ -361,6 +399,7 @@ export async function POST(request: Request) {
         newRows: classified.summary.newCount,
         updatedRows: classified.summary.updatedCount,
         unchangedRows: classified.summary.unchangedCount,
+        previewRows,
         csvFileName: `${tabName}.google-sheet`,
         archiveFileName: null,
       },

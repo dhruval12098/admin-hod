@@ -3,6 +3,7 @@ import 'server-only'
 import { buildAdminClient } from '@/lib/cms-auth'
 import { buildNormalizedLookupSet, normalizeImportValue } from '@/lib/import-normalization'
 import type { ImportJobIssueRecord, ImportJobRowRecord } from '@/lib/import-jobs'
+import { buildCombinedMetalDisplayLabel } from '@/lib/product-metal-variants'
 
 type CatalogLookupSets = {
   categories: Set<string>
@@ -41,11 +42,26 @@ function isDirectMediaReference(value: string | null | undefined) {
   return isHttpUrl(value)
 }
 
-function splitPipeList(value: string | null | undefined) {
+function splitFlexibleList(value: string | null | undefined) {
   return (value ?? '')
-    .split('|')
+    .split(/[,\|]/)
     .map((entry) => entry.trim())
     .filter(Boolean)
+}
+
+function splitGroupedValues(value: string | null | undefined) {
+  return (value ?? '')
+    .split(/~~|\|/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+}
+
+function splitMediaReferences(value: string | null | undefined) {
+  return (value ?? '')
+    .split(/~~|\|/)
+    .flatMap((group) => group.split(','))
+    .map((entry) => entry.trim())
+    .filter((entry) => Boolean(entry) && entry !== '[object Object]')
 }
 
 async function loadLookupSets() {
@@ -58,7 +74,7 @@ async function loadLookupSets() {
     adminClient.from('catalog_options').select('name, subcategory_id'),
     adminClient.from('catalog_styles').select('name'),
     adminClient.from('catalog_gst_slabs').select('name'),
-    adminClient.from('catalog_metals').select('name'),
+    adminClient.from('catalog_metals').select('name, display_label, purity_label, base_metal_name'),
     adminClient.from('catalog_certificates').select('name'),
     adminClient.from('catalog_material_values').select('name'),
     adminClient.from('product_content_rules').select('name, kind'),
@@ -112,7 +128,15 @@ async function loadLookupSets() {
     subcategoryOptionPairs,
     styles: buildNormalizedLookupSet(styles.data as Array<{ name: string }>),
     gstSlabs: buildNormalizedLookupSet(gstSlabs.data as Array<{ name: string }>),
-    metals: buildNormalizedLookupSet(metals.data as Array<{ name: string }>),
+    metals: new Set(
+      ((metals.data ?? []) as Array<{ name: string; display_label?: string | null; purity_label?: string | null; base_metal_name?: string | null }>)
+        .flatMap((row) => [
+          normalizeName(row.name),
+          normalizeName(row.display_label),
+          normalizeName(buildCombinedMetalDisplayLabel(row)),
+        ])
+        .filter(Boolean)
+    ),
     certificates: buildNormalizedLookupSet(certificates.data as Array<{ name: string }>),
     materialValues: buildNormalizedLookupSet(materialValues.data as Array<{ name: string }>),
     shippingRules,
@@ -161,11 +185,20 @@ function validateRow(
   const careWarrantyRule = normalizeName(row.care_warranty_rule_name)
   const sku = normalizeName(row.sku)
   const metals = collectOrderedValues(row.raw_payload, 'metal', 3)
+  const combinedVariantValues = splitGroupedValues(typeof row.raw_payload?.variant_combined_values === 'string' ? row.raw_payload.variant_combined_values : '')
+  const combinedVariantPrices = splitGroupedValues(typeof row.raw_payload?.variant_price_values === 'string' ? row.raw_payload.variant_price_values : '')
   const certificates = collectOrderedValues(row.raw_payload, 'certificate', 2)
   const materialValues = collectOrderedValues(row.raw_payload, 'material_value', 4)
   const specifications = collectSpecifications(row.raw_payload, 4)
+  const sourceSubcategoryValues = splitFlexibleList(typeof row.raw_payload?.source_subcategory === 'string' ? row.raw_payload.source_subcategory : row.subcategory)
+  const sourceOptionValues = splitFlexibleList(typeof row.raw_payload?.source_option === 'string' ? row.raw_payload.source_option : row.option_name)
   const featured = validateBooleanLike(row.raw_payload?.featured)
   const readyToShip = validateBooleanLike(row.raw_payload?.ready_to_ship)
+  const existingChangeType = row.normalized_payload?.change_type
+  const existingChangedFields = Array.isArray(row.normalized_payload?.changed_fields)
+    ? row.normalized_payload.changed_fields
+    : []
+  const isIntentionalUpdate = existingChangeType === 'updated'
 
   const addIssue = (issue_type: 'warning' | 'error', field_name: string | null, issue_code: string, message: string) => {
     issues.push({ issue_type, field_name, issue_code, message })
@@ -186,10 +219,26 @@ function validateRow(
   } else if (category && subcategory && !lookups.categorySubcategoryPairs.has(`${category}::${subcategory}`)) {
     addIssue('error', 'subcategory', 'invalid_subcategory_for_category', 'Subcategory does not belong to selected main category.')
   }
+  for (const sourceSubcategory of sourceSubcategoryValues) {
+    const normalizedSourceSubcategory = normalizeName(sourceSubcategory)
+    if (!normalizedSourceSubcategory || normalizedSourceSubcategory === subcategory) continue
+    if (!lookups.subcategories.has(normalizedSourceSubcategory)) {
+      addIssue('warning', 'subcategory', 'unknown_linked_subcategory', `Linked subcategory "${sourceSubcategory}" was not found in catalog setup.`)
+    } else if (category && !lookups.categorySubcategoryPairs.has(`${category}::${normalizedSourceSubcategory}`)) {
+      addIssue('warning', 'subcategory', 'invalid_linked_subcategory_for_category', `Linked subcategory "${sourceSubcategory}" does not belong to the selected category.`)
+    }
+  }
   if (option && !lookups.options.has(option)) {
     addIssue('error', 'option_name', 'unknown_option', `Option "${row.option_name}" does not exist in catalog setup.`)
   } else if (subcategory && option && !lookups.subcategoryOptionPairs.has(`${subcategory}::${option}`)) {
     addIssue('error', 'option_name', 'invalid_option_for_subcategory', 'Option does not belong to selected subcategory.')
+  }
+  for (const sourceOption of sourceOptionValues) {
+    const normalizedSourceOption = normalizeName(sourceOption)
+    if (!normalizedSourceOption || normalizedSourceOption === option) continue
+    if (!lookups.options.has(normalizedSourceOption)) {
+      addIssue('warning', 'option_name', 'unknown_linked_option', `Linked option "${sourceOption}" was not found in catalog setup.`)
+    }
   }
   if (style && !lookups.styles.has(style)) {
     addIssue('warning', 'style_name', 'unknown_style', `Style "${row.style_name}" was not found and may need manual mapping.`)
@@ -200,11 +249,25 @@ function validateRow(
   if (row.stock_quantity == null || Number.isNaN(Number(row.stock_quantity)) || Number(row.stock_quantity) < 0) {
     addIssue('error', 'stock_quantity', 'invalid_stock', 'Stock quantity must be 0 or greater.')
   }
-  if (!row.purity_1_label?.trim()) {
+  const hasCombinedVariants = combinedVariantValues.length > 0
+  const firstCombinedVariantPrice = Number(combinedVariantPrices[0] ?? '')
+
+  if (!hasCombinedVariants && !row.purity_1_label?.trim()) {
     addIssue('error', 'purity_1_label', 'missing_purity_label', 'The first purity label is required.')
   }
-  if (row.purity_1_price == null || Number.isNaN(Number(row.purity_1_price)) || Number(row.purity_1_price) <= 0) {
-    addIssue('error', 'purity_1_price', 'invalid_purity_price', 'The first purity price must be greater than 0.')
+  if (
+    hasCombinedVariants
+      ? !Number.isFinite(firstCombinedVariantPrice) || firstCombinedVariantPrice <= 0
+      : row.purity_1_price == null || Number.isNaN(Number(row.purity_1_price)) || Number(row.purity_1_price) <= 0
+  ) {
+    addIssue(
+      'error',
+      hasCombinedVariants ? 'variant_price_values' : 'purity_1_price',
+      'invalid_purity_price',
+      hasCombinedVariants
+        ? 'The first combined metal option price must be greater than 0.'
+        : 'The first purity price must be greater than 0.'
+    )
   }
   if (!row.image_1?.trim()) {
     addIssue('error', 'image_1', 'missing_primary_image', 'Image 1 is required for every product row.')
@@ -219,7 +282,7 @@ function validateRow(
     addIssue('warning', 'care_warranty_rule_name', 'unknown_care_rule', `Care & warranty rule "${row.care_warranty_rule_name}" was not found.`)
   }
 
-  for (const metal of metals) {
+  for (const metal of (hasCombinedVariants ? combinedVariantValues : metals)) {
     if (!lookups.metals.has(normalizeName(metal))) {
       addIssue('warning', 'metals_raw', 'unknown_metal', `Metal "${metal}" was not found in catalog setup.`)
     }
@@ -238,7 +301,7 @@ function validateRow(
   if (duplicateSkusInBatch.has(sku)) {
     addIssue('error', 'sku', 'duplicate_sku_in_batch', `SKU "${row.sku}" appears more than once in this import batch.`)
   }
-  if (sku && lookups.existingSkus.has(sku)) {
+  if (sku && lookups.existingSkus.has(sku) && !isIntentionalUpdate) {
     addIssue('warning', 'sku', 'existing_sku', `SKU "${row.sku}" already exists in the live product catalog and this import will update that product instead of creating a duplicate.`)
   }
   if (featured === 'invalid') {
@@ -247,8 +310,14 @@ function validateRow(
   if (readyToShip === 'invalid') {
     addIssue('warning', 'ready_to_ship', 'invalid_boolean', 'Ready To Ship should use TRUE or FALSE.')
   }
-  const localMediaReferences = [row.image_1, row.image_2, row.image_3, row.image_4]
-    .map((entry) => (entry ?? '').trim())
+  const localMediaReferences = [
+    ...splitMediaReferences(row.image_1),
+    ...splitMediaReferences(row.image_2),
+    ...splitMediaReferences(row.image_3),
+    ...splitMediaReferences(row.image_4),
+    ...splitMediaReferences(typeof row.raw_payload?.variant_image_group_values === 'string' ? row.raw_payload.variant_image_group_values : ''),
+    ...splitMediaReferences(typeof row.raw_payload?.variant_video_group_values === 'string' ? row.raw_payload.variant_video_group_values : ''),
+  ]
     .filter((entry) => entry.length > 0 && !isDirectMediaReference(entry))
 
   if (!hasArchive && (localMediaReferences.length > 0 || (row.video && !isHttpUrl(row.video)))) {
@@ -267,17 +336,23 @@ function validateRow(
     tag_line: row.tag_line,
     featured: featured === 'invalid' ? null : featured,
     ready_to_ship: readyToShip === 'invalid' ? null : readyToShip,
+    change_type: existingChangeType === 'updated' || existingChangeType === 'new' ? existingChangeType : undefined,
+    changed_fields: existingChangedFields,
     stock_quantity: row.stock_quantity,
     discount_price: row.discount_price,
     gst_slab_name: row.gst_slab_name,
     metals,
     certificates,
     material_values: materialValues,
-    purity_prices: [
-      row.purity_1_label && row.purity_1_price ? { label: row.purity_1_label, price: row.purity_1_price } : null,
-      row.purity_2_label && row.purity_2_price ? { label: row.purity_2_label, price: row.purity_2_price } : null,
-      row.purity_3_label && row.purity_3_price ? { label: row.purity_3_label, price: row.purity_3_price } : null,
-    ].filter(Boolean),
+    combined_metal_values: combinedVariantValues,
+    combined_metal_prices: combinedVariantPrices,
+    purity_prices: hasCombinedVariants
+      ? []
+      : [
+          row.purity_1_label && row.purity_1_price ? { label: row.purity_1_label, price: row.purity_1_price } : null,
+          row.purity_2_label && row.purity_2_price ? { label: row.purity_2_label, price: row.purity_2_price } : null,
+          row.purity_3_label && row.purity_3_price ? { label: row.purity_3_label, price: row.purity_3_price } : null,
+        ].filter(Boolean),
     specifications,
     media: {
       image_1: row.image_1,

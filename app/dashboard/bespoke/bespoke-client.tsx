@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Edit2, Eye, Plus, Trash2, Upload, Video } from 'lucide-react'
+import { Edit2, Eye, Loader2, Plus, Trash2, Upload, Video } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/hooks/use-toast'
 import { ConfirmDialog } from '@/components/confirm-dialog'
@@ -567,6 +567,7 @@ function PortfolioItemsPanel({ categories, items, onReload }: { categories: Port
   const [deleteTarget, setDeleteTarget] = useState<PortfolioItem | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [form, setForm] = useState<PortfolioItem>(emptyPortfolioItem(categories[0]?.id ?? '', items.length + 1))
+  const [videoUploadState, setVideoUploadState] = useState<{ uploading: boolean; progress: number }>({ uploading: false, progress: 0 })
   const categoryName = (id: string) => categories.find((item) => item.id === id)?.name ?? ''
 
   const openNew = () => {
@@ -580,14 +581,55 @@ function PortfolioItemsPanel({ categories, items, onReload }: { categories: Port
     setDialogOpen(true)
   }
   const uploadMedia = async (file: File, kind: 'image' | 'video') => {
+    const accessToken = await getAccessToken()
     const body = new FormData()
     body.append('file', file)
     body.append('kind', kind)
-    const response = await authedFetch('/api/bespoke/media', { method: 'POST', body })
-    const payload = await response.json().catch(() => null)
-    if (!response.ok || !payload?.path) throw new Error(payload?.error ?? 'Unable to upload media.')
-    return payload.path as string
+
+    return await new Promise<string>((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('POST', '/api/bespoke/media')
+      if (accessToken) xhr.setRequestHeader('authorization', `Bearer ${accessToken}`)
+
+      if (kind === 'video') {
+        setVideoUploadState({ uploading: true, progress: 0 })
+        xhr.upload.onprogress = (event) => {
+          if (!event.lengthComputable) return
+          const progress = Math.max(0, Math.min(100, Math.round((event.loaded / event.total) * 100)))
+          setVideoUploadState({ uploading: true, progress })
+        }
+      }
+
+      xhr.onerror = () => {
+        if (kind === 'video') setVideoUploadState({ uploading: false, progress: 0 })
+        reject(new Error('Network error while uploading media.'))
+      }
+
+      xhr.onload = () => {
+        const payload = (() => {
+          try {
+            return xhr.responseText ? JSON.parse(xhr.responseText) : null
+          } catch {
+            return null
+          }
+        })()
+
+        if (kind === 'video') {
+          setVideoUploadState({ uploading: false, progress: xhr.status >= 200 && xhr.status < 300 ? 100 : 0 })
+        }
+
+        if (xhr.status < 200 || xhr.status >= 300 || !payload?.path) {
+          reject(new Error(payload?.error ?? 'Unable to upload media.'))
+          return
+        }
+
+        resolve(payload.path as string)
+      }
+
+      xhr.send(body)
+    })
   }
+  const isVideoMedia = form.media_type === 'video'
   const save = async () => {
     const response = await authedFetch(selectedId ? `/api/bespoke/portfolio-items/${selectedId}` : '/api/bespoke/portfolio-items', {
       method: selectedId ? 'PATCH' : 'POST',
@@ -661,50 +703,66 @@ function PortfolioItemsPanel({ categories, items, onReload }: { categories: Port
         <Field label="Short Description"><textarea value={form.short_description ?? ''} onChange={(e) => setForm((prev) => ({ ...prev, short_description: e.target.value }))} rows={4} className={inputClassName} /></Field>
         <Field label="Status"><ToggleRow options={['Active', 'Hidden']} value={form.status === 'hidden' ? 'Hidden' : 'Active'} onChange={(value) => setForm((prev) => ({ ...prev, status: value === 'Hidden' ? 'hidden' : 'active' }))} /></Field>
         <div className="grid gap-4 md:grid-cols-2">
-          <Field label={form.media_type === 'image' ? 'Image Upload' : 'Video Upload'}>
-            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-secondary/20 px-4 py-3 text-sm font-medium text-foreground hover:bg-secondary/30">
-              {form.media_type === 'image' ? <Upload size={16} /> : <Video size={16} />}
-              <span>{form.media_type === 'image' ? 'Upload Image' : 'Upload Video'}</span>
-              <input
-                type="file"
-                accept={form.media_type === 'image' ? 'image/*' : 'video/*'}
-                className="hidden"
-                onChange={async (e) => {
-                  const file = e.target.files?.[0]
-                  if (!file) return
-                  try {
-                    const path = await uploadMedia(file, form.media_type)
-                    setForm((prev) => ({ ...prev, media_path: path }))
-                    toast({ title: 'Upload complete', description: 'Media uploaded successfully.' })
-                  } catch (error) {
-                    toast({ title: 'Upload failed', description: error instanceof Error ? error.message : 'Unable to upload media.', variant: 'destructive' })
-                  }
-                }}
-              />
-            </label>
+          <Field label={isVideoMedia ? 'Video URL or Upload' : 'Image URL'}>
+            <input
+              value={form.media_path ?? ''}
+              onChange={(e) => setForm((prev) => ({ ...prev, media_path: e.target.value }))}
+              placeholder={isVideoMedia ? 'https://cdn.example.com/bespoke-video.mp4' : 'https://cdn.example.com/bespoke-image.jpg'}
+              className={inputClassName}
+            />
+            <p className="mt-2 text-xs text-muted-foreground">
+              {isVideoMedia ? 'Paste a public video URL, or upload a video below. Manual uploads go to Cloudflare R2 and must be 20MB or smaller.' : 'Use a direct public image URL. Large images should stay URL-based instead of being uploaded here.'}
+            </p>
+            {isVideoMedia ? (
+              <>
+                <label className={`mt-3 flex cursor-pointer items-center gap-2 rounded-lg border border-border px-4 py-3 text-sm font-medium transition-colors ${videoUploadState.uploading ? 'bg-secondary/30 text-muted-foreground' : 'bg-secondary/20 text-foreground hover:bg-secondary/30'}`}>
+                  {videoUploadState.uploading ? <Loader2 size={16} className="animate-spin" /> : <Video size={16} />}
+                  <span>{videoUploadState.uploading ? `Uploading... ${videoUploadState.progress}%` : 'Upload Video to R2'}</span>
+                  <input
+                    type="file"
+                    accept="video/mp4,video/quicktime,video/webm"
+                    className="hidden"
+                    disabled={videoUploadState.uploading}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0]
+                      if (!file) return
+                      try {
+                        const path = await uploadMedia(file, 'video')
+                        setForm((prev) => ({ ...prev, media_path: path }))
+                        toast({ title: 'Upload complete', description: 'Video uploaded to Cloudflare R2 successfully.' })
+                      } catch (error) {
+                        toast({ title: 'Upload failed', description: error instanceof Error ? error.message : 'Unable to upload media.', variant: 'destructive' })
+                      } finally {
+                        e.currentTarget.value = ''
+                      }
+                    }}
+                  />
+                </label>
+                {videoUploadState.uploading ? (
+                  <div className="mt-3">
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-secondary/40">
+                      <div
+                        className="h-full rounded-full bg-primary transition-[width] duration-200 ease-out"
+                        style={{ width: `${videoUploadState.progress}%` }}
+                      />
+                    </div>
+                    <p className="mt-2 text-xs text-muted-foreground">Uploading to Cloudflare R2...</p>
+                  </div>
+                ) : null}
+              </>
+            ) : null}
             {form.media_path ? <p className="mt-2 text-xs text-muted-foreground">{form.media_path}</p> : null}
           </Field>
-          <Field label="Thumbnail Upload">
-            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-secondary/20 px-4 py-3 text-sm font-medium text-foreground hover:bg-secondary/30">
-              <Upload size={16} />
-              <span>Upload Thumbnail</span>
-              <input
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={async (e) => {
-                  const file = e.target.files?.[0]
-                  if (!file) return
-                  try {
-                    const path = await uploadMedia(file, 'image')
-                    setForm((prev) => ({ ...prev, thumbnail_path: path }))
-                    toast({ title: 'Thumbnail uploaded', description: 'Thumbnail uploaded successfully.' })
-                  } catch (error) {
-                    toast({ title: 'Upload failed', description: error instanceof Error ? error.message : 'Unable to upload thumbnail.', variant: 'destructive' })
-                  }
-                }}
-              />
-            </label>
+          <Field label="Thumbnail URL">
+            <input
+              value={form.thumbnail_path ?? ''}
+              onChange={(e) => setForm((prev) => ({ ...prev, thumbnail_path: e.target.value }))}
+              placeholder="https://cdn.example.com/bespoke-thumb.jpg"
+              className={inputClassName}
+            />
+            <p className="mt-2 text-xs text-muted-foreground">
+              Use a direct image URL. For video items, this is recommended when you want a controlled poster image in the grid.
+            </p>
             {form.thumbnail_path ? <p className="mt-2 text-xs text-muted-foreground">{form.thumbnail_path}</p> : null}
           </Field>
         </div>

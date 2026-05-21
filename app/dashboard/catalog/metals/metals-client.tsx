@@ -6,11 +6,16 @@ import { Edit2, Plus, Trash2 } from 'lucide-react'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/hooks/use-toast'
+import { buildCombinedMetalDisplayLabel } from '@/lib/product-metal-variants'
 
 export type MetalItem = {
   id: string
   name: string
   slug: string
+  purity_label?: string | null
+  base_metal_name?: string | null
+  display_label?: string | null
+  is_combined_option?: boolean
   color_hex: string | null
   composition_description?: string | null
   display_order: number
@@ -92,6 +97,8 @@ export function MetalsClient({ initialItems }: { initialItems: MetalItem[] }) {
             <thead>
               <tr className="border-b border-border bg-secondary/40">
                 <th className="px-6 py-3.5 text-left text-xs font-semibold text-foreground">Metal Name</th>
+                <th className="px-6 py-3.5 text-left text-xs font-semibold text-foreground">Display Label</th>
+                <th className="px-6 py-3.5 text-left text-xs font-semibold text-foreground">Purity</th>
                 <th className="px-6 py-3.5 text-left text-xs font-semibold text-foreground">Slug</th>
                 <th className="px-6 py-3.5 text-left text-xs font-semibold text-foreground">Color Swatch</th>
                 <th className="px-6 py-3.5 text-left text-xs font-semibold text-foreground">Status</th>
@@ -103,6 +110,8 @@ export function MetalsClient({ initialItems }: { initialItems: MetalItem[] }) {
               {items.map((metal) => (
                 <tr key={metal.id} className="border-b border-border hover:bg-secondary/20">
                   <td className="px-6 py-4 text-sm font-medium text-foreground">{metal.name}</td>
+                  <td className="px-6 py-4 text-sm text-muted-foreground">{buildCombinedMetalDisplayLabel(metal)}</td>
+                  <td className="px-6 py-4 text-sm text-muted-foreground">{metal.purity_label || 'Base metal only'}</td>
                   <td className="px-6 py-4 text-sm text-muted-foreground">{metal.slug}</td>
                   <td className="px-6 py-4">
                     <span className="inline-flex h-6 w-6 rounded-full border border-black/10" style={{ backgroundColor: metal.color_hex || '#D4AF37' }} />

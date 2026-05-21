@@ -13,6 +13,7 @@ const HOME_SECTIONS = [
   { id: 'testimonials', label: 'Testimonials Marquee', description: 'Scrolling quote strip on the homepage' },
   { id: 'testimonials-cards', label: 'Testimonials Cards', description: 'Three testimonial cards on the homepage' },
   { id: 'couples', label: 'Couples', description: 'Love stories cards and popup content' },
+  { id: 'trusted-partners', label: 'Trusted Partners', description: 'Scrolling partner logo strip near the bottom of the homepage' },
   { id: 'hiphop-showcase', label: 'Hip Hop Home Showcase', description: 'Homepage Hip Hop showcase copy, CTA, and image' },
   { id: 'hiphop', label: 'Hip Hop Page Hero', description: 'Dedicated Hip Hop page hero copy, slides, and images' },
 ]

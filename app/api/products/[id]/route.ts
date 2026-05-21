@@ -1,6 +1,14 @@
 import { NextResponse } from 'next/server'
 import { assertAdmin } from '@/lib/cms-auth'
 import type { ProductDetailSection, ProductKeyValue, ProductMetalMedia, ProductPurityPrice, ProductRecord } from '@/lib/product-catalog'
+import { loadProductLinkSelections, replaceProductOptionLinks, replaceProductSubcategoryLinks } from '@/lib/product-catalog-links'
+import {
+  type ProductMetalVariant,
+  type ProductVariantMediaItem,
+  loadProductMetalVariantBundle,
+  replaceProductMetalVariants,
+  replaceProductVariantMediaItems,
+} from '@/lib/product-metal-variants'
 
 function isMissingStyleIdColumn(error: { message?: string | null } | null | undefined) {
   return error?.message?.includes("Could not find the 'style_id' column of 'products'") ?? false
@@ -258,8 +266,12 @@ type ProductPayload = {
   main_category_id: string
   subcategory_id: string | null
   option_id: string | null
+  linked_subcategory_ids?: string[]
+  linked_option_ids?: string[]
   style_id?: string | null
   metal_ids: string[]
+  metal_variants?: ProductMetalVariant[]
+  default_variant_media_items?: ProductVariantMediaItem[]
   purity_values: string[]
   purity_prices?: ProductPurityPrice[]
   default_purity_price_id?: string | null
@@ -319,12 +331,14 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const { id } = await params
   const { adminClient } = access
 
-  const [productResult, metalsResult, materialValuesResult, purityPricesResult, metalMediaResult] = await Promise.all([
+  const [productResult, metalsResult, materialValuesResult, purityPricesResult, metalMediaResult, linkSelections, metalVariantBundle] = await Promise.all([
     adminClient.from('products').select('*').eq('id', id).single(),
     adminClient.from('product_metal_selections').select('metal_id').eq('product_id', id).order('sort_order', { ascending: true }),
     adminClient.from('product_material_value_selections').select('material_value_id').eq('product_id', id).order('sort_order', { ascending: true }),
     adminClient.from('product_purity_prices').select('*').eq('product_id', id).order('sort_order', { ascending: true }),
     adminClient.from('product_metal_media').select('*').eq('product_id', id),
+    loadProductLinkSelections(adminClient, id),
+    loadProductMetalVariantBundle(adminClient, id),
   ])
 
   if (productResult.error) return NextResponse.json({ error: productResult.error.message }, { status: 500 })
@@ -338,6 +352,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     item: {
       ...(productResult.data as ProductRecord),
       metal_ids: (metalsResult.data ?? []).map((item) => item.metal_id),
+      linked_subcategory_ids: linkSelections.linkedSubcategoryIds,
+      linked_option_ids: linkSelections.linkedOptionIds,
       material_value_ids:
         materialValuesResult.error && isMissingRelation(materialValuesResult.error, 'product_material_value_selections')
           ? []
@@ -345,6 +361,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       shape_ids: shapeIds,
       purity_prices: purityPricesResult.error && isMissingRelation(purityPricesResult.error, 'product_purity_prices') ? [] : (purityPricesResult.data ?? []),
       metal_media: metalMediaResult.error && isMissingRelation(metalMediaResult.error, 'product_metal_media') ? [] : (metalMediaResult.data ?? []),
+      metal_variants: metalVariantBundle.metalVariants,
+      default_variant_media_items: metalVariantBundle.defaultVariantMediaItems,
     },
   })
 }
@@ -360,11 +378,32 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ error: 'Invalid payload.' }, { status: 400 })
   }
 
+  const variantRows = body.metal_variants ?? []
+  const resolvedMetalIds =
+    variantRows.length > 0
+      ? [...new Set(variantRows.map((entry) => entry.metal_id).filter(Boolean))]
+      : (body.metal_ids ?? [])
+  const defaultVariant =
+    variantRows.find((entry) => entry.is_default) ??
+    variantRows[0] ??
+    null
+  const resolvedBasePrice =
+    defaultVariant && Number.isFinite(Number(defaultVariant.price))
+      ? Number(defaultVariant.price)
+      : body.base_price
+
   const updateProduct = (options?: { includeStyleId?: boolean; includeShapeFields?: boolean; includeOverrideFields?: boolean }) => {
     const includeStyleId = options?.includeStyleId ?? true
     const includeShapeFields = options?.includeShapeFields ?? true
     const includeOverrideFields = options?.includeOverrideFields ?? true
-    const payload = buildProductUpdatePayload(body, includeStyleId)
+    const payload = buildProductUpdatePayload(
+      {
+        ...body,
+        base_price: resolvedBasePrice,
+        metal_ids: resolvedMetalIds,
+      },
+      includeStyleId
+    )
     if (!includeShapeFields) {
       delete payload.shapes_enabled
     }
@@ -407,9 +446,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   await adminClient.from('product_metal_selections').delete().eq('product_id', id)
 
-  if ((body.metal_ids ?? []).length > 0) {
+  if (resolvedMetalIds.length > 0) {
     const { error: metalError } = await adminClient.from('product_metal_selections').insert(
-      (body.metal_ids ?? []).map((metalId, index) => ({ product_id: id, metal_id: metalId, sort_order: index + 1 }))
+      resolvedMetalIds.map((metalId, index) => ({ product_id: id, metal_id: metalId, sort_order: index + 1 }))
     )
     if (metalError) return NextResponse.json({ error: metalError.message }, { status: 500 })
   }
@@ -441,6 +480,40 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const materialValueResult = await replaceProductMaterialValueSelections(adminClient, id, body.material_value_ids ?? [])
   if ('error' in materialValueResult && materialValueResult.error) {
     return NextResponse.json({ error: materialValueResult.error.message }, { status: 500 })
+  }
+
+  const subcategoryLinkResult = await replaceProductSubcategoryLinks(
+    adminClient,
+    id,
+    body.subcategory_id ?? null,
+    body.linked_subcategory_ids ?? []
+  )
+  if ('error' in subcategoryLinkResult && subcategoryLinkResult.error) {
+    return NextResponse.json({ error: subcategoryLinkResult.error.message }, { status: 500 })
+  }
+
+  const optionLinkResult = await replaceProductOptionLinks(
+    adminClient,
+    id,
+    body.option_id ?? null,
+    body.linked_option_ids ?? []
+  )
+  if ('error' in optionLinkResult && optionLinkResult.error) {
+    return NextResponse.json({ error: optionLinkResult.error.message }, { status: 500 })
+  }
+
+  const metalVariantsResult = await replaceProductMetalVariants(adminClient, id, variantRows)
+  if ('error' in metalVariantsResult && metalVariantsResult.error) {
+    return NextResponse.json({ error: metalVariantsResult.error.message }, { status: 500 })
+  }
+
+  const variantMediaResult = await replaceProductVariantMediaItems(adminClient, id, {
+    variants: variantRows,
+    defaultMediaItems: body.default_variant_media_items ?? [],
+    persistedVariantRows: metalVariantsResult.data ?? [],
+  })
+  if ('error' in variantMediaResult && variantMediaResult.error) {
+    return NextResponse.json({ error: variantMediaResult.error.message }, { status: 500 })
   }
 
   return NextResponse.json({ item: product })

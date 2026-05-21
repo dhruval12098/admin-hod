@@ -4,6 +4,8 @@ import JSZip from 'jszip'
 import sharp from 'sharp'
 import { buildAdminClient } from '@/lib/cms-auth'
 import { buildNormalizedLookupMap, normalizeImportValue } from '@/lib/import-normalization'
+import { replaceProductOptionLinks, replaceProductSubcategoryLinks } from '@/lib/product-catalog-links'
+import { buildCombinedMetalDisplayLabel, replaceProductMetalVariants, replaceProductVariantMediaItems } from '@/lib/product-metal-variants'
 import { productImportBucket } from '@/lib/product-import-staging'
 import type { ImportJobIssueRecord, ImportJobRowRecord } from '@/lib/import-jobs'
 import { uploadProductVideoToR2 } from '@/lib/r2'
@@ -24,13 +26,38 @@ function isHttpUrl(value: string | null | undefined) {
   return normalized.startsWith('http://') || normalized.startsWith('https://')
 }
 
+function cleanMediaReference(value: string | null | undefined) {
+  const normalized = (value ?? '').trim()
+  if (!normalized || normalized === '[object Object]') return null
+  return normalized
+}
+
 function isMissingProductColumn(error: { message?: string | null } | null | undefined, column: string) {
   return error?.message?.includes(`Could not find the '${column}' column of 'products'`) ?? false
+}
+
+function isMissingRelation(error: { message?: string | null } | null | undefined, relation: string) {
+  const message = error?.message ?? ''
+  return message.includes(`Could not find the table '${relation}'`) || message.includes(`relation "${relation}" does not exist`)
 }
 
 function splitPipeList(value: string | null | undefined) {
   return (value ?? '')
     .split('|')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+}
+
+function splitCommaList(value: string | null | undefined) {
+  return (value ?? '')
+    .split(/[,\|]/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+}
+
+function splitGroupedValues(value: string | null | undefined) {
+  return (value ?? '')
+    .split(/~~|\|/)
     .map((entry) => entry.trim())
     .filter(Boolean)
 }
@@ -58,7 +85,7 @@ function fileExtension(fileName: string) {
 }
 
 function isBlockingExecutionIssue(issue: ImportJobIssueRecord) {
-  return issue.issue_type === 'error' || issue.issue_code === 'missing_archive'
+  return issue.issue_type === 'error'
 }
 
 async function loadZipEntries(storagePath: string) {
@@ -142,19 +169,30 @@ async function loadReferenceMaps() {
   const adminClient = buildAdminClient()
   if (!adminClient) throw new Error('Admin client is not available.')
 
-  const [categories, subcategories, options, styles, gstSlabs, metals, certificates, materialValues, rules] = await Promise.all([
+  const [categories, subcategories, options, styles, gstSlabs, metals, certificates, materialValues, stoneShapes, rules] = await Promise.all([
     adminClient.from('catalog_categories').select('id, name'),
     adminClient.from('catalog_subcategories').select('id, name'),
     adminClient.from('catalog_options').select('id, name'),
     adminClient.from('catalog_styles').select('id, name'),
     adminClient.from('catalog_gst_slabs').select('id, name'),
-    adminClient.from('catalog_metals').select('id, name'),
+    adminClient.from('catalog_metals').select('id, name, display_label, purity_label, base_metal_name'),
     adminClient.from('catalog_certificates').select('id, name'),
     adminClient.from('catalog_material_values').select('id, name'),
+    adminClient.from('catalog_stone_shapes').select('id, name'),
     adminClient.from('product_content_rules').select('id, name, kind').eq('status', 'active').order('display_order', { ascending: true }),
   ])
 
   const mapByName = (rows: LookupRow[] | null | undefined) => buildNormalizedLookupMap(rows)
+  const metalMap = new Map<string, LookupRow>()
+  for (const row of (metals.data ?? []) as Array<{ id: string; name: string; display_label?: string | null; purity_label?: string | null; base_metal_name?: string | null }>) {
+    const nameKey = normalizeName(row.name)
+    if (nameKey) metalMap.set(nameKey, { id: row.id, name: row.name })
+    const displayKey = normalizeName(row.display_label)
+    if (displayKey) metalMap.set(displayKey, { id: row.id, name: row.display_label ?? row.name })
+    const combinedLabel = buildCombinedMetalDisplayLabel(row)
+    const combinedKey = normalizeName(combinedLabel)
+    if (combinedKey) metalMap.set(combinedKey, { id: row.id, name: combinedLabel })
+  }
 
   const shippingRuleMap = new Map<string, RuleLookupRow>()
   const careRuleMap = new Map<string, RuleLookupRow>()
@@ -171,13 +209,30 @@ async function loadReferenceMaps() {
     optionMap: mapByName(options.data as LookupRow[]),
     styleMap: mapByName(styles.data as LookupRow[]),
     gstMap: mapByName(gstSlabs.data as LookupRow[]),
-    metalMap: mapByName(metals.data as LookupRow[]),
+    metalMap,
     certificateMap: mapByName(certificates.data as LookupRow[]),
     materialValueMap: mapByName(materialValues.data as LookupRow[]),
+    stoneShapeMap: mapByName(stoneShapes.data as LookupRow[]),
     shippingRuleMap,
     careRuleMap,
     defaultShippingRule: (rules.data as RuleLookupRow[] | null | undefined)?.find((rule) => rule.kind === 'shipping') ?? null,
     defaultCareRule: (rules.data as RuleLookupRow[] | null | undefined)?.find((rule) => rule.kind === 'care_warranty') ?? null,
+  }
+}
+
+async function replaceProductStoneShapes(adminClient: any, productId: string, shapeIds: string[]) {
+  const deleteResult = await adminClient.from('product_stone_shapes').delete().eq('product_id', productId)
+  if (deleteResult.error && !isMissingRelation(deleteResult.error, 'product_stone_shapes')) {
+    throw new Error(deleteResult.error.message)
+  }
+
+  if (shapeIds.length < 1) return
+
+  const { error } = await adminClient.from('product_stone_shapes').insert(
+    shapeIds.map((shapeId) => ({ product_id: productId, shape_id: shapeId }))
+  )
+  if (error && !isMissingRelation(error, 'product_stone_shapes')) {
+    throw new Error(error.message)
   }
 }
 
@@ -221,15 +276,14 @@ async function replaceProductPurityPrices(
 
   const { data: insertedPurities, error } = await adminClient
     .from('product_purity_prices')
-    .insert(
-      purityRows.map((entry) => ({
-        product_id: productId,
-        purity_label: entry.purity_label,
-        price: entry.price,
-        compare_at_price: null,
-        sort_order: entry.sort_order,
-      }))
-    )
+      .insert(
+        purityRows.map((entry) => ({
+          product_id: productId,
+          purity_label: entry.purity_label,
+          price: entry.price,
+          sort_order: entry.sort_order,
+        }))
+      )
     .select('id')
 
   if (error) throw new Error(error.message)
@@ -251,6 +305,18 @@ async function saveProduct(adminClient: any, row: ImportJobRowRecord, mediaPaths
         .map((entry) => ({ key: entry.key.trim(), value: entry.value.trim() }))
         .filter((entry) => entry.key && entry.value)
     : collectSpecifications(row.raw_payload ?? {}, 4)
+  const combinedVariantLabels = splitGroupedValues(
+    typeof row.raw_payload?.variant_combined_values === 'string' ? row.raw_payload.variant_combined_values : ''
+  )
+  const combinedVariantPrices = splitGroupedValues(
+    typeof row.raw_payload?.variant_price_values === 'string' ? row.raw_payload.variant_price_values : ''
+  )
+  const combinedVariantImageGroups = splitGroupedValues(
+    typeof row.raw_payload?.variant_image_group_values === 'string' ? row.raw_payload.variant_image_group_values : ''
+  ).map((group) => splitCommaList(group))
+  const combinedVariantVideoGroups = splitGroupedValues(
+    typeof row.raw_payload?.variant_video_group_values === 'string' ? row.raw_payload.variant_video_group_values : ''
+  ).map((group) => splitCommaList(group))
 
   const mainCategory = refs.categoryMap.get(normalizeName(row.category))
   if (!mainCategory) {
@@ -263,6 +329,12 @@ async function saveProduct(adminClient: any, row: ImportJobRowRecord, mediaPaths
   const gst = refs.gstMap.get(normalizeName(row.gst_slab_name))
   const shippingRule = refs.shippingRuleMap.get(normalizeName(row.shipping_rule_name)) ?? refs.defaultShippingRule
   const careRule = refs.careRuleMap.get(normalizeName(row.care_warranty_rule_name)) ?? refs.defaultCareRule
+  const sourceSubcategory = typeof row.raw_payload?.source_subcategory === 'string' ? row.raw_payload.source_subcategory : row.subcategory
+  const sourceOption = typeof row.raw_payload?.source_option === 'string' ? row.raw_payload.source_option : row.option_name
+  const sourceShape = typeof row.raw_payload?.source_shape === 'string' ? row.raw_payload.source_shape : ''
+  const stoneShapeIds = [...new Set(splitCommaList(sourceShape)
+    .map((name) => refs.stoneShapeMap.get(normalizeName(name))?.id)
+    .filter((id): id is string => Boolean(id)))]
 
   const purityRows = [
     row.purity_1_label && row.purity_1_price ? { id: `import-1-${row.id}`, purity_label: row.purity_1_label, price: row.purity_1_price, sort_order: 1 } : null,
@@ -301,7 +373,7 @@ async function saveProduct(adminClient: any, row: ImportJobRowRecord, mediaPaths
     fit_label: null,
     gemstone_label: null,
     gemstone_value: null,
-    shapes_enabled: false,
+    shapes_enabled: stoneShapeIds.length > 0,
     show_purity: true,
     engraving_enabled: Boolean(row.engraving_label?.trim()),
     engraving_label: row.engraving_label?.trim() || null,
@@ -393,12 +465,66 @@ async function saveProduct(adminClient: any, row: ImportJobRowRecord, mediaPaths
   const metalIds = metals
     .map((name) => refs.metalMap.get(normalizeName(name))?.id)
     .filter((id): id is string => Boolean(id))
+  const combinedVariantRows = combinedVariantLabels
+    .map((label, index) => {
+      const metalId = refs.metalMap.get(normalizeName(label))?.id
+      const price = Number(combinedVariantPrices[index] ?? 0)
+      if (!metalId || !Number.isFinite(price) || price <= 0) return null
+
+      const mediaItems = [
+        ...(combinedVariantImageGroups[index] ?? []).map((path, mediaIndex) => ({
+          media_type: 'image' as const,
+          media_path: path,
+          sort_order: mediaIndex + 1,
+        })),
+        ...(combinedVariantVideoGroups[index] ?? []).map((path, mediaIndex) => ({
+          media_type: 'video' as const,
+          media_path: path,
+          sort_order: (combinedVariantImageGroups[index]?.length ?? 0) + mediaIndex + 1,
+        })),
+      ]
+
+      return {
+        metal_id: metalId,
+        price,
+        is_default: index === 0,
+        sort_order: index + 1,
+        media_items: mediaItems,
+      }
+    })
+    .filter((entry): entry is {
+      metal_id: string
+      price: number
+      is_default: boolean
+      sort_order: number
+      media_items: Array<{ media_type: 'image' | 'video'; media_path: string; sort_order: number }>
+    } => Boolean(entry))
   const materialValueIds = materialValues
     .map((name) => refs.materialValueMap.get(normalizeName(name))?.id)
     .filter((id): id is string => Boolean(id))
+  const linkedSubcategoryIds = [...new Set([
+    ...splitCommaList(row.subcategory),
+    ...splitCommaList(sourceSubcategory),
+  ]
+    .map((name) => refs.subcategoryMap.get(normalizeName(name))?.id)
+    .filter((id): id is string => Boolean(id) && id !== subcategory?.id))]
+  const linkedOptionIds = [...new Set([
+    ...splitCommaList(row.option_name),
+    ...splitCommaList(sourceOption),
+    ...splitCommaList(sourceSubcategory),
+  ]
+    .map((name) => refs.optionMap.get(normalizeName(name))?.id)
+    .filter((id): id is string => Boolean(id) && id !== option?.id))]
 
-  await replaceProductMetalSelections(adminClient, product.id, metalIds)
+  await replaceProductMetalSelections(
+    adminClient,
+    product.id,
+    combinedVariantRows.length > 0
+      ? combinedVariantRows.map((entry) => entry.metal_id)
+      : metalIds
+  )
   await replaceProductMaterialValueSelections(adminClient, product.id, materialValueIds)
+  await replaceProductStoneShapes(adminClient, product.id, stoneShapeIds)
   await replaceProductPurityPrices(
     adminClient,
     product.id,
@@ -408,6 +534,39 @@ async function saveProduct(adminClient: any, row: ImportJobRowRecord, mediaPaths
       sort_order: entry.sort_order,
     }))
   )
+  const subcategoryLinkResult = await replaceProductSubcategoryLinks(adminClient, product.id, subcategory?.id ?? null, linkedSubcategoryIds)
+  if ('error' in subcategoryLinkResult && subcategoryLinkResult.error) {
+    throw new Error(subcategoryLinkResult.error.message)
+  }
+  const optionLinkResult = await replaceProductOptionLinks(adminClient, product.id, option?.id ?? null, linkedOptionIds)
+  if ('error' in optionLinkResult && optionLinkResult.error) {
+    throw new Error(optionLinkResult.error.message)
+  }
+
+  if (combinedVariantRows.length > 0) {
+    const persistedVariantsResult = await replaceProductMetalVariants(adminClient, product.id, combinedVariantRows)
+    if ('error' in persistedVariantsResult && persistedVariantsResult.error) {
+      throw new Error(persistedVariantsResult.error.message)
+    }
+
+    const fallbackMediaItems = [
+      mediaPaths.image_1_path ? { media_type: 'image' as const, media_path: mediaPaths.image_1_path, sort_order: 1, is_default_fallback: true } : null,
+      mediaPaths.image_2_path ? { media_type: 'image' as const, media_path: mediaPaths.image_2_path, sort_order: 2, is_default_fallback: true } : null,
+      mediaPaths.image_3_path ? { media_type: 'image' as const, media_path: mediaPaths.image_3_path, sort_order: 3, is_default_fallback: true } : null,
+      mediaPaths.image_4_path ? { media_type: 'image' as const, media_path: mediaPaths.image_4_path, sort_order: 4, is_default_fallback: true } : null,
+      mediaPaths.video_path ? { media_type: 'video' as const, media_path: mediaPaths.video_path, sort_order: 5, is_default_fallback: true } : null,
+    ].filter((entry): entry is { media_type: 'image' | 'video'; media_path: string; sort_order: number; is_default_fallback: true } => Boolean(entry))
+
+    const mediaResult = await replaceProductVariantMediaItems(adminClient, product.id, {
+      variants: combinedVariantRows,
+      defaultMediaItems: fallbackMediaItems,
+      persistedVariantRows: ('data' in persistedVariantsResult ? persistedVariantsResult.data : []) ?? [],
+    })
+
+    if ('error' in mediaResult && mediaResult.error) {
+      throw new Error(mediaResult.error.message)
+    }
+  }
 
   return {
     id: product.id as string,
@@ -484,11 +643,11 @@ export async function executeImportJob(jobId: string) {
     try {
       const lane = normalizeName(row.lane) === 'hiphop' ? 'hiphop' : 'products'
       const mediaNames = {
-        image_1: row.image_1?.trim() || null,
-        image_2: row.image_2?.trim() || null,
-        image_3: row.image_3?.trim() || null,
-        image_4: row.image_4?.trim() || null,
-        video: row.video?.trim() || null,
+        image_1: cleanMediaReference(row.image_1),
+        image_2: cleanMediaReference(row.image_2),
+        image_3: cleanMediaReference(row.image_3),
+        image_4: cleanMediaReference(row.image_4),
+        video: cleanMediaReference(row.video),
       }
 
       if (!mediaNames.image_1) {

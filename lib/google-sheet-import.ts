@@ -17,8 +17,19 @@ function normalizeCellValue(value: ExcelJS.CellValue | undefined): string {
   }
   if (value instanceof Date) return value.toISOString()
   if (typeof value === 'object' && 'text' in value && typeof value.text === 'string') return value.text.trim()
-  if (typeof value === 'object' && 'result' in value && value.result != null) return String(value.result).trim()
-  return String(value).trim()
+  if (typeof value === 'object' && 'richText' in value && Array.isArray(value.richText)) {
+    return value.richText
+      .map((part) => ('text' in part && typeof part.text === 'string' ? part.text : ''))
+      .join('')
+      .trim()
+  }
+  if (typeof value === 'object' && 'hyperlink' in value && typeof value.hyperlink === 'string') {
+    return value.hyperlink.trim()
+  }
+  if (typeof value === 'object' && 'result' in value && value.result != null) {
+    return normalizeCellValue(value.result as ExcelJS.CellValue)
+  }
+  return ''
 }
 
 function normalizeLabel(value: string | null | undefined) {
@@ -76,13 +87,32 @@ function parseNumericString(value: string) {
 
 function splitCommaSeparatedValues(value: string | null | undefined) {
   return (value ?? '')
-    .split(',')
+    .split(/[,\|]/)
     .map((entry) => entry.trim())
     .filter(Boolean)
 }
 
 function splitNormalizedValues(value: string | null | undefined) {
   return splitCommaSeparatedValues(value).map((entry) => normalizeLabel(entry)).filter(Boolean)
+}
+
+function splitGroupedValues(value: string | null | undefined) {
+  return (value ?? '')
+    .split(/~~|\|/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+}
+
+function firstNonEmpty(row: WideSheetRow, keys: string[]) {
+  for (const key of keys) {
+    const value = row[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return ''
+}
+
+function firstThemeValue(row: WideSheetRow) {
+  return firstNonEmpty(row, ['Style', 'Design Theme'])
 }
 
 function uniqueLimitedValues(values: string[], maxCount: number) {
@@ -133,6 +163,35 @@ function deriveImageValues(row: WideSheetRow) {
   return uniqueLimitedValues(values, 4)
 }
 
+function deriveCombinedVariantValues(row: WideSheetRow) {
+  return splitGroupedValues(
+    firstNonEmpty(row, ['Metal', 'Metal / Purity', 'Metal/Purity', 'Metal Variant', 'Variant', 'Variants'])
+  )
+}
+
+function deriveCombinedVariantPrices(row: WideSheetRow) {
+  return splitGroupedValues(
+    firstNonEmpty(row, ['Variant Prices', 'Metal / Purity Prices', 'Metal/Purity Prices', 'Prices'])
+  ).map(parseNumericString)
+}
+
+function deriveCombinedVariantImageGroups(row: WideSheetRow) {
+  return splitGroupedValues(
+    firstNonEmpty(row, ['Variant Images', 'Images By Variant', 'Metal / Purity Images'])
+  ).map((group) => uniqueLimitedValues(splitCommaSeparatedValues(group), 12))
+}
+
+function deriveCombinedVariantVideoGroups(row: WideSheetRow) {
+  return splitGroupedValues(
+    firstNonEmpty(row, ['Variant Videos', 'Videos By Variant', 'Metal / Purity Videos'])
+  ).map((group) => uniqueLimitedValues(splitCommaSeparatedValues(group), 6))
+}
+
+function derivePurityLabelFromCombinedVariant(value: string) {
+  const match = value.trim().match(/^([0-9]{2,3}K?|PT\s*\d+|925)\b/i)
+  return match?.[1]?.replace(/\s+/g, '') ?? ''
+}
+
 function titleFromFallback(row: WideSheetRow, tabName: GoogleSheetSyncTab) {
   const explicit = row['Title']
   if (explicit) return explicit
@@ -148,7 +207,7 @@ function descriptionFromFallback(row: WideSheetRow, tabName: GoogleSheetSyncTab)
   if (explicit) return explicit
 
   const material = row['Material'] || 'fine jewellery'
-  const theme = row['Design Theme'] || 'signature'
+  const theme = firstThemeValue(row) || 'signature'
   return `Imported from Google Sheet (${tabName}). ${material} product in a ${theme.toLowerCase()} style. Please review and enrich this description before publishing.`
 }
 
@@ -166,10 +225,23 @@ function resolveFromAliases(values: string[], aliases: Array<{ value: string; ma
 }
 
 function categoryMapping(row: WideSheetRow, tabName: GoogleSheetSyncTab) {
+  const rawCategoryLabels = splitCommaSeparatedValues(row['Category'])
+  const rawSubcategoryLabels = splitCommaSeparatedValues(row['Sub-Cat.'])
+  const rawOptionLabels = splitCommaSeparatedValues(firstNonEmpty(row, ['Option', 'Options']))
   const rawCategoryValues = splitNormalizedValues(row['Category'])
   const rawSubcategoryValues = splitNormalizedValues(row['Sub-Cat.'])
+  const rawOptionValues = splitNormalizedValues(firstNonEmpty(row, ['Option', 'Options']))
   const rawShapeValues = splitNormalizedValues(row['By Shape'])
   const combinedValues = [...rawCategoryValues, ...rawSubcategoryValues, ...rawShapeValues]
+
+  if (rawOptionLabels.length > 0) {
+    return {
+      category: rawCategoryLabels[0] ?? 'Fine Jewellery',
+      subcategory: rawSubcategoryLabels[0] ?? '',
+      option_name: rawOptionLabels[0] ?? '',
+      lane: 'standard',
+    }
+  }
 
   if (
     tabName === 'Ring_Final' ||
@@ -278,10 +350,19 @@ function normalizeGender(row: WideSheetRow) {
 
 function mapWideRowToImportRow(row: WideSheetRow, tabName: GoogleSheetSyncTab): ParsedProductImportRow {
   const mapping = categoryMapping(row, tabName)
-  const imageValues = deriveImageValues(row)
-  const metalValues = deriveMetalNames(row)
+  const rawOption = firstNonEmpty(row, ['Option', 'Options'])
+  const combinedVariantValues = deriveCombinedVariantValues(row)
+  const combinedVariantPrices = deriveCombinedVariantPrices(row)
+  const combinedVariantImageGroups = deriveCombinedVariantImageGroups(row)
+  const combinedVariantVideoGroups = deriveCombinedVariantVideoGroups(row)
+  const firstVariantImages = combinedVariantImageGroups[0] ?? []
+  const imageValues = firstVariantImages.length > 0 ? uniqueLimitedValues(firstVariantImages, 4) : deriveImageValues(row)
+  const metalValues = combinedVariantValues.length > 0 ? uniqueLimitedValues(combinedVariantValues, 3) : deriveMetalNames(row)
   const materialValues = deriveMaterialValues(row)
   const certificateValues = deriveCertificateValues(row)
+  const firstVariantLabel = combinedVariantValues[0] ?? ''
+  const firstVariantPrice = combinedVariantPrices[0] ?? ''
+  const firstVariantVideo = combinedVariantVideoGroups[0]?.[0] ?? ''
 
   return {
     product_name: titleFromFallback(row, tabName),
@@ -290,7 +371,7 @@ function mapWideRowToImportRow(row: WideSheetRow, tabName: GoogleSheetSyncTab): 
     category: mapping.category,
     subcategory: mapping.subcategory,
     option_name: mapping.option_name,
-    style_name: (row['Design Theme'] || '').trim(),
+    style_name: firstThemeValue(row),
     description: descriptionFromFallback(row, tabName),
     stock_quantity: '1',
     discount_price: parseNumericString(row['NSP\nPrice'] || row['Nsp price (discounted price)'] || ''),
@@ -304,8 +385,8 @@ function mapWideRowToImportRow(row: WideSheetRow, tabName: GoogleSheetSyncTab): 
     material_value_2: materialValues[1] || '',
     material_value_3: materialValues[2] || '',
     material_value_4: materialValues[3] || '',
-    purity_1_label: derivePurityLabel(row),
-    purity_1_price: parseNumericString(row['Display\nPrice'] || row['Display price (without discount price)'] || ''),
+    purity_1_label: derivePurityLabelFromCombinedVariant(firstVariantLabel) || derivePurityLabel(row),
+    purity_1_price: firstVariantPrice || parseNumericString(row['Display\nPrice'] || row['Display price (without discount price)'] || ''),
     purity_2_label: '',
     purity_2_price: '',
     purity_3_label: '',
@@ -314,26 +395,31 @@ function mapWideRowToImportRow(row: WideSheetRow, tabName: GoogleSheetSyncTab): 
     image_2: imageValues[1] || '',
     image_3: imageValues[2] || '',
     image_4: imageValues[3] || '',
-    video: (row['Video URL'] || row['Video'] || '').trim(),
+    video: firstVariantVideo || (row['Video URL'] || row['Video'] || '').trim(),
     spec_1_key: row['Size/\nLength'] || row['Inch'] ? 'Size/Length' : '',
     spec_1_value: (row['Size/\nLength'] || row['Inch'] || '').trim(),
     spec_2_key: row['Width'] ? 'Width' : '',
     spec_2_value: (row['Width'] || '').trim(),
     spec_3_key: row['Height'] ? 'Height' : '',
     spec_3_value: (row['Height'] || '').trim(),
-    spec_4_key: row['By Shape'] ? 'Shape' : '',
-    spec_4_value: (row['By Shape'] || '').trim(),
+    spec_4_key: '',
+    spec_4_value: '',
     engraving_label: '',
     // raw business helpers carried through for downstream review/mapping visibility
     source_tab: tabName,
     source_category: (row['Category'] || '').trim(),
     source_subcategory: (row['Sub-Cat.'] || '').trim(),
+    source_option: rawOption.trim(),
     source_shape: (row['By Shape'] || '').trim(),
     source_gender: normalizeGender(row),
     source_material: (row['Material'] || '').trim(),
     source_gold_colour: (row['Col'] || '').trim(),
     source_kt_code: (row['KT\nCode'] || row['KT Code'] || '').trim(),
     source_style_no: (row['Style No.'] || '').trim(),
+    variant_combined_values: combinedVariantValues.join('~~'),
+    variant_price_values: combinedVariantPrices.join('~~'),
+    variant_image_group_values: combinedVariantImageGroups.map((group) => group.join(',')).join('~~'),
+    variant_video_group_values: combinedVariantVideoGroups.map((group) => group.join(',')).join('~~'),
   }
 }
 

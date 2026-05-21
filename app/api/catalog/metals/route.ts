@@ -1,9 +1,14 @@
 import { NextResponse } from 'next/server'
 import { assertAdmin } from '@/lib/cms-auth'
+import { buildCombinedMetalDisplayLabel } from '@/lib/product-metal-variants'
 
 type MetalPayload = {
   name: string
   slug: string
+  purity_label?: string | null
+  base_metal_name?: string | null
+  display_label?: string | null
+  is_combined_option?: boolean
   color_hex?: string | null
   composition_description?: string | null
   display_order?: number
@@ -15,6 +20,15 @@ type MetalPayload = {
     color_hex?: string | null
     sort_order?: number
   }[]
+}
+
+function resolveDisplayLabel(body: MetalPayload) {
+  return buildCombinedMetalDisplayLabel({
+    name: body.name?.trim() || '',
+    display_label: body.display_label?.trim() || null,
+    purity_label: body.purity_label?.trim() || null,
+    base_metal_name: body.base_metal_name?.trim() || body.name?.trim() || null,
+  })
 }
 
 async function loadCompositionParts(adminClient: any, metalIds: string[]) {
@@ -103,6 +117,10 @@ export async function POST(request: Request) {
     .insert({
       name: body.name.trim(),
       slug: body.slug.trim(),
+      purity_label: body.purity_label?.trim() || null,
+      base_metal_name: body.base_metal_name?.trim() || body.name.trim(),
+      display_label: resolveDisplayLabel(body),
+      is_combined_option: Boolean(body.is_combined_option),
       color_hex: body.color_hex?.trim() || null,
       composition_description: body.composition_description?.trim() || null,
       display_order: Number(body.display_order ?? 0),

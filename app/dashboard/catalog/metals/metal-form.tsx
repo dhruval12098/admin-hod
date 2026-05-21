@@ -8,6 +8,21 @@ import { supabase } from '@/lib/supabase'
 import { useToast } from '@/hooks/use-toast'
 import { slugify } from '@/lib/product-catalog'
 import type { MetalItem } from './metals-client'
+import { buildCombinedMetalDisplayLabel } from '@/lib/product-metal-variants'
+
+function deriveCombinedMetalLabel(input: {
+  display_label?: string | null
+  purity_label?: string | null
+  base_metal_name?: string | null
+  name: string
+}) {
+  return buildCombinedMetalDisplayLabel({
+    name: input.name || '',
+    display_label: input.display_label ?? '',
+    purity_label: input.purity_label ?? '',
+    base_metal_name: input.base_metal_name ?? '',
+  })
+}
 
 async function getAccessToken() {
   const { data } = await supabase.auth.getSession()
@@ -27,6 +42,15 @@ export function MetalForm({
   const [formData, setFormData] = useState({
     name: initialItem?.name ?? '',
     slug: initialItem?.slug ?? '',
+    purity_label: initialItem?.purity_label ?? '',
+    base_metal_name: initialItem?.base_metal_name ?? initialItem?.name ?? '',
+    display_label: deriveCombinedMetalLabel({
+      name: initialItem?.name ?? '',
+      display_label: initialItem?.display_label ?? '',
+      purity_label: initialItem?.purity_label ?? '',
+      base_metal_name: initialItem?.base_metal_name ?? initialItem?.name ?? '',
+    }),
+    is_combined_option: initialItem?.is_combined_option ?? false,
     color_hex: initialItem?.color_hex || '#D4AF37',
     composition_description: initialItem?.composition_description ?? '',
     display_order: initialItem?.display_order ?? 1,
@@ -81,9 +105,94 @@ export function MetalForm({
             <label className="mb-2 block text-sm font-medium text-foreground">Metal Name</label>
             <input
               value={formData.name}
-              onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value, slug: prev.slug === '' || prev.slug === slugify(prev.name) ? slugify(e.target.value) : prev.slug }))}
+              onChange={(e) =>
+                setFormData((prev) => {
+                  const nextName = e.target.value
+                  const previousDerivedLabel = deriveCombinedMetalLabel(prev)
+                  const nextBaseMetalName = prev.base_metal_name === '' || prev.base_metal_name === prev.name ? nextName : prev.base_metal_name
+                  const nextDerivedLabel = deriveCombinedMetalLabel({
+                    ...prev,
+                    name: nextName,
+                    base_metal_name: nextBaseMetalName,
+                  })
+                  return {
+                    ...prev,
+                    name: nextName,
+                    slug: prev.slug === '' || prev.slug === slugify(prev.name) ? slugify(nextName) : prev.slug,
+                    base_metal_name: nextBaseMetalName,
+                    display_label:
+                      prev.display_label === '' || prev.display_label === prev.name || prev.display_label === previousDerivedLabel
+                        ? nextDerivedLabel
+                        : prev.display_label,
+                  }
+                })
+              }
               className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm"
             />
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <label className="mb-2 block text-sm font-medium text-foreground">Purity Label</label>
+              <input
+                value={formData.purity_label}
+                onChange={(e) =>
+                  setFormData((prev) => {
+                    const previousDerivedLabel = deriveCombinedMetalLabel(prev)
+                    const nextPurityLabel = e.target.value
+                    const nextDerivedLabel = deriveCombinedMetalLabel({
+                      ...prev,
+                      purity_label: nextPurityLabel,
+                    })
+                    return {
+                      ...prev,
+                      purity_label: nextPurityLabel,
+                      display_label:
+                        prev.display_label === '' || prev.display_label === previousDerivedLabel
+                          ? nextDerivedLabel
+                          : prev.display_label,
+                    }
+                  })
+                }
+                placeholder="Example: 14K"
+                className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm"
+              />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-foreground">Base Metal Name</label>
+              <input
+                value={formData.base_metal_name}
+                onChange={(e) =>
+                  setFormData((prev) => {
+                    const previousDerivedLabel = deriveCombinedMetalLabel(prev)
+                    const nextBaseMetalName = e.target.value
+                    const nextDerivedLabel = deriveCombinedMetalLabel({
+                      ...prev,
+                      base_metal_name: nextBaseMetalName,
+                    })
+                    return {
+                      ...prev,
+                      base_metal_name: nextBaseMetalName,
+                      display_label:
+                        prev.display_label === '' || prev.display_label === previousDerivedLabel
+                          ? nextDerivedLabel
+                          : prev.display_label,
+                    }
+                  })
+                }
+                placeholder="Example: Yellow Gold"
+                className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="mb-2 block text-sm font-medium text-foreground">Display Label</label>
+            <input
+              value={formData.display_label}
+              onChange={(e) => setFormData((prev) => ({ ...prev, display_label: e.target.value }))}
+              placeholder="Example: 14K Yellow Gold"
+              className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm"
+            />
+            <p className="mt-2 text-xs text-muted-foreground">This is the exact customer-facing combined option shown in product form, storefront, and sheet sync.</p>
           </div>
           <div>
             <label className="mb-2 block text-sm font-medium text-foreground">Slug</label>
@@ -108,6 +217,27 @@ export function MetalForm({
               className="min-h-[96px] w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm"
             />
           </div>
+          <div>
+            <label className="mb-2 block text-sm font-medium text-foreground">Metal Mode</label>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setFormData((prev) => ({ ...prev, is_combined_option: false }))}
+                className={`rounded-full px-4 py-2 text-sm font-semibold ${!formData.is_combined_option ? 'bg-primary text-white' : 'border border-border text-foreground hover:bg-secondary'}`}
+              >
+                Base Metal
+              </button>
+              <button
+                type="button"
+                onClick={() => setFormData((prev) => ({ ...prev, is_combined_option: true }))}
+                className={`rounded-full px-4 py-2 text-sm font-semibold ${formData.is_combined_option ? 'bg-primary text-white' : 'border border-border text-foreground hover:bg-secondary'}`}
+              >
+                Combined Sellable Option
+              </button>
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">Use combined option for values like 14K Yellow Gold or 18K Rose Gold.</p>
+          </div>
+
           <div>
             <label className="mb-2 block text-sm font-medium text-foreground">Status</label>
             <div className="flex flex-wrap gap-2">

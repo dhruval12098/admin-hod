@@ -48,6 +48,22 @@ function statusTone(status: string) {
   }
 }
 
+function rowChangeType(row: ImportJobRowRecord) {
+  const normalizedChangeType = row.normalized_payload?.change_type
+  if (normalizedChangeType === 'updated' || normalizedChangeType === 'new') {
+    return normalizedChangeType
+  }
+  if (row.import_message?.toLowerCase().includes('existing sku')) return 'updated'
+  if (row.import_message?.toLowerCase().includes('new sku')) return 'new'
+  return null
+}
+
+function rowChangeTone(changeType: 'new' | 'updated' | null) {
+  if (changeType === 'updated') return 'bg-blue-100 text-blue-700'
+  if (changeType === 'new') return 'bg-emerald-100 text-emerald-700'
+  return 'bg-slate-100 text-slate-700'
+}
+
 function formatDate(value: string | null) {
   if (!value) return 'Not available'
   return new Intl.DateTimeFormat('en-IN', {
@@ -472,6 +488,7 @@ function RowCard({ row }: { row: ImportJobRowRecord }) {
   const [open, setOpen] = useState(false)
   const errors = row.issues?.filter((issue) => issue.issue_type === 'error') ?? []
   const warnings = row.issues?.filter((issue) => issue.issue_type === 'warning') ?? []
+  const changeType = rowChangeType(row)
   const issueSummary =
     errors.length === 0 && warnings.length === 0
       ? 'No issues'
@@ -492,10 +509,15 @@ function RowCard({ row }: { row: ImportJobRowRecord }) {
                 <p className="text-sm font-semibold text-foreground">
                   Row {row.row_number}: {row.product_name || 'Untitled product'}
                 </p>
-                <span className={`inline-flex rounded-md px-2 py-1 text-xs font-medium ${statusTone(row.status)}`}>
-                  {row.status}
-                </span>
-              </div>
+                  <span className={`inline-flex rounded-md px-2 py-1 text-xs font-medium ${statusTone(row.status)}`}>
+                    {row.status}
+                  </span>
+                  {changeType ? (
+                    <span className={`inline-flex rounded-md px-2 py-1 text-xs font-semibold ${rowChangeTone(changeType)}`}>
+                      {changeType === 'updated' ? 'Update existing' : 'New product'}
+                    </span>
+                  ) : null}
+                </div>
               <p className="mt-1 text-sm text-muted-foreground">
                 SKU: {row.sku || 'Missing'} | Lane: {row.lane || 'Missing'}
               </p>
