@@ -9,7 +9,6 @@ const HOME_SECTIONS = [
   { id: 'collection', label: 'Home Collection Cards', description: 'Homepage collection cards, images, and links' },
   { id: 'bestsellers', label: 'Best Sellers', description: 'Selected existing products shown in the best sellers grid' },
   { id: 'material-strip', label: 'Material Strip', description: 'Materials title, descriptions, and icons' },
-  { id: 'stats', label: 'Statistics Strip', description: 'Key metrics and achievements' },
   { id: 'testimonials', label: 'Testimonials Marquee', description: 'Scrolling quote strip on the homepage' },
   { id: 'testimonials-cards', label: 'Testimonials Cards', description: 'Three testimonial cards on the homepage' },
   { id: 'couples', label: 'Couples', description: 'Love stories cards and popup content' },
