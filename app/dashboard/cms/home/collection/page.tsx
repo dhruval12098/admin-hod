@@ -12,7 +12,12 @@ async function getCollectionInitialData(): Promise<CollectionEditorInitialData> 
     throw new Error(error.message)
   }
 
-  return { items: data ?? [] }
+  return {
+    items: (data ?? []).map((item, index) => ({
+      ...item,
+      id: `server-${index + 1}`,
+    })),
+  }
 }
 
 export default async function CollectionEditorPage() {

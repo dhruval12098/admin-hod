@@ -17,6 +17,7 @@ import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
 
 type CollectionItem = {
+  id: string
   sort_order: number
   label: string
   title: string
@@ -36,9 +37,31 @@ export type CollectionEditorInitialData = {
   items: CollectionItem[]
 }
 
+function createCollectionItem(overrides?: Partial<CollectionItem>): CollectionItem {
+  return {
+    id: overrides?.id ?? crypto.randomUUID(),
+    sort_order: overrides?.sort_order ?? 1,
+    label: overrides?.label ?? '',
+    title: overrides?.title ?? '',
+    description: overrides?.description ?? '',
+    image_path: overrides?.image_path ?? '',
+    link: overrides?.link ?? '',
+  }
+}
+
+function normalizeCollectionItems(items: CollectionItem[]) {
+  return items
+    .slice()
+    .sort((left, right) => left.sort_order - right.sort_order || left.title.localeCompare(right.title))
+    .map((item, index) => ({
+      ...item,
+      sort_order: index + 1,
+    }))
+}
+
 export function CollectionEditorClient({ initialData }: { initialData: CollectionEditorInitialData }) {
   const { toast } = useToast()
-  const [items, setItems] = useState<CollectionItem[]>(initialData.items)
+  const [items, setItems] = useState<CollectionItem[]>(normalizeCollectionItems(initialData.items.map((item) => createCollectionItem(item))))
   const [loadStatus, setLoadStatus] = useState(initialData.items.length ? 'Collection loaded' : 'No collection items found yet')
   const [uploadState, setUploadState] = useState<'idle' | 'uploading' | 'done' | 'error'>('idle')
   const [isSaving, setIsSaving] = useState(false)
@@ -47,27 +70,17 @@ export function CollectionEditorClient({ initialData }: { initialData: Collectio
   const [editorItem, setEditorItem] = useState<CollectionItem | null>(null)
 
   const handleOpenEditor = (item?: CollectionItem) => {
-    setEditorItem(
-      item ?? {
-        sort_order: items.length + 1,
-        label: '',
-        title: '',
-        description: '',
-        image_path: '',
-        link: '',
-      }
-    )
+    setEditorItem(item ? { ...item } : createCollectionItem({ sort_order: items.length + 1 }))
     setEditorOpen(true)
   }
 
   const saveEditor = () => {
     if (!editorItem) return
     setItems((prev) => {
-      const exists = prev.some((item) => item.sort_order === editorItem.sort_order)
-      if (exists) {
-        return prev.map((item) => (item.sort_order === editorItem.sort_order ? editorItem : item))
-      }
-      return [...prev, editorItem]
+      const nextItems = prev.some((item) => item.id === editorItem.id)
+        ? prev.map((item) => (item.id === editorItem.id ? editorItem : item))
+        : [...prev, editorItem]
+      return normalizeCollectionItems(nextItems)
     })
     setEditorOpen(false)
   }
@@ -128,7 +141,9 @@ export function CollectionEditorClient({ initialData }: { initialData: Collectio
         'content-type': 'application/json',
         authorization: `Bearer ${accessToken}`,
       },
-      body: JSON.stringify({ items }),
+      body: JSON.stringify({
+        items: items.map(({ id, ...item }) => item),
+      }),
     })
 
     const payload = (await response.json().catch(() => null)) as ApiPayload | null
@@ -137,6 +152,10 @@ export function CollectionEditorClient({ initialData }: { initialData: Collectio
     if (!response.ok) {
       setLoadStatus(payload?.error ?? 'Unable to save Collection.')
       return
+    }
+
+    if (payload?.items) {
+      setItems(normalizeCollectionItems(payload.items.map((item) => createCollectionItem(item))))
     }
 
     setConfirmOpen(false)
@@ -183,7 +202,7 @@ export function CollectionEditorClient({ initialData }: { initialData: Collectio
           </thead>
           <tbody>
             {items.map((item) => (
-              <tr key={item.sort_order} className="border-b border-border last:border-b-0">
+              <tr key={item.id} className="border-b border-border last:border-b-0">
                 <td className="px-5 py-4 text-sm">{item.sort_order}</td>
                 <td className="px-5 py-4 text-sm">{item.label}</td>
                 <td className="px-5 py-4 text-sm">{item.title}</td>

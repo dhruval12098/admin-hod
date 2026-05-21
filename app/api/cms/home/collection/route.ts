@@ -14,6 +14,23 @@ type CollectionItem = {
   link: string
 }
 
+function normalizeItems(items: CollectionItem[]): CollectionItem[] {
+  return items
+    .map((item) => ({
+      sort_order: Number.isFinite(Number(item.sort_order)) ? Number(item.sort_order) : 0,
+      label: String(item.label ?? '').trim(),
+      title: String(item.title ?? '').trim(),
+      description: String(item.description ?? '').trim(),
+      image_path: String(item.image_path ?? '').trim(),
+      link: String(item.link ?? '').trim(),
+    }))
+    .sort((left, right) => left.sort_order - right.sort_order)
+    .map((item, index) => ({
+      ...item,
+      sort_order: index + 1,
+    }))
+}
+
 function buildAuthClient(accessToken: string) {
   if (!supabaseUrl || !supabaseAnonKey) return null
   return createClient(supabaseUrl, supabaseAnonKey, {
@@ -94,6 +111,7 @@ export async function POST(request: Request) {
       typeof item.link === 'string'
     )
   }) as CollectionItem[]
+  const normalizedItems = normalizeItems(items)
 
   const { adminClient } = access
   const { error: deleteError } = await adminClient.from('collection_items').delete().gte('sort_order', 0)
@@ -101,12 +119,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: deleteError.message }, { status: 500 })
   }
 
-  if (items.length > 0) {
-    const { error: insertError } = await adminClient.from('collection_items').insert(items)
+  if (normalizedItems.length > 0) {
+    const { error: insertError } = await adminClient.from('collection_items').insert(normalizedItems)
     if (insertError) {
       return NextResponse.json({ error: insertError.message }, { status: 500 })
     }
   }
 
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({ ok: true, items: normalizedItems })
 }
