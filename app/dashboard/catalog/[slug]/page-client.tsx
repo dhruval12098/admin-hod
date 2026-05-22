@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/hooks/use-toast'
-import type { CatalogCategory, CatalogGridPoster, CatalogOption, CatalogSubcategory } from '@/lib/product-catalog'
+import type { CatalogCategory, CatalogGridPoster, CatalogNavbarItem, CatalogOption, CatalogSubcategory } from '@/lib/product-catalog'
 import { slugify } from '@/lib/product-catalog'
 
 type CatalogDetailTab = 'subcategories' | 'options'
@@ -57,6 +57,7 @@ type CategoryDetailClientProps = {
   categorySlug: string
   initialData: {
     category: CatalogCategory | null
+    navbarItems: CatalogNavbarItem[]
     subcategories: CatalogSubcategory[]
     options: CatalogOption[]
     posters: CatalogGridPoster[]
@@ -64,6 +65,20 @@ type CategoryDetailClientProps = {
 }
 
 const PAGE_SIZE = 20
+
+function getCategoryNavStatus(category: CatalogCategory, navbarItems: CatalogNavbarItem[]) {
+  const navbarItem = navbarItems.find((item) => item.linked_category_id === category.id || item.slug === category.slug)
+  const isInNavbar = navbarItem?.status === 'active' || (category.show_in_nav !== false && Boolean(category.nav_type))
+  const navType = navbarItem?.item_type ?? category.nav_type
+
+  if (!isInNavbar) {
+    return { label: 'Not in Nav', className: 'bg-slate-100 text-slate-700' }
+  }
+
+  return navType === 'direct_link'
+    ? { label: 'Direct Link', className: 'bg-slate-100 text-slate-700' }
+    : { label: 'Mega Menu', className: 'bg-blue-100 text-blue-700' }
+}
 
 function emptySubcategoryForm(categoryId: string, nextOrder: number): SubcategoryFormState {
   return {
@@ -189,6 +204,7 @@ export function CategoryDetailClient({ categorySlug, initialData }: CategoryDeta
   const [loading, setLoading] = useState(false)
   const [activeTab, setActiveTab] = useState<CatalogDetailTab>('subcategories')
   const [category, setCategory] = useState<CatalogCategory | null>(initialData.category)
+  const [navbarItems, setNavbarItems] = useState<CatalogNavbarItem[]>(initialData.navbarItems)
   const [subcategories, setSubcategories] = useState<CatalogSubcategory[]>(initialData.subcategories)
   const [options, setOptions] = useState<CatalogOption[]>(initialData.options)
   const [posters, setPosters] = useState<CatalogGridPoster[]>(initialData.posters)
@@ -204,6 +220,7 @@ export function CategoryDetailClient({ categorySlug, initialData }: CategoryDeta
       }
 
       const categories = (payload.categories ?? []) as CatalogCategory[]
+      setNavbarItems((payload.navbarItems ?? []) as CatalogNavbarItem[])
       const nextCategory = categories.find((item) => item.slug === categorySlug) ?? null
       setCategory(nextCategory)
 
@@ -238,6 +255,8 @@ export function CategoryDetailClient({ categorySlug, initialData }: CategoryDeta
     )
   }
 
+  const navStatus = getCategoryNavStatus(category, navbarItems)
+
   return (
     <div className="p-8">
       <div className="mb-8">
@@ -264,8 +283,8 @@ export function CategoryDetailClient({ categorySlug, initialData }: CategoryDeta
           {category.is_system_locked ? (
             <Badge className="bg-amber-100 text-amber-700">System Locked</Badge>
           ) : null}
-          <Badge className={category.show_in_nav === false || !category.nav_type ? 'bg-slate-100 text-slate-700' : category.nav_type === 'mega_menu' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-700'}>
-            {category.show_in_nav === false || !category.nav_type ? 'Not in Nav' : category.nav_type === 'mega_menu' ? 'Mega Menu' : 'Direct Link'}
+          <Badge className={navStatus.className}>
+            {navStatus.label}
           </Badge>
         </div>
         <div className="mt-4 grid gap-3 text-sm text-muted-foreground md:grid-cols-3">

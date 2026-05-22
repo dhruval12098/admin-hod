@@ -1,5 +1,5 @@
 import { createSupabaseAdminClient } from '@/lib/admin-supabase'
-import type { CatalogCategory, CatalogGridPoster, CatalogOption, CatalogSubcategory } from '@/lib/product-catalog'
+import type { CatalogCategory, CatalogGridPoster, CatalogNavbarItem, CatalogOption, CatalogSubcategory } from '@/lib/product-catalog'
 import { CategoryDetailClient } from './page-client'
 
 type CategoryDetailPageProps = {
@@ -10,13 +10,15 @@ type CategoryDetailPageProps = {
 
 async function getCategoryDetailData(slug: string): Promise<{
   category: CatalogCategory | null
+  navbarItems: CatalogNavbarItem[]
   subcategories: CatalogSubcategory[]
   options: CatalogOption[]
   posters: CatalogGridPoster[]
 }> {
   const adminClient = createSupabaseAdminClient()
-  const [categoriesResult, subcategoriesResult, optionsResult, postersResult] = await Promise.all([
+  const [categoriesResult, navbarItemsResult, subcategoriesResult, optionsResult, postersResult] = await Promise.all([
     adminClient.from('catalog_categories').select('*').order('display_order', { ascending: true }),
+    adminClient.from('navbar_items').select('id, label, slug, item_type, linked_category_id, direct_link_url, status').order('display_order', { ascending: true }),
     adminClient.from('catalog_subcategories').select('*').order('display_order', { ascending: true }),
     adminClient.from('catalog_options').select('*').order('display_order', { ascending: true }),
     adminClient.from('category_grid_posters').select('*').order('display_order', { ascending: true }),
@@ -39,6 +41,7 @@ async function getCategoryDetailData(slug: string): Promise<{
 
   return {
     category,
+    navbarItems: (navbarItemsResult.error ? [] : navbarItemsResult.data ?? []) as CatalogNavbarItem[],
     subcategories,
     options,
     posters: postersResult.error || !category

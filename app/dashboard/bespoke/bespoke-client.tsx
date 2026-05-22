@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Edit2, Eye, Loader2, Plus, Trash2, Upload, Video } from 'lucide-react'
+import { Edit2, Eye, ImageIcon, Loader2, Plus, Trash2, Upload } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/hooks/use-toast'
 import { ConfirmDialog } from '@/components/confirm-dialog'
@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { slugify } from '@/lib/product-catalog'
 
-export type BespokeTab = 'hero' | 'portfolio-categories' | 'portfolio-items' | 'form' | 'submissions'
+export type BespokeTab = 'hero' | 'portfolio-categories' | 'portfolio-items' | 'process' | 'form' | 'submissions'
 
 export type BespokeHero = {
   id?: string
@@ -61,6 +61,15 @@ export type PortfolioItem = {
   status: 'active' | 'hidden'
 }
 
+export type BespokeProcessItem = {
+  id?: number
+  clientId?: string
+  sort_order: number
+  eyebrow: string
+  title: string
+  description: string
+}
+
 export type SimpleRow = {
   id?: string
   label: string
@@ -101,6 +110,7 @@ export type BespokePageData = {
   hero: BespokeHero
   categories: PortfolioCategory[]
   items: PortfolioItem[]
+  processItems: BespokeProcessItem[]
   formConfig: FormConfig
   submissions: BespokeSubmission[]
 }
@@ -148,6 +158,16 @@ function emptyPortfolioItem(categoryId: string, nextOrder: number): PortfolioIte
   }
 }
 
+function emptyProcessItem(nextOrder: number): BespokeProcessItem {
+  return {
+    clientId: `draft-${Date.now()}`,
+    sort_order: nextOrder,
+    eyebrow: '',
+    title: '',
+    description: '',
+  }
+}
+
 function emptySimpleRow(nextOrder: number): SimpleRow {
   return { id: '', label: '', display_order: nextOrder, status: 'active' }
 }
@@ -159,25 +179,30 @@ export function BespokeClient({ initialData }: { initialData: BespokePageData })
   const [hero, setHero] = useState<BespokeHero>(initialData.hero)
   const [categories, setCategories] = useState<PortfolioCategory[]>(initialData.categories)
   const [items, setItems] = useState<PortfolioItem[]>(initialData.items)
+  const [processItems, setProcessItems] = useState<BespokeProcessItem[]>(
+    initialData.processItems.map((item) => ({ ...item, clientId: item.clientId ?? `id-${item.id}` }))
+  )
   const [formConfig, setFormConfig] = useState<FormConfig>(initialData.formConfig)
   const [submissions, setSubmissions] = useState<BespokeSubmission[]>(initialData.submissions)
 
   const loadData = async () => {
     setLoading(true)
     try {
-      const [submissionsRes, heroRes, categoryRes, itemRes, formRes] = await Promise.all([
+      const [submissionsRes, heroRes, categoryRes, itemRes, processRes, formRes] = await Promise.all([
         authedFetch('/api/bespoke/submissions'),
         authedFetch('/api/bespoke/hero'),
         authedFetch('/api/bespoke/portfolio-categories'),
         authedFetch('/api/bespoke/portfolio-items'),
+        authedFetch('/api/cms/bespoke/process'),
         authedFetch('/api/bespoke/form-config'),
       ])
 
-      const [submissionsPayload, heroPayload, categoryPayload, itemPayload, formPayload] = await Promise.all([
+      const [submissionsPayload, heroPayload, categoryPayload, itemPayload, processPayload, formPayload] = await Promise.all([
         submissionsRes.json().catch(() => null),
         heroRes.json().catch(() => null),
         categoryRes.json().catch(() => null),
         itemRes.json().catch(() => null),
+        processRes.json().catch(() => null),
         formRes.json().catch(() => null),
       ])
 
@@ -185,6 +210,9 @@ export function BespokeClient({ initialData }: { initialData: BespokePageData })
       if (heroRes.ok && heroPayload?.item) setHero({ ...heroPayload.item, items: heroPayload.items ?? [] })
       if (categoryRes.ok) setCategories(categoryPayload?.items ?? [])
       if (itemRes.ok) setItems(itemPayload?.items ?? [])
+      if (processRes.ok) {
+        setProcessItems((processPayload?.items ?? []).map((item: BespokeProcessItem) => ({ ...item, clientId: item.clientId ?? `id-${item.id}` })))
+      }
       if (formRes.ok && formPayload) {
         setFormConfig({
           settings: formPayload.settings ?? { intro_heading: '', intro_subtitle: '', footer_note: '', status: 'active' },
@@ -212,6 +240,7 @@ export function BespokeClient({ initialData }: { initialData: BespokePageData })
           { id: 'hero' as const, label: 'Hero' },
           { id: 'portfolio-categories' as const, label: 'Portfolio Categories' },
           { id: 'portfolio-items' as const, label: 'Portfolio Items' },
+          { id: 'process' as const, label: 'Process Steps' },
           { id: 'form' as const, label: 'Form Settings' },
           { id: 'submissions' as const, label: 'Submissions' },
         ].map((tab) => (
@@ -233,6 +262,7 @@ export function BespokeClient({ initialData }: { initialData: BespokePageData })
       {!loading && activeTab === 'hero' ? <HeroPanel hero={hero} setHero={setHero} onReload={loadData} /> : null}
       {!loading && activeTab === 'portfolio-categories' ? <PortfolioCategoriesPanel categories={categories} onReload={loadData} /> : null}
       {!loading && activeTab === 'portfolio-items' ? <PortfolioItemsPanel categories={categories} items={items} onReload={loadData} /> : null}
+      {!loading && activeTab === 'process' ? <ProcessStepsPanel items={processItems} setItems={setProcessItems} onReload={loadData} /> : null}
       {!loading && activeTab === 'form' ? <FormPanel formConfig={formConfig} setFormConfig={setFormConfig} onReload={loadData} /> : null}
       {!loading && activeTab === 'submissions' ? <SubmissionSummaryPanel submissions={submissions} /> : null}
     </div>
@@ -286,7 +316,8 @@ function HeroPanel({ hero, setHero, onReload }: { hero: BespokeHero; setHero: (v
   const { toast } = useToast()
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
-  const [uploadState, setUploadState] = useState<'idle' | 'uploading'>('idle')
+  const [desktopUploadState, setDesktopUploadState] = useState<'idle' | 'uploading'>('idle')
+  const [mobileUploadState, setMobileUploadState] = useState<'idle' | 'uploading'>('idle')
   const [editorItem, setEditorItem] = useState<NonNullable<BespokeHero['items']>[number]>({
     clientId: 'draft',
     sort_order: 1,
@@ -298,13 +329,15 @@ function HeroPanel({ hero, setHero, onReload }: { hero: BespokeHero; setHero: (v
   const nextSortOrder = Math.max(...(hero.items ?? []).map((item) => item.sort_order), 0) + 1
   const sortedSlides = [...(hero.items ?? [])].sort((a, b) => a.sort_order - b.sort_order)
 
-  const uploadImage = async (file: File) => {
-    setUploadState('uploading')
+  const uploadImage = async (file: File, target: 'desktop' | 'mobile') => {
+    if (target === 'desktop') setDesktopUploadState('uploading')
+    if (target === 'mobile') setMobileUploadState('uploading')
     const body = new FormData()
     body.append('file', file)
     const response = await authedFetch('/api/cms/uploads/bespoke-hero', { method: 'POST', body })
     const payload = await response.json().catch(() => null)
-    setUploadState('idle')
+    if (target === 'desktop') setDesktopUploadState('idle')
+    if (target === 'mobile') setMobileUploadState('idle')
     if (!response.ok || !payload?.path) throw new Error(payload?.error ?? 'Unable to upload image.')
     return payload.path as string
   }
@@ -318,13 +351,15 @@ function HeroPanel({ hero, setHero, onReload }: { hero: BespokeHero; setHero: (v
       button_text: '',
       button_link: '',
     })
-    setUploadState('idle')
+    setDesktopUploadState('idle')
+    setMobileUploadState('idle')
     setEditorOpen(true)
   }
 
   const openEditSlide = (item: NonNullable<BespokeHero['items']>[number]) => {
     setEditorItem({ ...item })
-    setUploadState('idle')
+    setDesktopUploadState('idle')
+    setMobileUploadState('idle')
     setEditorOpen(true)
   }
 
@@ -447,27 +482,58 @@ function HeroPanel({ hero, setHero, onReload }: { hero: BespokeHero; setHero: (v
             <Field label="Desktop Image">
               <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-secondary/20 px-4 py-3 text-sm font-medium text-foreground hover:bg-secondary/30">
                 <Upload size={16} />
-                <span>{uploadState === 'uploading' ? 'Uploading...' : 'Upload Image'}</span>
+                <span>{desktopUploadState === 'uploading' ? 'Uploading...' : 'Upload Desktop Image'}</span>
                 <input
                   type="file"
                   accept="image/*"
                   className="hidden"
+                  disabled={desktopUploadState === 'uploading'}
                   onChange={async (e) => {
                     const file = e.target.files?.[0]
+                    const input = e.currentTarget
                     if (!file) return
                     try {
-                      const path = await uploadImage(file)
+                      const path = await uploadImage(file, 'desktop')
                       setEditorItem((prev) => ({ ...prev, image_path: path }))
-                      toast({ title: 'Uploaded', description: 'Hero image uploaded successfully.' })
+                      toast({ title: 'Uploaded', description: 'Desktop hero image uploaded successfully.' })
                     } catch (error) {
                       toast({ title: 'Upload failed', description: error instanceof Error ? error.message : 'Unable to upload image.', variant: 'destructive' })
+                    } finally {
+                      input.value = ''
                     }
                   }}
                 />
               </label>
               {editorItem.image_path ? <p className="mt-2 text-xs text-muted-foreground">{editorItem.image_path}</p> : null}
             </Field>
-            <Field label="Mobile Image Path"><input value={editorItem.mobile_image_path ?? ''} onChange={(e) => setEditorItem((prev) => ({ ...prev, mobile_image_path: e.target.value }))} className={inputClassName} /></Field>
+            <Field label="Mobile Image">
+              <input value={editorItem.mobile_image_path ?? ''} onChange={(e) => setEditorItem((prev) => ({ ...prev, mobile_image_path: e.target.value }))} className={inputClassName} />
+              <label className="mt-3 flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-secondary/20 px-4 py-3 text-sm font-medium text-foreground hover:bg-secondary/30">
+                <Upload size={16} />
+                <span>{mobileUploadState === 'uploading' ? 'Uploading...' : 'Upload Mobile Image'}</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  disabled={mobileUploadState === 'uploading'}
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0]
+                    const input = e.currentTarget
+                    if (!file) return
+                    try {
+                      const path = await uploadImage(file, 'mobile')
+                      setEditorItem((prev) => ({ ...prev, mobile_image_path: path }))
+                      toast({ title: 'Uploaded', description: 'Mobile hero image uploaded successfully.' })
+                    } catch (error) {
+                      toast({ title: 'Upload failed', description: error instanceof Error ? error.message : 'Unable to upload image.', variant: 'destructive' })
+                    } finally {
+                      input.value = ''
+                    }
+                  }}
+                />
+              </label>
+              {editorItem.mobile_image_path ? <p className="mt-2 text-xs text-muted-foreground">{editorItem.mobile_image_path}</p> : null}
+            </Field>
             <Field label="Button Text"><input value={editorItem.button_text} onChange={(e) => setEditorItem((prev) => ({ ...prev, button_text: e.target.value }))} className={inputClassName} /></Field>
             <Field label="Button Link"><input value={editorItem.button_link} onChange={(e) => setEditorItem((prev) => ({ ...prev, button_link: e.target.value }))} className={inputClassName} /></Field>
           </div>
@@ -478,6 +544,129 @@ function HeroPanel({ hero, setHero, onReload }: { hero: BespokeHero; setHero: (v
         </DialogContent>
       </Dialog>
     </div>
+  )
+}
+
+function ProcessStepsPanel({
+  items,
+  setItems,
+  onReload,
+}: {
+  items: BespokeProcessItem[]
+  setItems: (items: BespokeProcessItem[]) => void
+  onReload: () => Promise<void>
+}) {
+  const { toast } = useToast()
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [editorItem, setEditorItem] = useState<BespokeProcessItem>(emptyProcessItem(1))
+  const sorted = [...items].sort((left, right) => left.sort_order - right.sort_order || String(left.clientId).localeCompare(String(right.clientId)))
+  const nextOrder = Math.max(...items.map((item) => item.sort_order), 0) + 1
+
+  const openNew = () => {
+    setEditorItem(emptyProcessItem(nextOrder))
+    setDialogOpen(true)
+  }
+
+  const openEdit = (item: BespokeProcessItem) => {
+    setEditorItem({ ...item })
+    setDialogOpen(true)
+  }
+
+  const saveEditor = () => {
+    if (!editorItem.title.trim()) {
+      toast({ title: 'Title required', description: 'Add a process step title before saving.', variant: 'destructive' })
+      return
+    }
+
+    const key = editorItem.id ? `id-${editorItem.id}` : editorItem.clientId
+    const exists = items.some((item) => (item.id ? `id-${item.id}` : item.clientId) === key)
+    const nextItems = exists
+      ? items.map((item) => ((item.id ? `id-${item.id}` : item.clientId) === key ? editorItem : item))
+      : [...items, editorItem]
+
+    setItems(nextItems)
+    setDialogOpen(false)
+    toast({ title: 'Step updated', description: 'Draft updated locally. Save changes to publish.' })
+  }
+
+  const removeItem = (item: BespokeProcessItem) => {
+    const key = item.id ? `id-${item.id}` : item.clientId
+    setItems(items.filter((entry) => (entry.id ? `id-${entry.id}` : entry.clientId) !== key))
+    toast({ title: 'Step removed', description: 'Draft updated locally. Save changes to publish.' })
+  }
+
+  const saveAll = async () => {
+    const response = await authedFetch('/api/cms/bespoke/process', {
+      method: 'POST',
+      body: JSON.stringify({
+        items: sorted.map(({ sort_order, eyebrow, title, description }) => ({
+          sort_order,
+          eyebrow,
+          title,
+          description,
+        })),
+      }),
+    })
+    const payload = await response.json().catch(() => null)
+
+    if (!response.ok) {
+      toast({ title: 'Save failed', description: payload?.error ?? 'Unable to save process steps.', variant: 'destructive' })
+      return
+    }
+
+    setConfirmOpen(false)
+    await onReload()
+    toast({ title: 'Process steps saved', description: 'Bespoke process cards were updated.' })
+  }
+
+  return (
+    <section className="rounded-lg border border-border bg-white p-6 shadow-xs space-y-6">
+      <SectionHeader title="Process Steps" description="Manage the Bespoke process cards shown on the storefront." actionLabel="Add Step" onAction={openNew} />
+
+      <DataTable
+        headers={['Order', 'Eyebrow', 'Title', 'Edit', 'Delete']}
+        rows={sorted.map((item) => ({
+          id: item.clientId ?? `id-${item.id}`,
+          cells: [
+            item.sort_order,
+            item.eyebrow,
+            item.title,
+            <IconButton key="edit" onClick={() => openEdit(item)}><Edit2 size={14} className="text-muted-foreground" /></IconButton>,
+            <IconButton key="delete" onClick={() => removeItem(item)} destructive><Trash2 size={14} className="text-red-600" /></IconButton>,
+          ],
+        }))}
+      />
+
+      <div className="flex justify-end">
+        <button type="button" onClick={() => setConfirmOpen(true)} className={primaryButtonClassName}>Save Process Steps</button>
+      </div>
+
+      <FormDialog open={dialogOpen} onOpenChange={setDialogOpen} title="Edit Process Step" description="Update eyebrow, title, and description.">
+        <Field label="Order">
+          <input type="number" value={editorItem.sort_order} onChange={(event) => setEditorItem((prev) => ({ ...prev, sort_order: Number(event.target.value) || 0 }))} className={inputClassName} />
+        </Field>
+        <Field label="Eyebrow">
+          <input value={editorItem.eyebrow} onChange={(event) => setEditorItem((prev) => ({ ...prev, eyebrow: event.target.value }))} className={inputClassName} />
+        </Field>
+        <Field label="Title">
+          <input value={editorItem.title} onChange={(event) => setEditorItem((prev) => ({ ...prev, title: event.target.value }))} className={inputClassName} />
+        </Field>
+        <Field label="Description">
+          <textarea value={editorItem.description} onChange={(event) => setEditorItem((prev) => ({ ...prev, description: event.target.value }))} rows={4} className={inputClassName} />
+        </Field>
+        <Actions onSave={saveEditor} onCancel={() => setDialogOpen(false)} />
+      </FormDialog>
+
+      <ConfirmDialog
+        isOpen={confirmOpen}
+        title="Save process steps?"
+        description="This will update the Bespoke process cards on the live site."
+        confirmText="Save"
+        onConfirm={() => void saveAll()}
+        onCancel={() => setConfirmOpen(false)}
+      />
+    </section>
   )
 }
 
@@ -567,7 +756,8 @@ function PortfolioItemsPanel({ categories, items, onReload }: { categories: Port
   const [deleteTarget, setDeleteTarget] = useState<PortfolioItem | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [form, setForm] = useState<PortfolioItem>(emptyPortfolioItem(categories[0]?.id ?? '', items.length + 1))
-  const [videoUploadState, setVideoUploadState] = useState<{ uploading: boolean; progress: number }>({ uploading: false, progress: 0 })
+  const [imageUploadState, setImageUploadState] = useState<'idle' | 'uploading'>('idle')
+  const [thumbnailUploadState, setThumbnailUploadState] = useState<'idle' | 'uploading'>('idle')
   const categoryName = (id: string) => categories.find((item) => item.id === id)?.name ?? ''
 
   const openNew = () => {
@@ -580,28 +770,19 @@ function PortfolioItemsPanel({ categories, items, onReload }: { categories: Port
     setForm(item)
     setDialogOpen(true)
   }
-  const uploadMedia = async (file: File, kind: 'image' | 'video') => {
+  const uploadMedia = async (file: File) => {
     const accessToken = await getAccessToken()
     const body = new FormData()
     body.append('file', file)
-    body.append('kind', kind)
+    body.append('kind', 'image')
 
     return await new Promise<string>((resolve, reject) => {
       const xhr = new XMLHttpRequest()
       xhr.open('POST', '/api/bespoke/media')
       if (accessToken) xhr.setRequestHeader('authorization', `Bearer ${accessToken}`)
 
-      if (kind === 'video') {
-        setVideoUploadState({ uploading: true, progress: 0 })
-        xhr.upload.onprogress = (event) => {
-          if (!event.lengthComputable) return
-          const progress = Math.max(0, Math.min(100, Math.round((event.loaded / event.total) * 100)))
-          setVideoUploadState({ uploading: true, progress })
-        }
-      }
-
       xhr.onerror = () => {
-        if (kind === 'video') setVideoUploadState({ uploading: false, progress: 0 })
+        setImageUploadState('idle')
         reject(new Error('Network error while uploading media.'))
       }
 
@@ -613,10 +794,6 @@ function PortfolioItemsPanel({ categories, items, onReload }: { categories: Port
             return null
           }
         })()
-
-        if (kind === 'video') {
-          setVideoUploadState({ uploading: false, progress: xhr.status >= 200 && xhr.status < 300 ? 100 : 0 })
-        }
 
         if (xhr.status < 200 || xhr.status >= 300 || !payload?.path) {
           reject(new Error(payload?.error ?? 'Unable to upload media.'))
@@ -703,7 +880,7 @@ function PortfolioItemsPanel({ categories, items, onReload }: { categories: Port
         <Field label="Short Description"><textarea value={form.short_description ?? ''} onChange={(e) => setForm((prev) => ({ ...prev, short_description: e.target.value }))} rows={4} className={inputClassName} /></Field>
         <Field label="Status"><ToggleRow options={['Active', 'Hidden']} value={form.status === 'hidden' ? 'Hidden' : 'Active'} onChange={(value) => setForm((prev) => ({ ...prev, status: value === 'Hidden' ? 'hidden' : 'active' }))} /></Field>
         <div className="grid gap-4 md:grid-cols-2">
-          <Field label={isVideoMedia ? 'Video URL or Upload' : 'Image URL'}>
+          <Field label={isVideoMedia ? 'Video URL' : 'Image URL'}>
             <input
               value={form.media_path ?? ''}
               onChange={(e) => setForm((prev) => ({ ...prev, media_path: e.target.value }))}
@@ -711,49 +888,39 @@ function PortfolioItemsPanel({ categories, items, onReload }: { categories: Port
               className={inputClassName}
             />
             <p className="mt-2 text-xs text-muted-foreground">
-              {isVideoMedia ? 'Paste a public video URL, or upload a video below. Manual uploads go to Cloudflare R2 and must be 20MB or smaller.' : 'Use a direct public image URL. Large images should stay URL-based instead of being uploaded here.'}
+              {isVideoMedia ? 'Paste a direct public video URL. Video file upload is disabled for this section.' : 'Paste a public image URL, or upload a JPG, PNG, WebP, AVIF, or SVG below.'}
             </p>
-            {isVideoMedia ? (
-              <>
-                <label className={`mt-3 flex cursor-pointer items-center gap-2 rounded-lg border border-border px-4 py-3 text-sm font-medium transition-colors ${videoUploadState.uploading ? 'bg-secondary/30 text-muted-foreground' : 'bg-secondary/20 text-foreground hover:bg-secondary/30'}`}>
-                  {videoUploadState.uploading ? <Loader2 size={16} className="animate-spin" /> : <Video size={16} />}
-                  <span>{videoUploadState.uploading ? `Uploading... ${videoUploadState.progress}%` : 'Upload Video to R2'}</span>
-                  <input
-                    type="file"
-                    accept="video/mp4,video/quicktime,video/webm"
-                    className="hidden"
-                    disabled={videoUploadState.uploading}
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0]
-                      if (!file) return
-                      try {
-                        const path = await uploadMedia(file, 'video')
-                        setForm((prev) => ({ ...prev, media_path: path }))
-                        toast({ title: 'Upload complete', description: 'Video uploaded to Cloudflare R2 successfully.' })
-                      } catch (error) {
-                        toast({ title: 'Upload failed', description: error instanceof Error ? error.message : 'Unable to upload media.', variant: 'destructive' })
-                      } finally {
-                        e.currentTarget.value = ''
-                      }
-                    }}
-                  />
-                </label>
-                {videoUploadState.uploading ? (
-                  <div className="mt-3">
-                    <div className="h-2 w-full overflow-hidden rounded-full bg-secondary/40">
-                      <div
-                        className="h-full rounded-full bg-primary transition-[width] duration-200 ease-out"
-                        style={{ width: `${videoUploadState.progress}%` }}
-                      />
-                    </div>
-                    <p className="mt-2 text-xs text-muted-foreground">Uploading to Cloudflare R2...</p>
-                  </div>
-                ) : null}
-              </>
+            {!isVideoMedia ? (
+              <label className={`mt-3 flex cursor-pointer items-center gap-2 rounded-lg border border-border px-4 py-3 text-sm font-medium transition-colors ${imageUploadState === 'uploading' ? 'bg-secondary/30 text-muted-foreground' : 'bg-secondary/20 text-foreground hover:bg-secondary/30'}`}>
+                {imageUploadState === 'uploading' ? <Loader2 size={16} className="animate-spin" /> : <ImageIcon size={16} />}
+                <span>{imageUploadState === 'uploading' ? 'Uploading image...' : 'Upload Image'}</span>
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/avif,image/svg+xml"
+                  className="hidden"
+                  disabled={imageUploadState === 'uploading'}
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0]
+                    const input = e.currentTarget
+                    if (!file) return
+                    setImageUploadState('uploading')
+                    try {
+                      const path = await uploadMedia(file)
+                      setForm((prev) => ({ ...prev, media_path: path }))
+                      toast({ title: 'Upload complete', description: 'Image uploaded successfully.' })
+                    } catch (error) {
+                      toast({ title: 'Upload failed', description: error instanceof Error ? error.message : 'Unable to upload image.', variant: 'destructive' })
+                    } finally {
+                      setImageUploadState('idle')
+                      input.value = ''
+                    }
+                  }}
+                />
+              </label>
             ) : null}
             {form.media_path ? <p className="mt-2 text-xs text-muted-foreground">{form.media_path}</p> : null}
           </Field>
-          <Field label="Thumbnail URL">
+          <Field label="Thumbnail URL or Upload">
             <input
               value={form.thumbnail_path ?? ''}
               onChange={(e) => setForm((prev) => ({ ...prev, thumbnail_path: e.target.value }))}
@@ -761,8 +928,34 @@ function PortfolioItemsPanel({ categories, items, onReload }: { categories: Port
               className={inputClassName}
             />
             <p className="mt-2 text-xs text-muted-foreground">
-              Use a direct image URL. For video items, this is recommended when you want a controlled poster image in the grid.
+              Use a direct image URL or upload a thumbnail. For video items, this is recommended when you want a controlled poster image in the grid.
             </p>
+            <label className={`mt-3 flex cursor-pointer items-center gap-2 rounded-lg border border-border px-4 py-3 text-sm font-medium transition-colors ${thumbnailUploadState === 'uploading' ? 'bg-secondary/30 text-muted-foreground' : 'bg-secondary/20 text-foreground hover:bg-secondary/30'}`}>
+              {thumbnailUploadState === 'uploading' ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+              <span>{thumbnailUploadState === 'uploading' ? 'Uploading thumbnail...' : 'Upload Thumbnail'}</span>
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/avif,image/svg+xml"
+                className="hidden"
+                disabled={thumbnailUploadState === 'uploading'}
+                onChange={async (e) => {
+                  const file = e.target.files?.[0]
+                  const input = e.currentTarget
+                  if (!file) return
+                  setThumbnailUploadState('uploading')
+                  try {
+                    const path = await uploadMedia(file)
+                    setForm((prev) => ({ ...prev, thumbnail_path: path }))
+                    toast({ title: 'Upload complete', description: 'Thumbnail uploaded successfully.' })
+                  } catch (error) {
+                    toast({ title: 'Upload failed', description: error instanceof Error ? error.message : 'Unable to upload thumbnail.', variant: 'destructive' })
+                  } finally {
+                    setThumbnailUploadState('idle')
+                    input.value = ''
+                  }
+                }}
+              />
+            </label>
             {form.thumbnail_path ? <p className="mt-2 text-xs text-muted-foreground">{form.thumbnail_path}</p> : null}
           </Field>
         </div>

@@ -9,7 +9,6 @@ const CMS_TABS = [
   { label: 'Collection', href: '/dashboard/cms/collection', key: 'collection' },
   { label: 'About', href: '/dashboard/cms/about', key: 'about' },
   { label: 'Contact', href: '/dashboard/cms/contact', key: 'contact' },
-  { label: 'Bespoke', href: '/dashboard/cms/bespoke', key: 'bespoke' },
   { label: 'Blog', href: '/dashboard/cms/blog', key: 'blog' },
   { label: 'Docs', href: '/dashboard/cms/docs', key: 'docs' },
   { label: 'Support', href: '/dashboard/cms/support', key: 'support' },

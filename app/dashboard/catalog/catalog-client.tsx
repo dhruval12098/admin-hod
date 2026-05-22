@@ -9,7 +9,7 @@ import { TablePagination } from '@/components/table-pagination'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useToast } from '@/hooks/use-toast'
-import type { CatalogCategory, CatalogOption, CatalogSubcategory, ProductContentRule } from '@/lib/product-catalog'
+import type { CatalogCategory, CatalogNavbarItem, CatalogOption, CatalogSubcategory, ProductContentRule } from '@/lib/product-catalog'
 import { slugify } from '@/lib/product-catalog'
 
 type CatalogTab = 'categories' | 'policies'
@@ -53,6 +53,20 @@ type PolicyFormState = {
 }
 
 const PAGE_SIZE = 20
+
+function getCategoryNavStatus(category: CatalogCategory, navbarItems: CatalogNavbarItem[]) {
+  const navbarItem = navbarItems.find((item) => item.linked_category_id === category.id || item.slug === category.slug)
+  const isInNavbar = navbarItem?.status === 'active' || (category.show_in_nav !== false && Boolean(category.nav_type))
+  const navType = navbarItem?.item_type ?? category.nav_type
+
+  if (!isInNavbar) {
+    return { label: 'Not in Nav', className: 'bg-slate-100 text-slate-700' }
+  }
+
+  return navType === 'direct_link'
+    ? { label: 'Direct Link', className: 'bg-slate-100 text-slate-700' }
+    : { label: 'Mega Menu', className: 'bg-blue-100 text-blue-700' }
+}
 
 function emptyCategoryForm(nextOrder: number): CategoryFormState {
   return {
@@ -138,14 +152,17 @@ async function uploadCatalogSvg(kind: 'subcategories' | 'options', file: File) {
 
 export function CatalogClient({
   initialCategories,
+  initialNavbarItems,
   initialProductContentRules,
 }: {
   initialCategories: CatalogCategory[]
+  initialNavbarItems: CatalogNavbarItem[]
   initialProductContentRules: ProductContentRule[]
 }) {
   const [activeTab, setActiveTab] = useState<CatalogTab>('categories')
   const [loading, setLoading] = useState(false)
   const [categories, setCategories] = useState<CatalogCategory[]>(initialCategories)
+  const [navbarItems, setNavbarItems] = useState<CatalogNavbarItem[]>(initialNavbarItems)
   const [productContentRules, setProductContentRules] = useState<ProductContentRule[]>(initialProductContentRules)
 
   useEffect(() => {
@@ -168,6 +185,7 @@ export function CatalogClient({
       const payload = await response.json()
       if (response.ok) {
         setCategories(payload.categories ?? [])
+        setNavbarItems(payload.navbarItems ?? [])
         setProductContentRules(payload.productContentRules ?? [])
       }
     } finally {
@@ -206,7 +224,7 @@ export function CatalogClient({
       </div>
 
       {activeTab === 'categories' ? (
-        <CategoriesPanel categories={categories} onChange={loadData} />
+        <CategoriesPanel categories={categories} navbarItems={navbarItems} onChange={loadData} />
       ) : null}
 
       {activeTab === 'policies' ? (
@@ -220,7 +238,7 @@ export function CatalogClient({
   )
 }
 
-function CategoriesPanel({ categories, onChange }: { categories: CatalogCategory[]; onChange: () => Promise<void> }) {
+function CategoriesPanel({ categories, navbarItems, onChange }: { categories: CatalogCategory[]; navbarItems: CatalogNavbarItem[]; onChange: () => Promise<void> }) {
   const { toast } = useToast()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [isPanelOpen, setIsPanelOpen] = useState(false)
@@ -295,7 +313,9 @@ function CategoriesPanel({ categories, onChange }: { categories: CatalogCategory
 
       <DataTable
         headers={['Name', 'Slug', 'Nav Type', 'Display Order', 'Status', 'View', 'Edit', 'Delete']}
-        rows={categories.map((item) => ({
+        rows={categories.map((item) => {
+          const navStatus = getCategoryNavStatus(item, navbarItems)
+          return {
           id: item.id,
           cells: [
             <div key="name" className="flex items-center gap-2">
@@ -303,8 +323,8 @@ function CategoriesPanel({ categories, onChange }: { categories: CatalogCategory
               {item.is_system_locked ? <Badge className="bg-amber-100 text-amber-700">System Locked</Badge> : null}
             </div>,
             item.slug,
-            <Badge key="nav" className={item.show_in_nav === false || !item.nav_type ? 'bg-slate-100 text-slate-700' : item.nav_type === 'mega_menu' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-700'}>
-              {item.show_in_nav === false || !item.nav_type ? 'Not in Nav' : item.nav_type === 'mega_menu' ? 'Mega Menu' : 'Direct Link'}
+            <Badge key="nav" className={navStatus.className}>
+              {navStatus.label}
             </Badge>,
             item.display_order,
             <Badge key="status" className={item.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-700'}>{item.status === 'active' ? 'Active' : 'Hidden'}</Badge>,
@@ -326,7 +346,7 @@ function CategoriesPanel({ categories, onChange }: { categories: CatalogCategory
               <IconButton key="delete" onClick={() => setDeleteTarget(item)} destructive><Trash2 size={14} className="text-red-600" /></IconButton>
             ),
           ],
-        }))}
+        }})}
       />
 
       <FormDialog

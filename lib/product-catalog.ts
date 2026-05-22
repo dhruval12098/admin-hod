@@ -36,6 +36,16 @@ export type CatalogCategory = {
   status: CatalogStatus
 }
 
+export type CatalogNavbarItem = {
+  id: string
+  label: string
+  slug: string
+  item_type: 'mega_menu' | 'direct_link'
+  linked_category_id: string | null
+  direct_link_url: string | null
+  status: CatalogStatus
+}
+
 export type CatalogGridPoster = {
   id: string
   category_id: string

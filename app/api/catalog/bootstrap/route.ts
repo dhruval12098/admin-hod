@@ -13,7 +13,7 @@ export async function GET(request: Request) {
 
   const { adminClient } = access
 
-  const [categoriesResult, subcategoriesResult, optionsResult, metalsResult, materialValues, stoneShapesResult, ringSizes, ringCategories, ringCategorySizes, certificates, styles, productContentRules, gstSlabs] = await Promise.all([
+  const [categoriesResult, subcategoriesResult, optionsResult, metalsResult, materialValues, stoneShapesResult, ringSizes, ringCategories, ringCategorySizes, certificates, styles, productContentRules, gstSlabs, navbarItemsResult] = await Promise.all([
     adminClient.from('catalog_categories').select('*').order('display_order', { ascending: true }),
     adminClient.from('catalog_subcategories').select('*').order('display_order', { ascending: true }),
     adminClient.from('catalog_options').select('*').order('display_order', { ascending: true }),
@@ -27,6 +27,7 @@ export async function GET(request: Request) {
     loadOptionalTable(adminClient, 'catalog_styles'),
     loadOptionalTable(adminClient, 'product_content_rules'),
     loadOptionalTable(adminClient, 'catalog_gst_slabs'),
+    adminClient.from('navbar_items').select('id, label, slug, item_type, linked_category_id, direct_link_url, status').order('display_order', { ascending: true }),
   ])
 
   const error =
@@ -54,5 +55,6 @@ export async function GET(request: Request) {
     styles,
     productContentRules,
     gstSlabs,
+    navbarItems: navbarItemsResult.error ? [] : navbarItemsResult.data ?? [],
   })
 }
