@@ -111,6 +111,7 @@ type ProductResponse = {
     image_3_path?: string | null
     image_4_path?: string | null
     video_path?: string | null
+    model_3d_url?: string | null
     show_image_1?: boolean | null
     show_image_2?: boolean | null
     show_image_3?: boolean | null
@@ -220,6 +221,7 @@ function applyProductPayload(
     setImagePaths: Dispatch<SetStateAction<(string | null)[]>>
     setImageSlots: Dispatch<SetStateAction<string[]>>
     setVideoPath: Dispatch<SetStateAction<string | null>>
+    setModel3dUrl: Dispatch<SetStateAction<string>>
     setShowImageSlots: Dispatch<SetStateAction<boolean[]>>
     setShowVideo: Dispatch<SetStateAction<boolean>>
     setCustomOrderEnabled: Dispatch<SetStateAction<boolean>>
@@ -320,6 +322,7 @@ function applyProductPayload(
     item.image_4_path ?? '',
   ])
   setters.setVideoPath(item.video_path ?? null)
+  setters.setModel3dUrl(item.model_3d_url ?? '')
   setters.setShowImageSlots([
     item.show_image_1 ?? true,
     item.show_image_2 ?? true,
@@ -494,6 +497,7 @@ export function ProductForm({
   const [imageSlots, setImageSlots] = useState<string[]>(['', '', '', ''])
   const [imagePaths, setImagePaths] = useState<(string | null)[]>([null, null, null, null])
   const [videoPath, setVideoPath] = useState<string | null>(null)
+  const [model3dUrl, setModel3dUrl] = useState('')
   const [showImageSlots, setShowImageSlots] = useState([true, true, true, true])
   const [showVideo, setShowVideo] = useState(true)
   const [activeMetalMediaId, setActiveMetalMediaId] = useState('')
@@ -586,6 +590,7 @@ export function ProductForm({
       setImagePaths,
       setImageSlots,
       setVideoPath,
+      setModel3dUrl,
       setShowImageSlots,
       setShowVideo,
       setCustomOrderEnabled,
@@ -1213,6 +1218,7 @@ export function ProductForm({
           image_3_path: imagePaths[2],
           image_4_path: imagePaths[3],
           video_path: videoPath,
+          model_3d_url: model3dUrl.trim() || null,
           show_image_1: showImageSlots[0],
           show_image_2: showImageSlots[1],
           show_image_3: showImageSlots[2],
@@ -2255,6 +2261,15 @@ export function ProductForm({
                   />
                 </div>
 
+                <div className="mt-4">
+                  <MediaVideoUrlRow
+                    value={model3dUrl}
+                    label="3D Model GLB URL"
+                    helperText="Paste the Cloudflare/R2 direct .glb URL. This keeps images and video unchanged and adds an optional interactive 3D viewer on product details."
+                    onChange={setModel3dUrl}
+                  />
+                </div>
+
               <div className="mt-6 rounded-lg border border-border bg-card p-6">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div>
@@ -2950,10 +2965,12 @@ function MediaThumbnailSlot({
 function MediaVideoUrlRow({
   value,
   label = 'Video URL',
+  helperText = 'Paste the public video URL to be used on the storefront.',
   onChange,
 }: {
   value: string
   label?: string
+  helperText?: string
   onChange: (value: string) => void
 }) {
   return (
@@ -2964,7 +2981,7 @@ function MediaVideoUrlRow({
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-foreground">{label}</p>
-          <p className="mt-1 text-xs text-muted-foreground">Paste the public video URL to be used on the storefront.</p>
+          <p className="mt-1 text-xs text-muted-foreground">{helperText}</p>
           <div className="mt-3 flex items-center gap-2">
             <input
               type="url"

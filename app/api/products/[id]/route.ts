@@ -223,6 +223,7 @@ function buildProductUpdatePayload(body: ProductPayload, includeStyleId = true) 
     image_3_path: body.image_3_path ?? null,
     image_4_path: body.image_4_path ?? null,
     video_path: body.video_path ?? null,
+    model_3d_url: body.model_3d_url ?? null,
     show_image_1: body.show_image_1 ?? true,
     show_image_2: body.show_image_2 ?? true,
     show_image_3: body.show_image_3 ?? true,
@@ -309,6 +310,7 @@ type ProductPayload = {
   image_3_path?: string | null
   image_4_path?: string | null
   video_path?: string | null
+  model_3d_url?: string | null
   show_image_1?: boolean
   show_image_2?: boolean
   show_image_3?: boolean
@@ -392,10 +394,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       ? Number(defaultVariant.price)
       : body.base_price
 
-  const updateProduct = (options?: { includeStyleId?: boolean; includeShapeFields?: boolean; includeOverrideFields?: boolean }) => {
+  const updateProduct = (options?: { includeStyleId?: boolean; includeShapeFields?: boolean; includeOverrideFields?: boolean; includeModelField?: boolean }) => {
     const includeStyleId = options?.includeStyleId ?? true
     const includeShapeFields = options?.includeShapeFields ?? true
     const includeOverrideFields = options?.includeOverrideFields ?? true
+    const includeModelField = options?.includeModelField ?? true
     const payload = buildProductUpdatePayload(
       {
         ...body,
@@ -411,6 +414,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       delete payload.shipping_override_enabled
       delete payload.care_warranty_override_enabled
     }
+    if (!includeModelField) {
+      delete payload.model_3d_url
+    }
 
     return (
     adminClient
@@ -423,7 +429,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
 
   let { data: product, error } = await updateProduct()
-  if (error && (isMissingStyleIdColumn(error) || isMissingProductColumn(error, 'gemstone_value') || isMissingProductColumn(error, 'shapes_enabled') || isMissingProductColumn(error, 'shipping_override_enabled') || isMissingProductColumn(error, 'care_warranty_override_enabled'))) {
+  if (error && (isMissingStyleIdColumn(error) || isMissingProductColumn(error, 'gemstone_value') || isMissingProductColumn(error, 'shapes_enabled') || isMissingProductColumn(error, 'shipping_override_enabled') || isMissingProductColumn(error, 'care_warranty_override_enabled') || isMissingProductColumn(error, 'model_3d_url'))) {
     ;({
       data: product,
       error,
@@ -431,6 +437,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       includeStyleId: !isMissingStyleIdColumn(error),
       includeShapeFields: !isMissingProductColumn(error, 'shapes_enabled'),
       includeOverrideFields: !isMissingProductColumn(error, 'shipping_override_enabled') && !isMissingProductColumn(error, 'care_warranty_override_enabled'),
+      includeModelField: !isMissingProductColumn(error, 'model_3d_url'),
     }))
     if (error && isMissingProductColumn(error, 'gemstone_value')) {
       const retryPayload = buildProductUpdatePayload(body, !isMissingStyleIdColumn(error))
@@ -438,6 +445,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       if (isMissingProductColumn(error, 'shapes_enabled')) delete retryPayload.shapes_enabled
       if (isMissingProductColumn(error, 'shipping_override_enabled')) delete retryPayload.shipping_override_enabled
       if (isMissingProductColumn(error, 'care_warranty_override_enabled')) delete retryPayload.care_warranty_override_enabled
+      if (isMissingProductColumn(error, 'model_3d_url')) delete retryPayload.model_3d_url
       ;({ data: product, error } = await adminClient.from('products').update(retryPayload).eq('id', id).select('*').single())
     }
   }

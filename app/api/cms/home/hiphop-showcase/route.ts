@@ -9,7 +9,7 @@ export async function GET(request: Request) {
 
   const { data, error } = await access.adminClient
     .from('hiphop_showcase_section')
-    .select('eyebrow, heading_line_1, heading_line_2, heading_emphasis, cta_label, cta_link, image_path, image_alt')
+    .select('*')
     .eq('section_key', sectionKey)
     .maybeSingle()
 
@@ -26,6 +26,7 @@ export async function POST(request: Request) {
 
   const payload = {
     section_key: sectionKey,
+    is_enabled: body.is_enabled ?? true,
     eyebrow: body.eyebrow ?? '',
     heading_line_1: body.heading_line_1 ?? '',
     heading_line_2: body.heading_line_2 ?? '',
@@ -40,7 +41,7 @@ export async function POST(request: Request) {
   const { data, error } = await access.adminClient
     .from('hiphop_showcase_section')
     .upsert(payload, { onConflict: 'section_key' })
-    .select('eyebrow, heading_line_1, heading_line_2, heading_emphasis, cta_label, cta_link, image_path, image_alt')
+    .select('*')
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

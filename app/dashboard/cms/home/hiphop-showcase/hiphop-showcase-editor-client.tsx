@@ -9,6 +9,7 @@ import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
 
 export type HipHopShowcaseInitialData = {
+  is_enabled: boolean
   eyebrow: string
   heading_line_1: string
   heading_line_2: string
@@ -109,6 +110,19 @@ export function HipHopShowcaseEditorClient({ initialData }: { initialData: HipHo
       </div>
 
       <div className="max-w-4xl space-y-6 rounded-lg border border-border bg-white p-8 shadow-xs">
+        <label className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+          <div>
+            <p className="text-sm font-semibold text-foreground">Show Hip Hop Banner on Home Page</p>
+            <p className="text-xs text-muted-foreground">Turn this on to show the wide Hip Hop banner on the home page. Turn it off to hide it.</p>
+          </div>
+          <input
+            type="checkbox"
+            checked={form.is_enabled}
+            onChange={(e) => setForm((prev) => ({ ...prev, is_enabled: e.target.checked }))}
+            className="h-5 w-5 rounded border-border"
+          />
+        </label>
+
         <div>
           <label className="mb-2 block text-sm font-semibold text-foreground">Eyebrow</label>
           <input

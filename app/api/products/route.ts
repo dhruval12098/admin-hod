@@ -254,6 +254,7 @@ function buildProductWritePayload(body: ProductPayload, includeStyleId = true) {
     image_3_path: body.image_3_path ?? null,
     image_4_path: body.image_4_path ?? null,
     video_path: body.video_path ?? null,
+    model_3d_url: body.model_3d_url ?? null,
     show_image_1: body.show_image_1 ?? true,
     show_image_2: body.show_image_2 ?? true,
     show_image_3: body.show_image_3 ?? true,
@@ -340,6 +341,7 @@ type ProductPayload = {
   image_3_path?: string | null
   image_4_path?: string | null
   video_path?: string | null
+  model_3d_url?: string | null
   show_image_1?: boolean
   show_image_2?: boolean
   show_image_3?: boolean
@@ -532,10 +534,11 @@ export async function POST(request: Request) {
     }),
   }
 
-  const buildInsertPayload = (options?: { includeStyleId?: boolean; includeShapeFields?: boolean; includeOverrideFields?: boolean }) => {
+  const buildInsertPayload = (options?: { includeStyleId?: boolean; includeShapeFields?: boolean; includeOverrideFields?: boolean; includeModelField?: boolean }) => {
     const includeStyleId = options?.includeStyleId ?? true
     const includeShapeFields = options?.includeShapeFields ?? true
     const includeOverrideFields = options?.includeOverrideFields ?? true
+    const includeModelField = options?.includeModelField ?? true
     const payload = buildProductWritePayload(body, includeStyleId)
     if (!includeShapeFields) {
       delete payload.shapes_enabled
@@ -544,6 +547,9 @@ export async function POST(request: Request) {
       delete payload.shipping_override_enabled
       delete payload.care_warranty_override_enabled
     }
+    if (!includeModelField) {
+      delete payload.model_3d_url
+    }
     return {
       slug: baseInsert.slug,
       ...payload,
@@ -551,7 +557,7 @@ export async function POST(request: Request) {
   }
 
   let { data: product, error } = await adminClient.from('products').insert(buildInsertPayload()).select('*').single()
-  if (error && (isMissingStyleIdColumn(error) || isMissingProductColumn(error, 'gemstone_value') || isMissingProductColumn(error, 'shapes_enabled') || isMissingProductColumn(error, 'shipping_override_enabled') || isMissingProductColumn(error, 'care_warranty_override_enabled'))) {
+  if (error && (isMissingStyleIdColumn(error) || isMissingProductColumn(error, 'gemstone_value') || isMissingProductColumn(error, 'shapes_enabled') || isMissingProductColumn(error, 'shipping_override_enabled') || isMissingProductColumn(error, 'care_warranty_override_enabled') || isMissingProductColumn(error, 'model_3d_url'))) {
     ;({ data: product, error } = await adminClient
       .from('products')
       .insert(
@@ -559,6 +565,7 @@ export async function POST(request: Request) {
           includeStyleId: !isMissingStyleIdColumn(error),
           includeShapeFields: !isMissingProductColumn(error, 'shapes_enabled'),
           includeOverrideFields: !isMissingProductColumn(error, 'shipping_override_enabled') && !isMissingProductColumn(error, 'care_warranty_override_enabled'),
+          includeModelField: !isMissingProductColumn(error, 'model_3d_url'),
         })
       )
       .select('*')
@@ -568,6 +575,7 @@ export async function POST(request: Request) {
         includeStyleId: !isMissingStyleIdColumn(error),
         includeShapeFields: !isMissingProductColumn(error, 'shapes_enabled'),
         includeOverrideFields: !isMissingProductColumn(error, 'shipping_override_enabled') && !isMissingProductColumn(error, 'care_warranty_override_enabled'),
+        includeModelField: !isMissingProductColumn(error, 'model_3d_url'),
       })
       delete retryPayload.gemstone_value
       ;({ data: product, error } = await adminClient.from('products').insert(retryPayload).select('*').single())

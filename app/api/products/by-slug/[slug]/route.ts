@@ -230,6 +230,7 @@ type ProductPayload = {
   image_3_path?: string | null
   image_4_path?: string | null
   video_path?: string | null
+  model_3d_url?: string | null
   show_image_1?: boolean
   show_image_2?: boolean
   show_image_3?: boolean
@@ -382,6 +383,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ sl
       image_3_path: body.image_3_path ?? null,
       image_4_path: body.image_4_path ?? null,
       video_path: body.video_path ?? null,
+      model_3d_url: body.model_3d_url ?? null,
       show_image_1: body.show_image_1 ?? true,
       show_image_2: body.show_image_2 ?? true,
       show_image_3: body.show_image_3 ?? true,
@@ -400,7 +402,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ sl
     .select('*')
     .single()
 
-  if (error && (isMissingProductColumn(error, 'gemstone_value') || isMissingProductColumn(error, 'shapes_enabled') || isMissingProductColumn(error, 'shipping_override_enabled') || isMissingProductColumn(error, 'care_warranty_override_enabled'))) {
+  if (error && (isMissingProductColumn(error, 'gemstone_value') || isMissingProductColumn(error, 'shapes_enabled') || isMissingProductColumn(error, 'shipping_override_enabled') || isMissingProductColumn(error, 'care_warranty_override_enabled') || isMissingProductColumn(error, 'model_3d_url'))) {
     const retryPayload: Record<string, unknown> = {
       name: body.name,
       sku: body.sku,
@@ -447,6 +449,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ sl
       image_3_path: body.image_3_path ?? null,
       image_4_path: body.image_4_path ?? null,
       video_path: body.video_path ?? null,
+      model_3d_url: body.model_3d_url ?? null,
       show_image_1: body.show_image_1 ?? true,
       show_image_2: body.show_image_2 ?? true,
       show_image_3: body.show_image_3 ?? true,
@@ -472,6 +475,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ sl
     }
     if (!isMissingProductColumn(error, 'care_warranty_override_enabled')) {
       retryPayload.care_warranty_override_enabled = body.care_warranty_override_enabled ?? false
+    }
+    if (isMissingProductColumn(error, 'model_3d_url')) {
+      delete retryPayload.model_3d_url
     }
 
     ;({ data: product, error } = await adminClient.from('products').update(retryPayload).eq('id', id).select('*').single())

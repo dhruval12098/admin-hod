@@ -258,6 +258,7 @@ export type ProductRecord = {
   image_3_path?: string | null
   image_4_path?: string | null
   video_path?: string | null
+  model_3d_url?: string | null
   show_image_1?: boolean | null
   show_image_2?: boolean | null
   show_image_3?: boolean | null

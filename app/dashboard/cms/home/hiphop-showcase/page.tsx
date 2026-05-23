@@ -6,7 +6,7 @@ async function getHipHopShowcaseInitialData(): Promise<HipHopShowcaseInitialData
 
   const { data, error } = await adminClient
     .from('hiphop_showcase_section')
-    .select('eyebrow, heading_line_1, heading_line_2, heading_emphasis, cta_label, cta_link, image_path, image_alt')
+    .select('*')
     .eq('section_key', 'home_hiphop_showcase')
     .maybeSingle()
 
@@ -15,6 +15,7 @@ async function getHipHopShowcaseInitialData(): Promise<HipHopShowcaseInitialData
   }
 
   return {
+    is_enabled: data?.is_enabled ?? true,
     eyebrow: data?.eyebrow ?? 'Hip Hop Collection · House of Diams',
     heading_line_1: data?.heading_line_1 ?? 'Ice That',
     heading_line_2: data?.heading_line_2 ?? 'Speaks',
