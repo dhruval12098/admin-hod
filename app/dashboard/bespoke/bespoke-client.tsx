@@ -924,11 +924,13 @@ function PortfolioItemsPanel({ categories, items, onReload }: { categories: Port
             <input
               value={form.thumbnail_path ?? ''}
               onChange={(e) => setForm((prev) => ({ ...prev, thumbnail_path: e.target.value }))}
-              placeholder="https://cdn.example.com/bespoke-thumb.jpg"
+              placeholder={isVideoMedia ? 'https://cdn.example.com/bespoke-preview.mp4' : 'https://cdn.example.com/bespoke-thumb.jpg'}
               className={inputClassName}
             />
             <p className="mt-2 text-xs text-muted-foreground">
-              Use a direct image URL or upload a thumbnail. For video items, this is recommended when you want a controlled poster image in the grid.
+              {isVideoMedia
+                ? 'Paste a direct image or video URL for the grid thumbnail. Video URLs play on hover. Upload is image-only.'
+                : 'Use a direct image URL or upload a thumbnail.'}
             </p>
             <label className={`mt-3 flex cursor-pointer items-center gap-2 rounded-lg border border-border px-4 py-3 text-sm font-medium transition-colors ${thumbnailUploadState === 'uploading' ? 'bg-secondary/30 text-muted-foreground' : 'bg-secondary/20 text-foreground hover:bg-secondary/30'}`}>
               {thumbnailUploadState === 'uploading' ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
