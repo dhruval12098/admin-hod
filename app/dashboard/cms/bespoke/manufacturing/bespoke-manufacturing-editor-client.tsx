@@ -24,6 +24,8 @@ type ManufacturingItem = {
   eyebrow: string
   title: string
   description: string
+  media_type: 'image' | 'video'
+  media_path: string
   image_path: string
 }
 
@@ -37,6 +39,8 @@ export type BespokeManufacturingInitialData = {
     eyebrow: string
     title: string
     description: string
+    media_type?: 'image' | 'video' | null
+    media_path?: string | null
     image_path: string
   }>
 }
@@ -60,6 +64,8 @@ const empty = (sortOrder: number): EditorItem => ({
   eyebrow: '',
   title: '',
   description: '',
+  media_type: 'image',
+  media_path: '',
   image_path: '',
 })
 
@@ -84,7 +90,13 @@ export function BespokeManufacturingEditorClient({
     ...copy,
   }
   const [items, setItems] = useState<ManufacturingItem[]>(
-    initialData.items.map((item) => ({ clientId: `id-${item.id}`, ...item }))
+    initialData.items.map((item) => ({
+      clientId: `id-${item.id}`,
+      ...item,
+      media_type: item.media_type === 'video' ? 'video' : 'image',
+      media_path: item.media_path ?? item.image_path ?? '',
+      image_path: item.image_path ?? item.media_path ?? '',
+    }))
   )
   const [status, setStatus] = useState(initialData.items.length ? resolvedCopy.loadedStatus : resolvedCopy.emptyStatus)
   const [isSaving, setIsSaving] = useState(false)
@@ -121,7 +133,7 @@ export function BespokeManufacturingEditorClient({
         setStatus(payload?.error ?? 'Unable to upload manufacturing image.')
         return
       }
-      setEditorItem((prev) => ({ ...prev, image_path: payload.path ?? '' }))
+      setEditorItem((prev) => ({ ...prev, media_type: 'image', media_path: payload.path ?? '', image_path: payload.path ?? '' }))
       setStatus('Manufacturing image uploaded')
     } catch {
       setStatus('Unable to upload manufacturing image.')
@@ -146,13 +158,15 @@ export function BespokeManufacturingEditorClient({
         authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify({
-        items: sorted.map(({ sort_order, step, eyebrow, title, description, image_path }) => ({
+        items: sorted.map(({ sort_order, step, eyebrow, title, description, media_type, media_path, image_path }) => ({
           sort_order,
           step,
           eyebrow,
           title,
           description,
-          image_path,
+          media_type,
+          media_path,
+          image_path: media_type === 'image' ? (media_path || image_path) : '',
         })),
       }),
     })
@@ -225,7 +239,7 @@ export function BespokeManufacturingEditorClient({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit Step</DialogTitle>
-            <DialogDescription>Update step number, title, description, and image.</DialogDescription>
+            <DialogDescription>Update step number, title, description, and media.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
@@ -235,15 +249,36 @@ export function BespokeManufacturingEditorClient({
             <input value={editorItem.title} onChange={(e) => setEditorItem((p) => ({ ...p, title: e.target.value }))} placeholder="Title" className="w-full rounded-lg border px-3 py-2" />
             <textarea value={editorItem.description} onChange={(e) => setEditorItem((p) => ({ ...p, description: e.target.value }))} rows={4} placeholder="Description" className="w-full rounded-lg border px-3 py-2" />
             <div>
-              <label className="mb-2 block text-sm font-semibold">Image</label>
-              <div className="flex items-center gap-3">
-                <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold">
-                  <Plus size={14} />
-                  {uploading ? 'Uploading...' : 'Upload Image'}
-                  <input type="file" accept="image/*,.svg" className="hidden" disabled={uploading} onChange={(e: ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (file) void uploadImage(file) }} />
-                </label>
-                <span className="text-xs text-muted-foreground">{editorItem.image_path || 'No image uploaded yet'}</span>
-              </div>
+              <label className="mb-2 block text-sm font-semibold">Media Type</label>
+              <select
+                value={editorItem.media_type}
+                onChange={(e) => setEditorItem((p) => ({ ...p, media_type: e.target.value as 'image' | 'video', media_path: '', image_path: '' }))}
+                className="w-full rounded-lg border px-3 py-2"
+              >
+                <option value="image">Image</option>
+                <option value="video">Video URL</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-semibold">{editorItem.media_type === 'video' ? 'Video URL' : 'Image URL or Upload'}</label>
+              <input
+                value={editorItem.media_path || editorItem.image_path || ''}
+                onChange={(e) => setEditorItem((p) => ({ ...p, media_path: e.target.value, image_path: p.media_type === 'image' ? e.target.value : '' }))}
+                placeholder={editorItem.media_type === 'video' ? 'https://cdn.example.com/workshop-video.mp4' : 'https://cdn.example.com/workshop-image.jpg'}
+                className="mb-3 w-full rounded-lg border px-3 py-2"
+              />
+              {editorItem.media_type === 'image' ? (
+                <div className="flex items-center gap-3">
+                  <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold">
+                    <Plus size={14} />
+                    {uploading ? 'Uploading...' : 'Upload Image'}
+                    <input type="file" accept="image/*,.svg" className="hidden" disabled={uploading} onChange={(e: ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (file) void uploadImage(file) }} />
+                  </label>
+                  <span className="text-xs text-muted-foreground">{editorItem.media_path || editorItem.image_path || 'No image uploaded yet'}</span>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">Paste a direct public video URL. Video upload is disabled for this section.</p>
+              )}
             </div>
           </div>
           <DialogFooter>

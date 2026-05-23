@@ -24,7 +24,7 @@ export async function GET(request: Request) {
   const access = await assertAdmin(request)
   if ('error' in access) return access.error
   const { adminClient } = access
-  const { data, error } = await adminClient.from('bespoke_process_steps').select('id, sort_order, step, eyebrow, title, description, image_path').order('sort_order', { ascending: true })
+  const { data, error } = await adminClient.from('bespoke_process_steps').select('id, sort_order, step, eyebrow, title, description, image_path, media_type, media_path').order('sort_order', { ascending: true })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ items: data ?? [] })
 }
@@ -44,7 +44,9 @@ export async function POST(request: Request) {
       eyebrow: item.eyebrow,
       title: item.title,
       description: item.description,
-      image_path: typeof item.image_path === 'string' ? item.image_path : '',
+      media_type: item.media_type === 'video' ? 'video' : 'image',
+      media_path: typeof item.media_path === 'string' ? item.media_path : (typeof item.image_path === 'string' ? item.image_path : ''),
+      image_path: item.media_type === 'video' ? '' : (typeof item.image_path === 'string' ? item.image_path : (typeof item.media_path === 'string' ? item.media_path : '')),
     }))
   if (rows.length > 0) {
     const { error: insertError } = await adminClient.from('bespoke_process_steps').insert(rows)

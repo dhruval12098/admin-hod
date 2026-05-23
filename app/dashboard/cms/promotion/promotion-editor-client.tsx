@@ -22,6 +22,7 @@ export type PromotionInitialData = {
     cta_text: string
     cta_link: string
     image_path: string
+    mobile_image_path: string
     image_alt: string
     image_only_mode: boolean
     is_active: boolean
@@ -37,14 +38,14 @@ export function PromotionEditorClient({ initialData }: { initialData: PromotionI
   const [uploadState, setUploadState] = useState<'idle' | 'uploading' | 'done' | 'error'>('idle')
   const [form, setForm] = useState(initialData.item)
 
-  const uploadAsset = async (file: File) => {
+  const uploadAsset = async (file: File, field: 'image_path' | 'mobile_image_path') => {
     const accessToken = await getAccessToken()
     if (!accessToken) {
       setStatus('Missing access token.')
       return
     }
     setUploadState('uploading')
-    setStatus('Uploading promotion image...')
+    setStatus(field === 'mobile_image_path' ? 'Uploading mobile promotion image...' : 'Uploading promotion image...')
     const formData = new FormData()
     formData.append('file', file)
     const response = await fetch('/api/cms/uploads/promotion-popup', {
@@ -58,10 +59,10 @@ export function PromotionEditorClient({ initialData }: { initialData: PromotionI
       setStatus(payload?.error ?? 'Unable to upload image.')
       return
     }
-    setForm((prev) => ({ ...prev, image_path: payload.path ?? '' }))
+    setForm((prev) => ({ ...prev, [field]: payload.path ?? '' }))
     setUploadState('done')
-    setStatus('Promotion image uploaded successfully')
-    toast({ title: 'Uploaded', description: 'Promotion image uploaded successfully.' })
+    setStatus(field === 'mobile_image_path' ? 'Mobile promotion image uploaded successfully' : 'Promotion image uploaded successfully')
+    toast({ title: 'Uploaded', description: field === 'mobile_image_path' ? 'Mobile promotion image uploaded successfully.' : 'Promotion image uploaded successfully.' })
   }
 
   const save = async () => {
@@ -125,12 +126,22 @@ export function PromotionEditorClient({ initialData }: { initialData: PromotionI
         <div><label className="mb-2 block text-sm font-semibold text-foreground">CTA Link</label><input value={form.cta_link} onChange={(e) => setForm((prev) => ({ ...prev, cta_link: e.target.value }))} placeholder="/shop" className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm" /></div>
         <div className="rounded-lg border border-border bg-secondary/10 p-4">
           <label className="mb-2 block text-sm font-semibold text-foreground">Promotion Image</label>
+          <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900">
+            Designer handoff: mobile can use a separate image. If no mobile image is uploaded, storefront falls back to the desktop image. Keep key artwork centered. Recommended export sizes: desktop 760x420, mobile-safe 390x360. Storefront popup radius is 18px on mobile and 12px on desktop.
+          </div>
           <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-border bg-white px-4 py-6 text-center hover:border-primary">
             <Upload size={18} className="text-muted-foreground" />
             <span className="mt-2 text-sm font-medium text-foreground">{uploadState === 'uploading' ? 'Uploading...' : 'Upload image'}</span>
-            <span className="mt-1 text-xs text-muted-foreground">Saved into promotion popup media folder</span>
-            <input type="file" accept="image/*,.svg" className="hidden" disabled={uploadState === 'uploading'} onChange={(e) => { const file = e.target.files?.[0]; if (file) void uploadAsset(file) }} />
+            <span className="mt-1 text-xs text-muted-foreground">Desktop image. Saved into promotion popup media folder</span>
+            <input type="file" accept="image/*,.svg" className="hidden" disabled={uploadState === 'uploading'} onChange={(e) => { const file = e.target.files?.[0]; if (file) void uploadAsset(file, 'image_path') }} />
             <span className="mt-3 text-xs text-muted-foreground">{form.image_path || 'No image uploaded yet'}</span>
+          </label>
+          <label className="mt-3 flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-border bg-white px-4 py-6 text-center hover:border-primary">
+            <Upload size={18} className="text-muted-foreground" />
+            <span className="mt-2 text-sm font-medium text-foreground">{uploadState === 'uploading' ? 'Uploading...' : 'Upload mobile image'}</span>
+            <span className="mt-1 text-xs text-muted-foreground">Optional mobile image. Falls back to desktop if empty</span>
+            <input type="file" accept="image/*,.svg" className="hidden" disabled={uploadState === 'uploading'} onChange={(e) => { const file = e.target.files?.[0]; if (file) void uploadAsset(file, 'mobile_image_path') }} />
+            <span className="mt-3 text-xs text-muted-foreground">{form.mobile_image_path || 'No mobile image uploaded yet'}</span>
           </label>
         </div>
         <div><label className="mb-2 block text-sm font-semibold text-foreground">Image Alt Text</label><input value={form.image_alt} onChange={(e) => setForm((prev) => ({ ...prev, image_alt: e.target.value }))} placeholder="Promotion image alt text" className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm" /></div>

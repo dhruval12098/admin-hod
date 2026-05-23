@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Edit2, Eye, ImageIcon, Loader2, Plus, Trash2, Upload } from 'lucide-react'
+import { ArrowDown, ArrowUp, Edit2, Eye, ImageIcon, Loader2, Plus, Trash2, Upload } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/hooks/use-toast'
 import { ConfirmDialog } from '@/components/confirm-dialog'
@@ -329,6 +329,26 @@ function HeroPanel({ hero, setHero, onReload }: { hero: BespokeHero; setHero: (v
   const nextSortOrder = Math.max(...(hero.items ?? []).map((item) => item.sort_order), 0) + 1
   const sortedSlides = [...(hero.items ?? [])].sort((a, b) => a.sort_order - b.sort_order)
 
+  const resequenceSlides = (items: NonNullable<BespokeHero['items']>) => items.map((item, index) => ({ ...item, sort_order: index + 1 }))
+
+  const moveSlide = (index: number, direction: -1 | 1) => {
+    const nextSlides = [...sortedSlides]
+    const targetIndex = index + direction
+
+    if (targetIndex < 0 || targetIndex >= nextSlides.length) {
+      return
+    }
+
+    ;[nextSlides[index], nextSlides[targetIndex]] = [nextSlides[targetIndex], nextSlides[index]]
+    setHero({ ...hero, items: resequenceSlides(nextSlides) })
+    toast({ title: 'Slide order updated', description: 'Draft updated locally. Save hero to publish.' })
+  }
+
+  const removeSlide = (index: number) => {
+    setHero({ ...hero, items: resequenceSlides(sortedSlides.filter((_, slideIndex) => slideIndex !== index)) })
+    toast({ title: 'Slide removed', description: 'Draft updated locally. Save hero to publish.' })
+  }
+
   const uploadImage = async (file: File, target: 'desktop' | 'mobile') => {
     if (target === 'desktop') setDesktopUploadState('uploading')
     if (target === 'mobile') setMobileUploadState('uploading')
@@ -378,7 +398,7 @@ function HeroPanel({ hero, setHero, onReload }: { hero: BespokeHero; setHero: (v
       nextItems.push(editorItem)
     }
 
-    setHero({ ...hero, items: nextItems })
+    setHero({ ...hero, items: resequenceSlides([...nextItems].sort((a, b) => a.sort_order - b.sort_order)) })
     setEditorOpen(false)
     toast({ title: 'Slide added', description: 'Hero slide saved successfully.' })
   }
@@ -386,7 +406,7 @@ function HeroPanel({ hero, setHero, onReload }: { hero: BespokeHero; setHero: (v
   const save = async () => {
     const response = await authedFetch('/api/bespoke/hero', {
       method: 'PUT',
-      body: JSON.stringify(hero),
+      body: JSON.stringify({ ...hero, items: resequenceSlides(sortedSlides) }),
     })
     const payload = await response.json().catch(() => null)
     if (response.ok) {
@@ -439,7 +459,7 @@ function HeroPanel({ hero, setHero, onReload }: { hero: BespokeHero; setHero: (v
                 </tr>
               </thead>
               <tbody>
-                {sortedSlides.map((item) => (
+                {sortedSlides.map((item, index) => (
                   <tr key={item.id ?? item.clientId} className="border-b border-border last:border-b-0">
                     <td className="px-5 py-4 text-sm">{item.sort_order}</td>
                     <td className="px-5 py-4 text-sm">{item.image_path}</td>
@@ -447,14 +467,42 @@ function HeroPanel({ hero, setHero, onReload }: { hero: BespokeHero; setHero: (v
                     <td className="px-5 py-4 text-sm">{item.button_text}</td>
                     <td className="px-5 py-4 text-sm">{item.button_link}</td>
                     <td className="px-5 py-4 text-right">
-                      <button
-                        type="button"
-                        onClick={() => openEditSlide(item)}
-                        className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-secondary"
-                      >
-                        <Edit2 size={14} />
-                        Edit
-                      </button>
+                      <div className="inline-flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => moveSlide(index, -1)}
+                          disabled={index === 0}
+                          aria-label="Move slide up"
+                          className="inline-flex items-center rounded-md border border-border px-2 py-2 text-sm font-medium text-foreground hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <ArrowUp size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => moveSlide(index, 1)}
+                          disabled={index === sortedSlides.length - 1}
+                          aria-label="Move slide down"
+                          className="inline-flex items-center rounded-md border border-border px-2 py-2 text-sm font-medium text-foreground hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <ArrowDown size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openEditSlide(item)}
+                          className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-secondary"
+                        >
+                          <Edit2 size={14} />
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeSlide(index)}
+                          className="inline-flex items-center gap-2 rounded-md border border-red-200 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
+                        >
+                          <Trash2 size={14} />
+                          Delete
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

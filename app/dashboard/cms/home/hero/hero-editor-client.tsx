@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useMemo, useState, type ChangeEvent } from 'react'
-import { ArrowLeft, Edit2, Plus, Upload } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowUp, Edit2, Plus, Trash2, Upload } from 'lucide-react'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { CmsSaveAction } from '@/components/cms-save-action'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -110,10 +110,10 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
       if (existingIndex >= 0) {
         const copy = [...prev]
         copy[existingIndex] = editorItem
-        return copy
+        return resequenceSlides([...copy].sort((a, b) => a.sort_order - b.sort_order || a.clientId.localeCompare(b.clientId)))
       }
 
-      return [...prev, editorItem]
+      return resequenceSlides([...prev, editorItem].sort((a, b) => a.sort_order - b.sort_order || a.clientId.localeCompare(b.clientId)))
     })
 
     setEditorOpen(false)
@@ -145,8 +145,8 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
       },
       body: JSON.stringify({
         ...formData,
-        items: sortedSlides.map(({ sort_order, image_path, mobile_image_path, button_text, button_link }) => ({
-          sort_order,
+        items: sortedSlides.map(({ image_path, mobile_image_path, button_text, button_link }, index) => ({
+          sort_order: index + 1,
           image_path,
           mobile_image_path,
           button_text,
@@ -171,6 +171,29 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
   }
 
   const nextSortOrder = Math.max(...slides.map((item) => item.sort_order), 0) + 1
+
+  const resequenceSlides = (items: SlideItem[]) => items.map((item, index) => ({ ...item, sort_order: index + 1 }))
+
+  const moveSlide = (clientId: string, direction: -1 | 1) => {
+    setSlides((prev) => {
+      const nextSlides = [...prev].sort((a, b) => a.sort_order - b.sort_order || a.clientId.localeCompare(b.clientId))
+      const currentIndex = nextSlides.findIndex((item) => item.clientId === clientId)
+      const targetIndex = currentIndex + direction
+
+      if (currentIndex < 0 || targetIndex < 0 || targetIndex >= nextSlides.length) {
+        return prev
+      }
+
+      ;[nextSlides[currentIndex], nextSlides[targetIndex]] = [nextSlides[targetIndex], nextSlides[currentIndex]]
+      return resequenceSlides(nextSlides)
+    })
+    setStatus('Hero slide order updated. Save changes to publish.')
+  }
+
+  const removeSlide = (clientId: string) => {
+    setSlides((prev) => resequenceSlides([...prev].sort((a, b) => a.sort_order - b.sort_order || a.clientId.localeCompare(b.clientId)).filter((item) => item.clientId !== clientId)))
+    setStatus('Hero slide removed. Save changes to publish.')
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -274,7 +297,7 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedSlides.map((item) => (
+                  {sortedSlides.map((item, index) => (
                     <tr key={item.clientId} className="border-b border-border last:border-b-0">
                       <td className="px-5 py-4 text-sm">{item.sort_order}</td>
                       <td className="px-5 py-4 text-sm">{item.image_path}</td>
@@ -282,18 +305,46 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
                       <td className="px-5 py-4 text-sm">{item.button_text}</td>
                       <td className="px-5 py-4 text-sm">{item.button_link}</td>
                       <td className="px-5 py-4 text-right">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditorItem(item)
-                            setUploadState('idle')
-                            setEditorOpen(true)
-                          }}
-                          className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-secondary"
-                        >
-                          <Edit2 size={14} />
-                          Edit
-                        </button>
+                        <div className="inline-flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => moveSlide(item.clientId, -1)}
+                            disabled={index === 0}
+                            aria-label="Move slide up"
+                            className="inline-flex items-center rounded-md border border-border px-2 py-2 text-sm font-medium text-foreground hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            <ArrowUp size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => moveSlide(item.clientId, 1)}
+                            disabled={index === sortedSlides.length - 1}
+                            aria-label="Move slide down"
+                            className="inline-flex items-center rounded-md border border-border px-2 py-2 text-sm font-medium text-foreground hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            <ArrowDown size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditorItem(item)
+                              setUploadState('idle')
+                              setEditorOpen(true)
+                            }}
+                            className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-secondary"
+                          >
+                            <Edit2 size={14} />
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removeSlide(item.clientId)}
+                            className="inline-flex items-center gap-2 rounded-md border border-red-200 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
+                          >
+                            <Trash2 size={14} />
+                            Delete
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}

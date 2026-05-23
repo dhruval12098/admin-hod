@@ -8,7 +8,7 @@ async function getBespokeManufacturingInitialData(): Promise<BespokeManufacturin
   const adminClient = createSupabaseAdminClient()
   const { data, error } = await adminClient
     .from('bespoke_process_steps')
-    .select('id, sort_order, step, eyebrow, title, description, image_path')
+    .select('id, sort_order, step, eyebrow, title, description, image_path, media_type, media_path')
     .order('sort_order', { ascending: true })
 
   if (error) {

@@ -35,6 +35,7 @@ export async function POST(request: Request) {
     cta_text: typeof body.cta_text === 'string' ? body.cta_text : '',
     cta_link: typeof body.cta_link === 'string' ? body.cta_link : '',
     image_path: typeof body.image_path === 'string' ? body.image_path : '',
+    mobile_image_path: typeof body.mobile_image_path === 'string' ? body.mobile_image_path : '',
     image_alt: typeof body.image_alt === 'string' ? body.image_alt : '',
     image_only_mode: Boolean(body.image_only_mode),
     is_active: Boolean(body.is_active),
@@ -45,7 +46,7 @@ export async function POST(request: Request) {
     .from('promotion_popup')
     .upsert(payload, { onConflict: 'section_key' })
 
-  if (error && error.message.toLowerCase().includes('image_only_mode')) {
+  if (error && (error.message.toLowerCase().includes('image_only_mode') || error.message.toLowerCase().includes('mobile_image_path'))) {
     const fallbackPayload = {
       section_key: payload.section_key,
       label: payload.label,
