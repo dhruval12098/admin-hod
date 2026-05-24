@@ -25,6 +25,11 @@ function isMissingRelation(error: { message?: string | null } | null | undefined
   ) ?? false
 }
 
+function isPositivePrice(value: unknown) {
+  const price = Number(value)
+  return Number.isFinite(price) && price > 0
+}
+
 async function replaceProductPurityPrices(adminClient: any, productId: string, purityPrices: ProductPurityPrice[], defaultPurityPriceId?: string | null) {
   const normalizedRows = purityPrices
     .map((row, index) => ({
@@ -394,6 +399,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       ? Number(defaultVariant.price)
       : body.base_price
 
+  if (!isPositivePrice(resolvedBasePrice)) {
+    return NextResponse.json({ error: 'Base price must be greater than 0. Add a price to the default metal option before saving.' }, { status: 400 })
+  }
+
   const updateProduct = (options?: { includeStyleId?: boolean; includeShapeFields?: boolean; includeOverrideFields?: boolean; includeModelField?: boolean }) => {
     const includeStyleId = options?.includeStyleId ?? true
     const includeShapeFields = options?.includeShapeFields ?? true
@@ -440,7 +449,14 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       includeModelField: !isMissingProductColumn(error, 'model_3d_url'),
     }))
     if (error && isMissingProductColumn(error, 'gemstone_value')) {
-      const retryPayload = buildProductUpdatePayload(body, !isMissingStyleIdColumn(error))
+      const retryPayload = buildProductUpdatePayload(
+        {
+          ...body,
+          base_price: resolvedBasePrice,
+          metal_ids: resolvedMetalIds,
+        },
+        !isMissingStyleIdColumn(error)
+      )
       delete retryPayload.gemstone_value
       if (isMissingProductColumn(error, 'shapes_enabled')) delete retryPayload.shapes_enabled
       if (isMissingProductColumn(error, 'shipping_override_enabled')) delete retryPayload.shipping_override_enabled

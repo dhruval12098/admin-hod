@@ -46,6 +46,11 @@ function isUuidLike(value: string | null | undefined) {
   return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 }
 
+function isPositivePrice(value: unknown) {
+  const price = Number(value)
+  return Number.isFinite(price) && price > 0
+}
+
 async function replaceProductPurityPrices(adminClient: any, productId: string, purityPrices: ProductPurityPrice[], defaultPurityPriceId?: string | null) {
   const normalizedRows = purityPrices
     .map((row, index) => ({
@@ -525,6 +530,10 @@ export async function POST(request: Request) {
       ? Number(defaultVariant.price)
       : body.base_price
 
+  if (!isPositivePrice(resolvedBasePrice)) {
+    return NextResponse.json({ error: 'Base price must be greater than 0. Add a price to the default metal option before saving.' }, { status: 400 })
+  }
+
   const baseInsert = {
     slug: `${slugify(body.name)}-${Date.now()}`,
     ...buildProductWritePayload({
@@ -539,7 +548,14 @@ export async function POST(request: Request) {
     const includeShapeFields = options?.includeShapeFields ?? true
     const includeOverrideFields = options?.includeOverrideFields ?? true
     const includeModelField = options?.includeModelField ?? true
-    const payload = buildProductWritePayload(body, includeStyleId)
+    const payload = buildProductWritePayload(
+      {
+        ...body,
+        base_price: resolvedBasePrice,
+        metal_ids: resolvedMetalIds,
+      },
+      includeStyleId
+    )
     if (!includeShapeFields) {
       delete payload.shapes_enabled
     }

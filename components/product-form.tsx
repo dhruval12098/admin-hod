@@ -1137,6 +1137,12 @@ export function ProductForm({
     let shouldRedirect = false
 
     try {
+      const defaultVariant = metalVariants.find((entry) => entry.is_default) ?? metalVariants[0] ?? null
+      const resolvedPrice = Number(defaultVariant?.price ?? basePrice)
+      if (!Number.isFinite(resolvedPrice) || resolvedPrice <= 0) {
+        throw new Error('Add a price greater than 0 to the default metal option before saving.')
+      }
+
       const response = await authedFetch(productId ? `/api/products/${productId}` : productSlug ? `/api/products/by-slug/${productSlug}` : '/api/products', {
         method: productId || productSlug ? 'PATCH' : 'POST',
         body: JSON.stringify({
@@ -1710,6 +1716,9 @@ export function ProductForm({
                             {getMetalVariantLabel(entry.metal_id)}
                           </div>
                           <input
+                            type="number"
+                            min="1"
+                            step="0.01"
                             value={String(entry.price ?? '')}
                             onChange={(e) =>
                               setMetalVariants((prev) =>
