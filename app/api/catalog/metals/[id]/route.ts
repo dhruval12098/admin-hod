@@ -31,6 +31,32 @@ function resolveDisplayLabel(body: MetalPayload) {
   })
 }
 
+function duplicateMetalError(error: { code?: string | null; message?: string | null } | null | undefined) {
+  if (error?.code !== '23505' && !error?.message?.includes('duplicate key value')) return null
+  if (error.message?.includes('catalog_metals_name_key')) return 'A metal with this name already exists. Use a unique Metal Name, for example "12K Yellow" if you need a separate sellable option.'
+  if (error.message?.includes('catalog_metals_slug_key')) return 'A metal with this slug already exists. Use a unique slug.'
+  return 'This metal already exists. Please use a unique name and slug.'
+}
+
+function buildMetalWriteFields(body: MetalPayload) {
+  const displayLabel = resolveDisplayLabel(body)
+  const isCombined = Boolean(body.is_combined_option)
+  const baseMetalName = body.base_metal_name?.trim() || (body.name?.trim() && isCombined ? body.name.trim() : null)
+
+  return {
+    name: isCombined ? displayLabel : body.name?.trim(),
+    slug: body.slug?.trim(),
+    purity_label: body.purity_label?.trim() || null,
+    base_metal_name: baseMetalName,
+    display_label: displayLabel,
+    is_combined_option: isCombined,
+    color_hex: body.color_hex?.trim() || null,
+    composition_description: body.composition_description?.trim() || null,
+    display_order: Number(body.display_order ?? 0),
+    status: body.status || 'active',
+  }
+}
+
 async function loadCompositionParts(adminClient: any, metalId: string) {
   const partsResult = await adminClient
     .from('metal_composition_parts')
@@ -78,6 +104,20 @@ async function syncCompositionParts(adminClient: any, metalId: string, compositi
   }
 }
 
+async function countMetalUsage(adminClient: any, metalId: string) {
+  const checks = await Promise.all([
+    adminClient.from('product_metal_selections').select('product_id', { count: 'exact', head: true }).eq('metal_id', metalId),
+    adminClient.from('product_metal_variants').select('id', { count: 'exact', head: true }).eq('metal_id', metalId),
+    adminClient.from('product_metal_media').select('id', { count: 'exact', head: true }).eq('metal_id', metalId),
+    adminClient.from('metal_composition_parts').select('id', { count: 'exact', head: true }).eq('metal_id', metalId),
+  ])
+
+  const errors = checks.map((result) => result.error).filter(Boolean)
+  if (errors.length > 0) throw new Error(errors[0].message)
+
+  return checks.reduce((sum, result) => sum + Number(result.count ?? 0), 0)
+}
+
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const access = await assertAdmin(request)
   if ('error' in access) return access.error
@@ -88,23 +128,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   const { data, error } = await access.adminClient
     .from('catalog_metals')
-    .update({
-      name: body.name?.trim(),
-      slug: body.slug?.trim(),
-      purity_label: body.purity_label?.trim() || null,
-      base_metal_name: body.base_metal_name?.trim() || body.name?.trim() || null,
-      display_label: resolveDisplayLabel(body),
-      is_combined_option: Boolean(body.is_combined_option),
-      color_hex: body.color_hex?.trim() || null,
-      composition_description: body.composition_description?.trim() || null,
-      display_order: Number(body.display_order ?? 0),
-      status: body.status || 'active',
-    })
+    .update(buildMetalWriteFields(body))
     .eq('id', id)
     .select('*')
     .single()
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) return NextResponse.json({ error: duplicateMetalError(error) ?? error.message }, { status: duplicateMetalError(error) ? 409 : 500 })
   await syncCompositionParts(access.adminClient, id, body.composition_parts)
   const composition_parts = await loadCompositionParts(access.adminClient, id)
   return NextResponse.json({ item: { ...data, composition_parts } })
@@ -115,7 +144,29 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   if ('error' in access) return access.error
 
   const { id } = await params
+  const usageCount = await countMetalUsage(access.adminClient, id)
+  if (usageCount > 0) {
+    return NextResponse.json(
+      {
+        error: 'This metal is used in products, so it cannot be deleted. Set its status to Hidden if you want to stop showing it in new selections.',
+      },
+      { status: 409 }
+    )
+  }
+
   const { error } = await access.adminClient.from('catalog_metals').delete().eq('id', id)
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) {
+    const isForeignKeyError =
+      error.message?.includes('violates foreign key constraint') ||
+      error.code === '23503'
+    return NextResponse.json(
+      {
+        error: isForeignKeyError
+          ? 'This metal is used in products, so it cannot be deleted. Set its status to Hidden if you want to stop showing it in new selections.'
+          : error.message,
+      },
+      { status: isForeignKeyError ? 409 : 500 }
+    )
+  }
   return NextResponse.json({ ok: true })
 }

@@ -43,10 +43,20 @@ export function buildCombinedMetalDisplayLabel(metal: Pick<CatalogMetal, 'displa
   const purity = metal.purity_label?.trim()
   const baseMetal = metal.base_metal_name?.trim() || metal.name.trim()
   const displayLabel = metal.display_label?.trim()
-  if (displayLabel && (!purity || (displayLabel !== metal.name.trim() && displayLabel !== baseMetal))) {
+  const generatedLabel = (() => {
+    if (!purity) return baseMetal
+
+    const normalizedPurity = purity.toLowerCase()
+    const normalizedBaseMetal = baseMetal.toLowerCase()
+    return normalizedBaseMetal === normalizedPurity || normalizedBaseMetal.startsWith(`${normalizedPurity} `)
+      ? baseMetal
+      : `${purity} ${baseMetal}`.trim()
+  })()
+
+  if (displayLabel && displayLabel !== metal.name.trim() && displayLabel !== baseMetal) {
     return displayLabel
   }
-  return purity ? `${purity} ${baseMetal}`.trim() : baseMetal
+  return generatedLabel
 }
 
 export async function replaceProductMetalVariants(

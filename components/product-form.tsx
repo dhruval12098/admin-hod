@@ -2461,7 +2461,8 @@ export function ProductForm({
                                         accept={activeItem.media_type === 'video' ? 'video/*' : 'image/*'}
                                         className="hidden"
                                         onChange={async (event) => {
-                                          const file = event.target.files?.[0]
+                                          const input = event.currentTarget
+                                          const file = input.files?.[0]
                                           if (!file) return
                                           setUploadingSlots((prev) => ({ ...prev, [uploadKey]: true }))
                                           try {
@@ -2486,7 +2487,7 @@ export function ProductForm({
                                             })
                                           } finally {
                                             setUploadingSlots((prev) => ({ ...prev, [uploadKey]: false }))
-                                            event.currentTarget.value = ''
+                                            if (input) input.value = ''
                                           }
                                         }}
                                       />
@@ -2961,10 +2962,11 @@ function MediaThumbnailSlot({
         accept="image/*"
         className="hidden"
         onChange={(event) => {
-          const file = event.target.files?.[0]
+          const input = event.currentTarget
+          const file = input.files?.[0]
           if (!file) return
           void onUpload(file)
-          event.currentTarget.value = ''
+          if (input) input.value = ''
         }}
       />
     </div>

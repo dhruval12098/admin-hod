@@ -10,17 +10,25 @@ import { slugify } from '@/lib/product-catalog'
 import type { MetalItem } from './metals-client'
 import { buildCombinedMetalDisplayLabel } from '@/lib/product-metal-variants'
 
+function stripPurityPrefix(value: string, purity?: string | null) {
+  const source = value.trim()
+  const prefix = purity?.trim()
+  if (!source || !prefix) return source
+  return source.toLowerCase().startsWith(`${prefix.toLowerCase()} `)
+    ? source.slice(prefix.length).trim()
+    : source
+}
+
 function deriveCombinedMetalLabel(input: {
-  display_label?: string | null
   purity_label?: string | null
   base_metal_name?: string | null
   name: string
 }) {
   return buildCombinedMetalDisplayLabel({
     name: input.name || '',
-    display_label: input.display_label ?? '',
+    display_label: input.name || '',
     purity_label: input.purity_label ?? '',
-    base_metal_name: input.base_metal_name ?? '',
+    base_metal_name: input.base_metal_name || input.name || '',
   })
 }
 
@@ -39,16 +47,16 @@ export function MetalForm({
   const router = useRouter()
   const { toast } = useToast()
   const [isSaving, setIsSaving] = useState(false)
+  const initialMetalName = initialItem?.base_metal_name?.trim() || stripPurityPrefix(initialItem?.name ?? '', initialItem?.purity_label)
   const [formData, setFormData] = useState({
-    name: initialItem?.name ?? '',
+    name: initialMetalName,
     slug: initialItem?.slug ?? '',
     purity_label: initialItem?.purity_label ?? '',
-    base_metal_name: initialItem?.base_metal_name ?? initialItem?.name ?? '',
+    base_metal_name: initialItem?.base_metal_name ?? '',
     display_label: deriveCombinedMetalLabel({
-      name: initialItem?.name ?? '',
-      display_label: initialItem?.display_label ?? '',
+      name: initialMetalName,
       purity_label: initialItem?.purity_label ?? '',
-      base_metal_name: initialItem?.base_metal_name ?? initialItem?.name ?? '',
+      base_metal_name: initialItem?.base_metal_name || initialMetalName,
     }),
     is_combined_option: initialItem?.is_combined_option ?? false,
     color_hex: initialItem?.color_hex || '#D4AF37',
@@ -63,13 +71,24 @@ export function MetalForm({
     if (!accessToken) return
     setIsSaving(true)
     try {
+      const generatedDisplayLabel = deriveCombinedMetalLabel(formData)
+      const savePayload = {
+        ...formData,
+        name: formData.is_combined_option ? generatedDisplayLabel : formData.name,
+        base_metal_name: formData.base_metal_name.trim() || formData.name,
+        display_label: generatedDisplayLabel,
+        slug:
+          formData.is_combined_option && (!formData.slug || formData.slug === slugify(formData.name))
+            ? slugify(generatedDisplayLabel)
+            : formData.slug,
+      }
       const response = await fetch(mode === 'edit' ? `/api/catalog/metals/${initialItem?.id}` : '/api/catalog/metals', {
         method: mode === 'edit' ? 'PATCH' : 'POST',
         headers: {
           authorization: `Bearer ${accessToken}`,
           'content-type': 'application/json',
         },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(savePayload),
       })
 
       const payload = await response.json().catch(() => null)
@@ -108,8 +127,7 @@ export function MetalForm({
               onChange={(e) =>
                 setFormData((prev) => {
                   const nextName = e.target.value
-                  const previousDerivedLabel = deriveCombinedMetalLabel(prev)
-                  const nextBaseMetalName = prev.base_metal_name === '' || prev.base_metal_name === prev.name ? nextName : prev.base_metal_name
+                  const nextBaseMetalName = prev.base_metal_name === '' || prev.base_metal_name === prev.name ? '' : prev.base_metal_name
                   const nextDerivedLabel = deriveCombinedMetalLabel({
                     ...prev,
                     name: nextName,
@@ -120,10 +138,7 @@ export function MetalForm({
                     name: nextName,
                     slug: prev.slug === '' || prev.slug === slugify(prev.name) ? slugify(nextName) : prev.slug,
                     base_metal_name: nextBaseMetalName,
-                    display_label:
-                      prev.display_label === '' || prev.display_label === prev.name || prev.display_label === previousDerivedLabel
-                        ? nextDerivedLabel
-                        : prev.display_label,
+                    display_label: nextDerivedLabel,
                   }
                 })
               }
@@ -137,7 +152,6 @@ export function MetalForm({
                 value={formData.purity_label}
                 onChange={(e) =>
                   setFormData((prev) => {
-                    const previousDerivedLabel = deriveCombinedMetalLabel(prev)
                     const nextPurityLabel = e.target.value
                     const nextDerivedLabel = deriveCombinedMetalLabel({
                       ...prev,
@@ -146,10 +160,7 @@ export function MetalForm({
                     return {
                       ...prev,
                       purity_label: nextPurityLabel,
-                      display_label:
-                        prev.display_label === '' || prev.display_label === previousDerivedLabel
-                          ? nextDerivedLabel
-                          : prev.display_label,
+                      display_label: nextDerivedLabel,
                     }
                   })
                 }
@@ -163,7 +174,6 @@ export function MetalForm({
                 value={formData.base_metal_name}
                 onChange={(e) =>
                   setFormData((prev) => {
-                    const previousDerivedLabel = deriveCombinedMetalLabel(prev)
                     const nextBaseMetalName = e.target.value
                     const nextDerivedLabel = deriveCombinedMetalLabel({
                       ...prev,
@@ -172,14 +182,11 @@ export function MetalForm({
                     return {
                       ...prev,
                       base_metal_name: nextBaseMetalName,
-                      display_label:
-                        prev.display_label === '' || prev.display_label === previousDerivedLabel
-                          ? nextDerivedLabel
-                          : prev.display_label,
+                      display_label: nextDerivedLabel,
                     }
                   })
                 }
-                placeholder="Example: Yellow Gold"
+                placeholder="Optional. Leave blank to use Metal Name."
                 className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm"
               />
             </div>
@@ -188,11 +195,11 @@ export function MetalForm({
             <label className="mb-2 block text-sm font-medium text-foreground">Display Label</label>
             <input
               value={formData.display_label}
-              onChange={(e) => setFormData((prev) => ({ ...prev, display_label: e.target.value }))}
+              readOnly
               placeholder="Example: 14K Yellow Gold"
-              className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm"
+              className="w-full rounded-lg border border-border bg-secondary/40 px-4 py-2.5 text-sm text-foreground"
             />
-            <p className="mt-2 text-xs text-muted-foreground">This is the exact customer-facing combined option shown in product form, storefront, and sheet sync.</p>
+            <p className="mt-2 text-xs text-muted-foreground">Auto-generated live from Purity Label and Base Metal Name / Metal Name.</p>
           </div>
           <div>
             <label className="mb-2 block text-sm font-medium text-foreground">Slug</label>

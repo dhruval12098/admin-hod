@@ -34,6 +34,19 @@ async function getAccessToken() {
   return data.session?.access_token ?? null
 }
 
+function stripPurityPrefix(value: string, purity?: string | null) {
+  const source = value.trim()
+  const prefix = purity?.trim()
+  if (!source || !prefix) return source
+  return source.toLowerCase().startsWith(`${prefix.toLowerCase()} `)
+    ? source.slice(prefix.length).trim()
+    : source
+}
+
+function getMetalBaseName(metal: MetalItem) {
+  return metal.base_metal_name?.trim() || stripPurityPrefix(metal.name, metal.purity_label)
+}
+
 export function MetalsClient({ initialItems }: { initialItems: MetalItem[] }) {
   const { toast } = useToast()
   const [items, setItems] = useState<MetalItem[]>(initialItems)
@@ -68,7 +81,11 @@ export function MetalsClient({ initialItems }: { initialItems: MetalItem[] }) {
 
     const payload = await response.json().catch(() => null)
     if (!response.ok) {
-      toast({ title: 'Delete failed', description: payload?.error ?? 'Unable to delete metal.', variant: 'destructive' })
+      toast({
+        title: response.status === 409 ? 'Metal is in use' : 'Delete failed',
+        description: payload?.error ?? 'Unable to delete metal.',
+        variant: 'destructive',
+      })
       return
     }
 
@@ -109,7 +126,7 @@ export function MetalsClient({ initialItems }: { initialItems: MetalItem[] }) {
             <tbody>
               {items.map((metal) => (
                 <tr key={metal.id} className="border-b border-border hover:bg-secondary/20">
-                  <td className="px-6 py-4 text-sm font-medium text-foreground">{metal.name}</td>
+                  <td className="px-6 py-4 text-sm font-medium text-foreground">{getMetalBaseName(metal)}</td>
                   <td className="px-6 py-4 text-sm text-muted-foreground">{buildCombinedMetalDisplayLabel(metal)}</td>
                   <td className="px-6 py-4 text-sm text-muted-foreground">{metal.purity_label || 'Base metal only'}</td>
                   <td className="px-6 py-4 text-sm text-muted-foreground">{metal.slug}</td>

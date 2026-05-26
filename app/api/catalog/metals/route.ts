@@ -31,6 +31,32 @@ function resolveDisplayLabel(body: MetalPayload) {
   })
 }
 
+function duplicateMetalError(error: { code?: string | null; message?: string | null } | null | undefined) {
+  if (error?.code !== '23505' && !error?.message?.includes('duplicate key value')) return null
+  if (error.message?.includes('catalog_metals_name_key')) return 'A metal with this name already exists. Use a unique Metal Name, for example "12K Yellow" if you need a separate sellable option.'
+  if (error.message?.includes('catalog_metals_slug_key')) return 'A metal with this slug already exists. Use a unique slug.'
+  return 'This metal already exists. Please use a unique name and slug.'
+}
+
+function buildMetalWriteFields(body: MetalPayload) {
+  const displayLabel = resolveDisplayLabel(body)
+  const isCombined = Boolean(body.is_combined_option)
+  const baseMetalName = body.base_metal_name?.trim() || (isCombined ? body.name.trim() : null)
+
+  return {
+    name: isCombined ? displayLabel : body.name.trim(),
+    slug: body.slug.trim(),
+    purity_label: body.purity_label?.trim() || null,
+    base_metal_name: baseMetalName,
+    display_label: displayLabel,
+    is_combined_option: isCombined,
+    color_hex: body.color_hex?.trim() || null,
+    composition_description: body.composition_description?.trim() || null,
+    display_order: Number(body.display_order ?? 0),
+    status: body.status || 'active',
+  }
+}
+
 async function loadCompositionParts(adminClient: any, metalIds: string[]) {
   if (!metalIds.length) return new Map()
   const partsResult = await adminClient
@@ -114,22 +140,11 @@ export async function POST(request: Request) {
 
   const { data, error } = await access.adminClient
     .from('catalog_metals')
-    .insert({
-      name: body.name.trim(),
-      slug: body.slug.trim(),
-      purity_label: body.purity_label?.trim() || null,
-      base_metal_name: body.base_metal_name?.trim() || body.name.trim(),
-      display_label: resolveDisplayLabel(body),
-      is_combined_option: Boolean(body.is_combined_option),
-      color_hex: body.color_hex?.trim() || null,
-      composition_description: body.composition_description?.trim() || null,
-      display_order: Number(body.display_order ?? 0),
-      status: body.status || 'active',
-    })
+    .insert(buildMetalWriteFields(body))
     .select('*')
     .single()
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) return NextResponse.json({ error: duplicateMetalError(error) ?? error.message }, { status: duplicateMetalError(error) ? 409 : 500 })
   await syncCompositionParts(access.adminClient, data.id, body.composition_parts)
   const partsByMetal = await loadCompositionParts(access.adminClient, [data.id])
   return NextResponse.json({ item: { ...data, composition_parts: partsByMetal.get(data.id) ?? [] } })
