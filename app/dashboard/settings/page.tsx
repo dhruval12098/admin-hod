@@ -29,6 +29,8 @@ async function getSettingsPageData(): Promise<SettingsPageData> {
     settings: {
       whatsapp_number: settingsResult.data?.whatsapp_number ?? '',
       default_gst_slab_id: settingsResult.data?.default_gst_slab_id ?? '',
+      maintenance_mode_enabled: Boolean(settingsResult.data?.maintenance_mode_enabled),
+      maintenance_mode_message: settingsResult.data?.maintenance_mode_message ?? '',
     },
     gstSlabs: (gstResult.data ?? []) as CatalogGstSlab[],
   }

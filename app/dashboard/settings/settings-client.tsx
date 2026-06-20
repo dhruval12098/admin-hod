@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { KeyRound, MessageCircle, Save } from 'lucide-react'
+import { KeyRound, MessageCircle, Save, ShieldAlert } from 'lucide-react'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
@@ -12,6 +12,8 @@ type SettingsTab = 'general' | 'security'
 export type SiteSettings = {
   whatsapp_number: string
   default_gst_slab_id?: string
+  maintenance_mode_enabled?: boolean
+  maintenance_mode_message?: string
 }
 
 type WhatsappForm = {
@@ -89,6 +91,11 @@ export function SettingsClient({ initialData }: { initialData: SettingsPageData 
   const [settings, setSettings] = useState<SiteSettings>(initialData.settings)
   const [gstSlabs] = useState<CatalogGstSlab[]>(initialData.gstSlabs)
   const [defaultGstSlabId, setDefaultGstSlabId] = useState(initialData.settings.default_gst_slab_id ?? '')
+  const [maintenanceModeEnabled, setMaintenanceModeEnabled] = useState(Boolean(initialData.settings.maintenance_mode_enabled))
+  const [maintenanceModeMessage, setMaintenanceModeMessage] = useState(
+    initialData.settings.maintenance_mode_message ??
+      'Our atelier is receiving a careful polish. House of Diams will be back online shortly.'
+  )
   const [whatsappForm, setWhatsappForm] = useState<WhatsappForm>(splitWhatsappNumber(initialData.settings.whatsapp_number ?? ''))
   const [passwordForm, setPasswordForm] = useState<PasswordForm>(emptyPasswordForm)
   const [settingsConfirmOpen, setSettingsConfirmOpen] = useState(false)
@@ -110,6 +117,8 @@ export function SettingsClient({ initialData }: { initialData: SettingsPageData 
       const nextSettings = {
         whatsapp_number: buildStoredWhatsappNumber(whatsappForm),
         default_gst_slab_id: defaultGstSlabId || null,
+        maintenance_mode_enabled: maintenanceModeEnabled,
+        maintenance_mode_message: maintenanceModeMessage.trim(),
       }
 
       const response = await fetch('/api/settings', {
@@ -129,6 +138,8 @@ export function SettingsClient({ initialData }: { initialData: SettingsPageData 
       setSettings({
         whatsapp_number: nextSettings.whatsapp_number,
         default_gst_slab_id: nextSettings.default_gst_slab_id ?? '',
+        maintenance_mode_enabled: nextSettings.maintenance_mode_enabled,
+        maintenance_mode_message: nextSettings.maintenance_mode_message,
       })
 
       toast({
@@ -287,6 +298,42 @@ export function SettingsClient({ initialData }: { initialData: SettingsPageData 
                   Used in checkout when a product has no GST slab assigned.
                 </p>
               </div>
+
+              <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <ShieldAlert size={16} className="text-amber-700" />
+                      <p className="text-sm font-semibold text-foreground">Maintenance Mode</p>
+                    </div>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      When enabled, the storefront immediately shows a branded maintenance screen and blocks all public pages.
+                    </p>
+                  </div>
+                  <label className="inline-flex cursor-pointer items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={maintenanceModeEnabled}
+                      onChange={(e) => setMaintenanceModeEnabled(e.target.checked)}
+                      className="peer sr-only"
+                    />
+                    <span className="relative h-6 w-11 rounded-full bg-muted transition-colors peer-checked:bg-primary after:absolute after:left-1 after:top-1 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-5" />
+                    <span className="text-sm font-semibold text-foreground">
+                      {maintenanceModeEnabled ? 'Enabled' : 'Disabled'}
+                    </span>
+                  </label>
+                </div>
+
+                <div className="mt-4">
+                  <label className="mb-2 block text-sm font-semibold text-foreground">Maintenance Message</label>
+                  <textarea
+                    value={maintenanceModeMessage}
+                    onChange={(e) => setMaintenanceModeMessage(e.target.value)}
+                    rows={3}
+                    className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm transition-colors hover:border-input focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+                  />
+                </div>
+              </div>
             </div>
 
             <button
@@ -365,7 +412,7 @@ export function SettingsClient({ initialData }: { initialData: SettingsPageData 
       <ConfirmDialog
         isOpen={settingsConfirmOpen}
         title="Save general settings?"
-        description="This will update the floating WhatsApp link and the default checkout tax fallback."
+        description="This will update the live storefront settings, including maintenance mode if changed."
         confirmText="Save"
         cancelText="Cancel"
         type="confirm"

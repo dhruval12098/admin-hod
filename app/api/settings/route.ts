@@ -22,6 +22,8 @@ export async function GET(request: Request) {
       settings_key: settingsKey,
       whatsapp_number: data?.whatsapp_number ?? '',
       default_gst_slab_id: data?.default_gst_slab_id ?? '',
+      maintenance_mode_enabled: Boolean(data?.maintenance_mode_enabled),
+      maintenance_mode_message: data?.maintenance_mode_message ?? '',
     },
   })
 }
@@ -41,6 +43,10 @@ export async function POST(request: Request) {
     default_gst_slab_id: typeof body.default_gst_slab_id === 'string' && body.default_gst_slab_id.trim().length > 0
       ? body.default_gst_slab_id.trim()
       : null,
+    maintenance_mode_enabled: Boolean(body.maintenance_mode_enabled),
+    maintenance_mode_message: typeof body.maintenance_mode_message === 'string' && body.maintenance_mode_message.trim().length > 0
+      ? body.maintenance_mode_message.trim()
+      : 'Our atelier is receiving a careful polish. House of Diams will be back online shortly.',
   }
 
   const { error } = await access.adminClient

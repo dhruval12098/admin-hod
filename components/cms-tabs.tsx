@@ -13,7 +13,6 @@ const CMS_TABS = [
   { label: 'Docs', href: '/dashboard/cms/docs', key: 'docs' },
   { label: 'Support', href: '/dashboard/cms/support', key: 'support' },
   { label: 'Promotion', href: '/dashboard/cms/promotion', key: 'promotion' },
-  { label: 'Global', href: '/dashboard/cms/global', key: 'global' },
 ]
 
 export function CMSTabs() {
