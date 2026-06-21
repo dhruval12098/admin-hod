@@ -15,6 +15,7 @@ type SectionSource = {
 const SECTION_SOURCES: SectionSource[] = [
   { key: 'products', label: 'Products', table: 'products', columns: ['image_1_path', 'image_2_path', 'image_3_path', 'image_4_path', 'video_path'] },
   { key: 'product-metal-media', label: 'Product Metal Media', table: 'product_metal_media', columns: ['image_1_path', 'image_2_path', 'image_3_path', 'image_4_path', 'video_path'] },
+  { key: 'product-variant-media', label: 'Product Variant Media', table: 'product_variant_media_items', columns: ['media_path'] },
   { key: 'hero', label: 'Hero Slider', table: 'homepage_hero_slider_items', columns: ['image_path', 'mobile_image_path'] },
   { key: 'collection', label: 'Collection', table: 'collection_items', columns: ['image_path'] },
   { key: 'collection-page-config', label: 'Collection Page', table: 'collection_page_config', columns: ['showcase_image_path', 'showcase_mobile_image_path'] },
@@ -40,7 +41,20 @@ const SECTION_SOURCES: SectionSource[] = [
   { key: 'catalog-options', label: 'Catalog Option Icons', table: 'catalog_options', columns: ['icon_svg_path'] },
   { key: 'catalog-stone-shapes', label: 'Catalog Stone Shapes', table: 'catalog_stone_shapes', columns: ['svg_asset_url'] },
   { key: 'catalog-styles', label: 'Catalog Styles', table: 'catalog_styles', columns: ['icon_svg_path'] },
+  { key: 'category-grid-posters', label: 'Category Grid Posters', table: 'category_grid_posters', columns: ['image_path'] },
+  { key: 'trusted-partners', label: 'Trusted Partners', table: 'home_trusted_partner_logos', columns: ['logo_path'] },
+  { key: 'discover-shapes', label: 'Discover Shapes', table: 'discover_shapes_items', columns: ['image_path'] },
+  { key: 'discover-rings', label: 'Discover Rings', table: 'discover_rings_items', columns: ['image_path'] },
+  { key: 'diamond-info-features', label: 'Diamond Info Features', table: 'diamond_info_feature_items', columns: ['icon_svg'] },
 ]
+
+type TrashRecord = {
+  id: string
+  path: string
+  status: 'trashed' | 'restored' | 'deleted'
+  trashed_at: string
+  eligible_delete_at: string
+}
 
 function normalizePath(value: unknown) {
   if (typeof value !== 'string') return null
@@ -145,6 +159,28 @@ async function collectReferencedPaths(adminClient: any) {
   return referencedByPath
 }
 
+async function collectActiveTrashRecords(adminClient: any) {
+  const { data, error } = await adminClient
+    .from('media_trash')
+    .select('id, path, status, trashed_at, eligible_delete_at')
+    .eq('bucket', collectionBucket)
+    .eq('status', 'trashed')
+
+  if (error) {
+    const isMissingRelation =
+      error.code === 'PGRST205' ||
+      error.message?.includes("Could not find the table 'public.media_trash'")
+
+    if (isMissingRelation) return new Map<string, TrashRecord>()
+    throw new Error(`Media Trash Ledger: ${error.message}`)
+  }
+
+  return new Map(
+    ((data ?? []) as TrashRecord[])
+      .map((record) => [record.path, record])
+  )
+}
+
 function getSectionLabelForPath(path: string) {
   const topLevel = path.split('/')[0] || 'root'
   return topLevel.replace(/[-_]+/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase())
@@ -153,7 +189,10 @@ function getSectionLabelForPath(path: string) {
 async function getInitialSections(): Promise<MediaSection[]> {
   const adminClient = createSupabaseAdminClient()
   const referencedByPath = await collectReferencedPaths(adminClient)
-  const files = await listAllFiles(adminClient)
+  const [files, trashedByPath] = await Promise.all([
+    listAllFiles(adminClient),
+    collectActiveTrashRecords(adminClient),
+  ])
   const sectionsMap = new Map<string, MediaSection['items']>()
 
   for (const file of files) {
@@ -166,8 +205,10 @@ async function getInitialSections(): Promise<MediaSection[]> {
       path: file.path,
       name: file.name,
       url: publicUrl,
-      status: references.length > 0 ? 'used' : 'unused',
-      referencedBy: references,
+      status: trashedByPath.has(file.path) ? 'trashed' : references.length > 0 ? 'used' : 'unused',
+      referencedBy: trashedByPath.has(file.path) ? ['30-day trash'] : references,
+      trashedAt: trashedByPath.get(file.path)?.trashed_at ?? null,
+      eligibleDeleteAt: trashedByPath.get(file.path)?.eligible_delete_at ?? null,
     })
 
     sectionsMap.set(sectionLabel, bucket)
@@ -179,6 +220,7 @@ async function getInitialSections(): Promise<MediaSection[]> {
       total: items.length,
       used: items.filter((item) => item.status === 'used').length,
       unused: items.filter((item) => item.status === 'unused').length,
+      trashed: items.filter((item) => item.status === 'trashed').length,
       items: items.sort((a, b) => a.name.localeCompare(b.name)),
     }))
     .sort((a, b) => a.name.localeCompare(b.name))

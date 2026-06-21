@@ -1,11 +1,14 @@
 import { NavbarItemEditor } from '@/components/navbar-builder-editor'
 import { createSupabaseAdminClient } from '@/lib/admin-supabase'
+import { unstable_noStore as noStore } from 'next/cache'
 import {
   buildFallbackNavbarItems,
   buildNavbarItemsFromRows,
   syncNavbarItemsWithCatalog,
   type NavbarBuilderPayload,
 } from '@/lib/navbar'
+
+export const dynamic = 'force-dynamic'
 
 async function loadCatalogSources(adminClient: any) {
   const [categoriesResult, subcategoriesResult, optionsResult, metalsResult, stoneShapesResult, certificatesResult, stylesResult] = await Promise.all([
@@ -41,6 +44,7 @@ async function loadCatalogSources(adminClient: any) {
 }
 
 async function getNavbarBuilderData(): Promise<NavbarBuilderPayload> {
+  noStore()
   const adminClient = createSupabaseAdminClient()
   const sources = await loadCatalogSources(adminClient)
 
@@ -79,10 +83,10 @@ async function getNavbarBuilderData(): Promise<NavbarBuilderPayload> {
           styles: sources.styles,
           options: sources.options,
         })
-      : buildFallbackNavbarItems(sources.categories, sources.subcategories)
+      : buildFallbackNavbarItems(sources.categories, sources.subcategories, sources.options)
 
   return {
-    items: syncNavbarItemsWithCatalog(builtItems, sources.categories, sources.subcategories),
+    items: syncNavbarItemsWithCatalog(builtItems, sources.categories, sources.subcategories, sources.options),
     categories: sources.categories,
     subcategories: sources.subcategories,
     options: sources.options,

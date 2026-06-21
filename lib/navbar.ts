@@ -80,6 +80,29 @@ export type NavbarBuilderPayload = {
   styles: CatalogStyle[]
 }
 
+const DEFAULT_DIRECT_NAV_ITEMS: NavbarItem[] = [
+  {
+    id: 'default-direct-hiphop',
+    label: 'Hip Hop',
+    slug: 'hiphop',
+    type: 'direct',
+    linkedCategoryId: null,
+    visible: true,
+    url: '/hiphop',
+    sections: [],
+  },
+  {
+    id: 'default-direct-bespoke',
+    label: 'Bespoke',
+    slug: 'bespoke',
+    type: 'direct',
+    linkedCategoryId: null,
+    visible: true,
+    url: '/bespoke',
+    sections: [],
+  },
+]
+
 type RawNavbarItem = {
   id: string
   label: string
@@ -153,7 +176,7 @@ export function mapSectionTypeToDb(type: NavbarSectionType): RawNavbarSection['s
   return 'stone_shapes'
 }
 
-export function buildFallbackNavbarItems(categories: CatalogCategory[], subcategories: CatalogSubcategory[]): NavbarItem[] {
+export function buildFallbackNavbarItems(categories: CatalogCategory[], subcategories: CatalogSubcategory[], options: CatalogOption[] = []): NavbarItem[] {
   return categories
     .filter((category) => category.status === 'active' && category.show_in_nav !== false)
     .sort((left, right) => left.display_order - right.display_order)
@@ -162,15 +185,30 @@ export function buildFallbackNavbarItems(categories: CatalogCategory[], subcateg
         .filter((entry) => entry.category_id === category.id && entry.status === 'active')
         .sort((left, right) => left.display_order - right.display_order)
 
-      const sections = categorySubcategories.map((entry, index) => ({
-        id: `fallback-${category.id}-${entry.id}`,
-        title: entry.name,
-        type: 'Subcategory Options' as const,
-        sourceLabel: entry.name,
-        sourceSubcategoryId: entry.id,
-        column: index + 1,
-        links: [],
-      }))
+      const sections = categorySubcategories.map((entry, index) => {
+        const selectedSourceItems = options
+          .filter((option) => option.subcategory_id === entry.id && option.status === 'active')
+          .sort((left, right) => left.display_order - right.display_order)
+          .map((option, optionIndex) => ({
+            sourceKind: 'subcategory_option' as const,
+            sourceItemId: option.id,
+            label: option.name,
+            sortOrder: optionIndex + 1,
+            isActive: true,
+          }))
+
+        return {
+          id: `fallback-${category.id}-${entry.id}`,
+          title: entry.name,
+          iconSvgPath: entry.icon_svg_path ?? null,
+          type: 'Subcategory Options' as const,
+          sourceLabel: entry.name,
+          sourceSubcategoryId: entry.id,
+          column: index + 1,
+          selectedSourceItems,
+          links: [],
+        }
+      })
 
       return {
         id: `fallback-${category.id}`,
@@ -417,7 +455,7 @@ export function normalizeNavbarItemForSave(item: NavbarItem): NavbarItem {
   }
 }
 
-export function syncNavbarItemsWithCatalog(items: NavbarItem[], categories: CatalogCategory[], subcategories: CatalogSubcategory[]): NavbarItem[] {
+export function syncNavbarItemsWithCatalog(items: NavbarItem[], categories: CatalogCategory[], subcategories: CatalogSubcategory[], options: CatalogOption[] = []): NavbarItem[] {
   const visibleCategories = categories
     .filter((category) => category.status === 'active' && category.show_in_nav !== false)
     .sort((left, right) => left.display_order - right.display_order)
@@ -425,9 +463,10 @@ export function syncNavbarItemsWithCatalog(items: NavbarItem[], categories: Cata
   const itemsByCategoryId = new Map(items.filter((item) => item.linkedCategoryId).map((item) => [item.linkedCategoryId as string, item]))
   const itemsBySlug = new Map(items.map((item) => [item.slug, item]))
 
-  return visibleCategories.map((category) => {
+  const syncedCategoryItems = visibleCategories.map((category) => {
     const existingItem = itemsByCategoryId.get(category.id) ?? itemsBySlug.get(category.slug)
-    const fallbackItem = buildFallbackNavbarItems([category], subcategories)[0]
+    const fallbackItem = buildFallbackNavbarItems([category], subcategories, options)[0]
+    const isMegaCategory = category.nav_type !== 'direct_link'
 
     if (!existingItem) {
       return fallbackItem
@@ -438,14 +477,30 @@ export function syncNavbarItemsWithCatalog(items: NavbarItem[], categories: Cata
       label: category.name,
       slug: category.slug,
       linkedCategoryId: category.id,
-      type: (category.nav_type === 'direct_link' ? 'direct' : 'mega') as NavbarItemType,
+      type: (isMegaCategory ? 'mega' : 'direct') as NavbarItemType,
       url: category.nav_type === 'direct_link' ? category.direct_link_url ?? existingItem.url : undefined,
       visible: category.status === 'active' && category.show_in_nav !== false ? existingItem.visible : false,
-      sections: category.nav_type === 'mega_menu' ? existingItem.sections ?? fallbackItem.sections : [],
+      sections:
+        isMegaCategory
+          ? (existingItem.sections?.length ?? 0) > 0
+            ? existingItem.sections
+            : fallbackItem.sections
+          : [],
       featuredImage:
-        category.nav_type === 'mega_menu'
+        isMegaCategory
           ? existingItem.featuredImage ?? fallbackItem.featuredImage
-          : undefined,
+      : undefined,
     } satisfies NavbarItem
   })
+
+  const categoryIds = new Set(visibleCategories.map((category) => category.id))
+  const categorySlugs = new Set(visibleCategories.map((category) => category.slug))
+  const customItems = items.filter((item) => {
+    if (item.linkedCategoryId && categoryIds.has(item.linkedCategoryId)) return false
+    return !categorySlugs.has(item.slug)
+  })
+  const customSlugs = new Set(customItems.map((item) => item.slug))
+  const missingDefaultDirectItems = DEFAULT_DIRECT_NAV_ITEMS.filter((item) => !customSlugs.has(item.slug))
+
+  return [...syncedCategoryItems, ...customItems, ...missingDefaultDirectItems]
 }

@@ -11,8 +11,10 @@ export type MediaItem = {
   path: string
   name: string
   url: string
-  status: 'used' | 'unused'
+  status: 'used' | 'unused' | 'trashed'
   referencedBy: string[]
+  trashedAt?: string | null
+  eligibleDeleteAt?: string | null
 }
 
 export type MediaSection = {
@@ -20,6 +22,7 @@ export type MediaSection = {
   total: number
   used: number
   unused: number
+  trashed?: number
   items: MediaItem[]
 }
 
@@ -53,9 +56,10 @@ export function MediaTrashClient({ initialSections }: { initialSections: MediaSe
         acc.total += section.total
         acc.used += section.used
         acc.unused += section.unused
+        acc.trashed += section.trashed ?? 0
         return acc
       },
-      { total: 0, used: 0, unused: 0 }
+      { total: 0, used: 0, unused: 0, trashed: 0 }
     )
   }, [sections])
 
@@ -141,15 +145,15 @@ export function MediaTrashClient({ initialSections }: { initialSections: MediaSe
 
       const payload = await response.json().catch(() => null)
       if (!response.ok) {
-        throw new Error(payload?.error ?? 'Unable to delete file.')
+        throw new Error(payload?.error ?? 'Unable to move file to trash.')
       }
 
-      toast({ title: 'Deleted', description: 'Unused file deleted permanently.' })
+      toast({ title: 'Moved to trash', description: 'File is protected for 30 days before permanent deletion.' })
       await loadData()
     } catch (error) {
       toast({
-        title: 'Delete failed',
-        description: error instanceof Error ? error.message : 'Unable to delete file.',
+        title: 'Trash failed',
+        description: error instanceof Error ? error.message : 'Unable to move file to trash.',
         variant: 'destructive',
       })
     } finally {
@@ -175,20 +179,20 @@ export function MediaTrashClient({ initialSections }: { initialSections: MediaSe
 
       const payload = await response.json().catch(() => null)
       if (!response.ok) {
-        throw new Error(payload?.error ?? 'Unable to delete files.')
+        throw new Error(payload?.error ?? 'Unable to move files to trash.')
       }
 
       toast({
-        title: 'Deleted',
-        description: `${payload?.deletedCount ?? selectedPaths.length} unused file${selectedPaths.length === 1 ? '' : 's'} deleted permanently.`,
+        title: 'Moved to trash',
+        description: `${payload?.trashedCount ?? selectedPaths.length} unused file${selectedPaths.length === 1 ? '' : 's'} moved to 30-day trash.`,
       })
       setBulkDeleteDialogOpen(false)
       setSelectedPaths([])
       await loadData()
     } catch (error) {
       toast({
-        title: 'Delete failed',
-        description: error instanceof Error ? error.message : 'Unable to delete files.',
+        title: 'Trash failed',
+        description: error instanceof Error ? error.message : 'Unable to move files to trash.',
         variant: 'destructive',
       })
     } finally {
@@ -215,9 +219,9 @@ export function MediaTrashClient({ initialSections }: { initialSections: MediaSe
       <div className="mb-10 flex items-start justify-between gap-4">
         <div>
           <h1 className="font-jakarta text-3xl font-semibold text-foreground">Media Trash</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Review bucket assets, grouped by folder, and permanently delete files marked unused.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Review bucket assets, grouped by folder, and move unused files into a protected 30-day trash.</p>
           <p className="mt-3 text-xs text-muted-foreground">
-            Total files: {totals.total} · Used: {totals.used} · Unused: {totals.unused}
+            Total files: {totals.total} - Used: {totals.used} - Unused: {totals.unused} - In trash: {totals.trashed}
           </p>
         </div>
 
@@ -272,6 +276,11 @@ export function MediaTrashClient({ initialSections }: { initialSections: MediaSe
                   <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-700">
                     Unused: {section.unused}
                   </span>
+                  {(section.trashed ?? 0) > 0 ? (
+                    <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
+                      Trash: {section.trashed}
+                    </span>
+                  ) : null}
                 </div>
               </button>
             )
@@ -297,7 +306,7 @@ export function MediaTrashClient({ initialSections }: { initialSections: MediaSe
                   disabled={selectedPaths.length === 0 || bulkDeleting}
                   className="rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {selectedPaths.length > 0 ? `Delete Selected (${selectedPaths.length})` : 'Select Files to Delete'}
+                  {selectedPaths.length > 0 ? `Move Selected (${selectedPaths.length})` : 'Select Files to Trash'}
                 </button>
                 <button
                   type="button"
@@ -384,15 +393,19 @@ export function MediaTrashClient({ initialSections }: { initialSections: MediaSe
                             className={`inline-flex rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${
                               item.status === 'used'
                                 ? 'bg-green-100 text-green-700'
-                                : 'bg-red-100 text-red-700'
+                                : item.status === 'trashed'
+                                  ? 'bg-amber-100 text-amber-700'
+                                  : 'bg-red-100 text-red-700'
                             }`}
                           >
-                            {item.status}
+                            {item.status === 'trashed' ? 'in trash' : item.status}
                           </span>
                         </td>
                         <td className="px-6 py-4 align-top">
                           <div className="max-w-[320px] text-sm text-muted-foreground">
-                            {item.referencedBy.length > 0 ? item.referencedBy.join(', ') : 'No database references found'}
+                            {item.status === 'trashed' && item.eligibleDeleteAt
+                              ? `Eligible permanent delete after ${new Date(item.eligibleDeleteAt).toLocaleDateString()}`
+                              : item.referencedBy.length > 0 ? item.referencedBy.join(', ') : 'No database references found'}
                           </div>
                         </td>
                         <td className="px-6 py-4 align-top text-right">
@@ -404,8 +417,10 @@ export function MediaTrashClient({ initialSections }: { initialSections: MediaSe
                               className="inline-flex items-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
                             >
                               <Trash2 size={15} />
-                              {deletingPath === item.path ? 'Deleting...' : 'Delete'}
+                              {deletingPath === item.path ? 'Moving...' : 'Move to Trash'}
                             </button>
+                          ) : item.status === 'trashed' ? (
+                            <span className="text-xs text-muted-foreground">30-day hold</span>
                           ) : (
                             <span className="text-xs text-muted-foreground">Protected</span>
                           )}
@@ -429,9 +444,9 @@ export function MediaTrashClient({ initialSections }: { initialSections: MediaSe
 
       <ConfirmDialog
         isOpen={Boolean(pendingDeletePath)}
-        title="Delete file permanently?"
-        description="This will permanently delete the file from the Supabase bucket. This action cannot be undone."
-        confirmText="Delete"
+        title="Move file to trash?"
+        description="This keeps the file in storage and blocks permanent deletion for 30 days."
+        confirmText="Move to Trash"
         cancelText="Cancel"
         type="delete"
         isLoading={Boolean(deletingPath)}
@@ -445,9 +460,9 @@ export function MediaTrashClient({ initialSections }: { initialSections: MediaSe
 
       <ConfirmDialog
         isOpen={bulkDeleteDialogOpen}
-        title="Delete selected files permanently?"
-        description={`This will permanently delete ${selectedPaths.length} unused file${selectedPaths.length === 1 ? '' : 's'} from the Supabase bucket. This action cannot be undone.`}
-        confirmText="Delete Files"
+        title="Move selected files to trash?"
+        description={`This keeps ${selectedPaths.length} unused file${selectedPaths.length === 1 ? '' : 's'} in storage and blocks permanent deletion for 30 days.`}
+        confirmText="Move Files"
         cancelText="Cancel"
         type="delete"
         isLoading={bulkDeleting}

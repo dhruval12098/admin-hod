@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { unstable_noStore as noStore } from 'next/cache'
 import { assertAdmin } from '@/lib/cms-auth'
 import {
   buildFallbackNavbarItems,
@@ -55,6 +56,7 @@ async function loadCatalogSources(adminClient: any) {
 }
 
 export async function GET(request: Request) {
+  noStore()
   const access = await assertAdmin(request)
   if ('error' in access) return access.error
 
@@ -98,9 +100,9 @@ export async function GET(request: Request) {
           styles: sources.styles,
           options: sources.options,
         })
-      : buildFallbackNavbarItems(sources.categories, sources.subcategories)
+      : buildFallbackNavbarItems(sources.categories, sources.subcategories, sources.options)
 
-  const items = syncNavbarItemsWithCatalog(builtItems, sources.categories, sources.subcategories)
+  const items = syncNavbarItemsWithCatalog(builtItems, sources.categories, sources.subcategories, sources.options)
 
   return NextResponse.json({
     items,
@@ -125,14 +127,27 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: 'Invalid navbar payload.' }, { status: 400 })
   }
 
-  const itemsToSave = incomingItems
-    .map(normalizeNavbarItemForSave)
-    .filter((item) => item.label.trim())
-
   const sources = await loadCatalogSources(access.adminClient)
   if ('error' in sources) {
     return NextResponse.json({ error: sources.error.message }, { status: 500 })
   }
+
+  const itemsToSave = incomingItems
+    .map(normalizeNavbarItemForSave)
+    .map((item) => {
+      if (item.type !== 'mega' || (item.sections?.length ?? 0) > 0) return item
+
+      const category = sources.categories.find((entry: CatalogCategory) => entry.id === item.linkedCategoryId || entry.slug === item.slug)
+      if (!category) return item
+
+      const fallbackItem = buildFallbackNavbarItems([category], sources.subcategories, sources.options)[0]
+      return {
+        ...item,
+        sections: fallbackItem?.sections ?? [],
+        featuredImage: item.featuredImage ?? fallbackItem?.featuredImage,
+      }
+    })
+    .filter((item) => item.label.trim())
 
   const categoryBySlug = new Map<string, CatalogCategory>(sources.categories.map((entry: CatalogCategory) => [entry.slug, entry]))
 
@@ -213,7 +228,7 @@ export async function PUT(request: Request) {
         label: item.label,
         slug: item.slug,
         item_type: item.type === 'mega' ? 'mega_menu' : 'direct_link',
-        linked_category_id: categoryBySlug.get(item.slug)?.id ?? item.linkedCategoryId ?? null,
+        linked_category_id: item.type === 'mega' ? categoryBySlug.get(item.slug)?.id ?? item.linkedCategoryId ?? null : null,
         direct_link_url: item.type === 'direct' ? item.url ?? '/' : null,
         display_order: itemIndex + 1,
         status: item.visible ? 'active' : 'hidden',

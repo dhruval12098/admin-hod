@@ -15,6 +15,7 @@ type SectionSource = {
 const SECTION_SOURCES: SectionSource[] = [
   { key: 'products', label: 'Products', table: 'products', columns: ['image_1_path', 'image_2_path', 'image_3_path', 'image_4_path', 'video_path'] },
   { key: 'product-metal-media', label: 'Product Metal Media', table: 'product_metal_media', columns: ['image_1_path', 'image_2_path', 'image_3_path', 'image_4_path', 'video_path'] },
+  { key: 'product-variant-media', label: 'Product Variant Media', table: 'product_variant_media_items', columns: ['media_path'] },
   { key: 'hero', label: 'Hero Slider', table: 'homepage_hero_slider_items', columns: ['image_path', 'mobile_image_path'] },
   { key: 'collection', label: 'Collection', table: 'collection_items', columns: ['image_path'] },
   { key: 'collection-page-config', label: 'Collection Page', table: 'collection_page_config', columns: ['showcase_image_path', 'showcase_mobile_image_path'] },
@@ -40,7 +41,20 @@ const SECTION_SOURCES: SectionSource[] = [
   { key: 'catalog-options', label: 'Catalog Option Icons', table: 'catalog_options', columns: ['icon_svg_path'] },
   { key: 'catalog-stone-shapes', label: 'Catalog Stone Shapes', table: 'catalog_stone_shapes', columns: ['svg_asset_url'] },
   { key: 'catalog-styles', label: 'Catalog Styles', table: 'catalog_styles', columns: ['icon_svg_path'] },
+  { key: 'category-grid-posters', label: 'Category Grid Posters', table: 'category_grid_posters', columns: ['image_path'] },
+  { key: 'trusted-partners', label: 'Trusted Partners', table: 'home_trusted_partner_logos', columns: ['logo_path'] },
+  { key: 'discover-shapes', label: 'Discover Shapes', table: 'discover_shapes_items', columns: ['image_path'] },
+  { key: 'discover-rings', label: 'Discover Rings', table: 'discover_rings_items', columns: ['image_path'] },
+  { key: 'diamond-info-features', label: 'Diamond Info Features', table: 'diamond_info_feature_items', columns: ['icon_svg'] },
 ]
+
+type TrashRecord = {
+  id: string
+  path: string
+  status: 'trashed' | 'restored' | 'deleted'
+  trashed_at: string
+  eligible_delete_at: string
+}
 
 function normalizePath(value: unknown) {
   if (typeof value !== 'string') return null
@@ -145,6 +159,28 @@ async function collectReferencedPaths(adminClient: any) {
   return referencedByPath
 }
 
+async function collectActiveTrashRecords(adminClient: any) {
+  const { data, error } = await adminClient
+    .from('media_trash')
+    .select('id, path, status, trashed_at, eligible_delete_at')
+    .eq('bucket', collectionBucket)
+    .eq('status', 'trashed')
+
+  if (error) {
+    const isMissingRelation =
+      error.code === 'PGRST205' ||
+      error.message?.includes("Could not find the table 'public.media_trash'")
+
+    if (isMissingRelation) return new Map<string, TrashRecord>()
+    throw new Error(`Media Trash Ledger: ${error.message}`)
+  }
+
+  return new Map(
+    ((data ?? []) as TrashRecord[])
+      .map((record) => [record.path, record])
+  )
+}
+
 function getSectionLabelForPath(path: string) {
   const topLevel = path.split('/')[0] || 'root'
   const pretty = topLevel
@@ -160,15 +196,20 @@ export async function GET(request: Request) {
 
   try {
     const referencedByPath = await collectReferencedPaths(access.adminClient)
-    const files = await listAllFiles(access.adminClient)
+    const [files, trashedByPath] = await Promise.all([
+      listAllFiles(access.adminClient),
+      collectActiveTrashRecords(access.adminClient),
+    ])
     const sectionsMap = new Map<
       string,
       Array<{
         path: string
         name: string
         url: string
-        status: 'used' | 'unused'
+        status: 'used' | 'unused' | 'trashed'
         referencedBy: string[]
+        trashedAt?: string | null
+        eligibleDeleteAt?: string | null
       }>
     >()
 
@@ -182,8 +223,10 @@ export async function GET(request: Request) {
         path: file.path,
         name: file.name,
         url: publicUrl,
-        status: references.length > 0 ? 'used' : 'unused',
-        referencedBy: references,
+        status: trashedByPath.has(file.path) ? 'trashed' : references.length > 0 ? 'used' : 'unused',
+        referencedBy: trashedByPath.has(file.path) ? ['30-day trash'] : references,
+        trashedAt: trashedByPath.get(file.path)?.trashed_at ?? null,
+        eligibleDeleteAt: trashedByPath.get(file.path)?.eligible_delete_at ?? null,
       })
 
       sectionsMap.set(sectionLabel, bucket)
@@ -195,6 +238,7 @@ export async function GET(request: Request) {
         total: items.length,
         used: items.filter((item) => item.status === 'used').length,
         unused: items.filter((item) => item.status === 'unused').length,
+        trashed: items.filter((item) => item.status === 'trashed').length,
         items: items.sort((a, b) => a.name.localeCompare(b.name)),
       }))
       .sort((a, b) => a.name.localeCompare(b.name))
@@ -212,27 +256,81 @@ export async function DELETE(request: Request) {
   const access = await assertAdmin(request)
   if ('error' in access) return access.error
 
-  const body = await request.json().catch(() => null)
+  const body = (await request.json().catch(() => null)) as { path?: unknown; paths?: unknown[]; permanent?: boolean } | null
   const paths = Array.isArray(body?.paths)
-    ? body.paths.map(normalizePath).filter((value): value is string => Boolean(value))
+    ? body.paths.map(normalizePath).filter((value: string | null): value is string => Boolean(value))
     : []
   const singlePath = normalizePath(body?.path)
-  const normalizedPaths = paths.length > 0 ? [...new Set(paths)] : singlePath ? [singlePath] : []
+  const normalizedPaths: string[] = paths.length > 0 ? [...new Set(paths)] : singlePath ? [singlePath] : []
 
   if (normalizedPaths.length === 0) {
     return NextResponse.json({ error: 'Missing file path.' }, { status: 400 })
   }
 
   try {
+    const permanent = body?.permanent === true
     const referencedByPath = await collectReferencedPaths(access.adminClient)
     const blockedPath = normalizedPaths.find((path) => referencedByPath.has(path))
     if (blockedPath) {
       return NextResponse.json({ error: 'One or more selected files are still marked as used and cannot be deleted.' }, { status: 400 })
     }
 
+    if (!permanent) {
+      const records = normalizedPaths.map((path) => ({
+        bucket: collectionBucket,
+        path,
+        original_url: access.adminClient.storage.from(collectionBucket).getPublicUrl(path).data.publicUrl,
+        status: 'trashed',
+        requested_by: access.user.id,
+      }))
+
+      const { error } = await access.adminClient
+        .from('media_trash')
+        .upsert(records, { onConflict: 'bucket,path,status' })
+
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 })
+      }
+
+      return NextResponse.json({ success: true, trashedCount: normalizedPaths.length })
+    }
+
+    const { data: trashRecords, error: trashError } = await access.adminClient
+      .from('media_trash')
+      .select('id, path, eligible_delete_at')
+      .eq('bucket', collectionBucket)
+      .eq('status', 'trashed')
+      .in('path', normalizedPaths)
+
+    if (trashError) {
+      return NextResponse.json({ error: trashError.message }, { status: 500 })
+    }
+
+    const now = Date.now()
+    const eligiblePaths = new Set(
+      ((trashRecords ?? []) as Array<{ path: string; eligible_delete_at: string }>)
+        .filter((record) => new Date(record.eligible_delete_at).getTime() <= now)
+        .map((record) => record.path)
+    )
+    const earlyPath = normalizedPaths.find((path) => !eligiblePaths.has(path))
+    if (earlyPath) {
+      return NextResponse.json({ error: 'Files must stay in trash for 30 days before permanent deletion.' }, { status: 400 })
+    }
+
     const { error } = await access.adminClient.storage.from(collectionBucket).remove(normalizedPaths)
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    const { error: updateError } = await access.adminClient
+      .from('media_trash')
+      .update({ status: 'deleted', deleted_at: new Date().toISOString() })
+      .eq('bucket', collectionBucket)
+      .eq('status', 'trashed')
+      .in('path', normalizedPaths)
+
+    if (updateError) {
+      return NextResponse.json({ error: updateError.message }, { status: 500 })
     }
 
     return NextResponse.json({ success: true, deletedCount: normalizedPaths.length })

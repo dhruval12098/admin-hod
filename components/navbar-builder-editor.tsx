@@ -508,6 +508,20 @@ export function NavbarItemEditor({ itemId, initialData }: { itemId: string; init
                 {selectedItem.visible ? <Eye size={13} /> : <EyeOff size={13} />}
                 {selectedItem.visible ? 'Visible in Navbar' : 'Hidden in Navbar'}
               </span>
+              {selectedItem.type === 'direct' && ['hiphop', 'bespoke'].includes(selectedItem.slug) ? (
+                <button
+                  type="button"
+                  onClick={() => updateItem((item) => ({ ...item, visible: !item.visible }))}
+                  className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold ${
+                    selectedItem.visible
+                      ? 'border-red-200 text-red-600 hover:bg-red-50'
+                      : 'border-green-200 text-green-700 hover:bg-green-50'
+                  }`}
+                >
+                  {selectedItem.visible ? <EyeOff size={14} /> : <Eye size={14} />}
+                  {selectedItem.visible ? 'Hide from Navbar' : 'Show in Navbar'}
+                </button>
+              ) : null}
             </div>
 
             {selectedItem.type === 'mega' ? (
