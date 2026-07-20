@@ -19,6 +19,7 @@ const SECTION_SOURCES: SectionSource[] = [
   { key: 'hero', label: 'Hero Slider', table: 'homepage_hero_slider_items', columns: ['image_path', 'mobile_image_path'] },
   { key: 'collection', label: 'Collection', table: 'collection_items', columns: ['image_path'] },
   { key: 'collection-page-config', label: 'Collection Page', table: 'collection_page_config', columns: ['showcase_image_path', 'showcase_mobile_image_path'] },
+  { key: 'bespoke-showcase', label: 'Bespoke Home Showcase', table: 'home_bespoke_showcase_section', columns: ['image_path', 'mobile_image_path'] },
   { key: 'hiphop', label: 'Hip Hop Showcase', table: 'hiphop_showcase_section', columns: ['image_path'] },
   { key: 'hiphop-hero', label: 'Hip Hop Hero Slider', table: 'hiphop_hero_slider_items', columns: ['image_path', 'mobile_image_path'] },
   { key: 'couples', label: 'Couples', table: 'couples_items', columns: ['image_path'] },

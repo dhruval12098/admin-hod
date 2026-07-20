@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { assertAdmin } from '@/lib/cms-auth'
-import type { ProductDetailSection, ProductKeyValue, ProductMetalMedia, ProductPurityPrice, ProductRecord } from '@/lib/product-catalog'
+import type { ProductDetailSection, ProductFaqItem, ProductKeyValue, ProductMetalMedia, ProductPurityPrice, ProductRecord } from '@/lib/product-catalog'
 import { loadProductLinkSelections, replaceProductOptionLinks, replaceProductSubcategoryLinks } from '@/lib/product-catalog-links'
 import {
   type ProductMetalVariant,
@@ -9,6 +9,8 @@ import {
   replaceProductMetalVariants,
   replaceProductVariantMediaItems,
 } from '@/lib/product-metal-variants'
+import { loadProductFaqItems, replaceProductFaqItems } from '@/lib/product-faqs'
+import { validateProductMasterReferences } from '@/lib/product-master-validation'
 
 function isMissingStyleIdColumn(error: { message?: string | null } | null | undefined) {
   return error?.message?.includes("Could not find the 'style_id' column of 'products'") ?? false
@@ -310,6 +312,7 @@ type ProductPayload = {
   specifications: ProductKeyValue[]
   product_details: ProductKeyValue[]
   detail_sections: ProductDetailSection[]
+  faq_items?: ProductFaqItem[]
   image_1_path?: string | null
   image_2_path?: string | null
   image_3_path?: string | null
@@ -338,7 +341,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const { id } = await params
   const { adminClient } = access
 
-  const [productResult, metalsResult, materialValuesResult, purityPricesResult, metalMediaResult, linkSelections, metalVariantBundle] = await Promise.all([
+  const [productResult, metalsResult, materialValuesResult, purityPricesResult, metalMediaResult, linkSelections, metalVariantBundle, faqItems] = await Promise.all([
     adminClient.from('products').select('*').eq('id', id).single(),
     adminClient.from('product_metal_selections').select('metal_id').eq('product_id', id).order('sort_order', { ascending: true }),
     adminClient.from('product_material_value_selections').select('material_value_id').eq('product_id', id).order('sort_order', { ascending: true }),
@@ -346,6 +349,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     adminClient.from('product_metal_media').select('*').eq('product_id', id),
     loadProductLinkSelections(adminClient, id),
     loadProductMetalVariantBundle(adminClient, id),
+    loadProductFaqItems(adminClient, id),
   ])
 
   if (productResult.error) return NextResponse.json({ error: productResult.error.message }, { status: 500 })
@@ -370,6 +374,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       metal_media: metalMediaResult.error && isMissingRelation(metalMediaResult.error, 'product_metal_media') ? [] : (metalMediaResult.data ?? []),
       metal_variants: metalVariantBundle.metalVariants,
       default_variant_media_items: metalVariantBundle.defaultVariantMediaItems,
+      faq_items: faqItems,
     },
   })
 }
@@ -383,6 +388,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const body = (await request.json().catch(() => null)) as ProductPayload | null
   if (!body?.name || !body?.sku || !body?.main_category_id) {
     return NextResponse.json({ error: 'Invalid payload.' }, { status: 400 })
+  }
+
+  const masterValidation = await validateProductMasterReferences(adminClient, body)
+  if (!masterValidation.ok) {
+    return NextResponse.json({ error: masterValidation.message }, { status: 400 })
   }
 
   const variantRows = body.metal_variants ?? []
@@ -538,6 +548,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   })
   if ('error' in variantMediaResult && variantMediaResult.error) {
     return NextResponse.json({ error: variantMediaResult.error.message }, { status: 500 })
+  }
+
+  const faqResult = await replaceProductFaqItems(adminClient, id, body.faq_items ?? [])
+  if ('error' in faqResult && faqResult.error) {
+    return NextResponse.json({ error: faqResult.error.message }, { status: 500 })
   }
 
   return NextResponse.json({ item: product })

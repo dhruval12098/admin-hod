@@ -324,6 +324,27 @@ export const PRODUCT_IMPORT_COLUMNS: ProductImportColumn[] = [
     description: 'Optional fourth product specification value.',
     example: '',
   },
+  ...Array.from({ length: 5 }, (_, index) => {
+    const faqNumber = index + 1
+    return [
+      {
+        key: `faq_${faqNumber}_question`,
+        label: `FAQ ${faqNumber} Question`,
+        group: 'optional' as const,
+        required: false,
+        description: `Optional product FAQ ${faqNumber} question shown on the product details page.`,
+        example: faqNumber === 1 ? 'Can this product be customized?' : '',
+      },
+      {
+        key: `faq_${faqNumber}_answer`,
+        label: `FAQ ${faqNumber} Answer`,
+        group: 'optional' as const,
+        required: false,
+        description: `Optional product FAQ ${faqNumber} answer shown on the product details page.`,
+        example: faqNumber === 1 ? 'Yes, our team can help with metal, size, and stone preferences.' : '',
+      },
+    ]
+  }).flat(),
   {
     key: 'engraving_label',
     label: 'Engraving Label',
@@ -382,6 +403,16 @@ const SAMPLE_ROW_STANDARD: Record<string, string> = {
   spec_3_value: '',
   spec_4_key: '',
   spec_4_value: '',
+  faq_1_question: 'Can this ring be customized?',
+  faq_1_answer: 'Yes, our bespoke team can help with size, metal, and diamond preferences.',
+  faq_2_question: 'Does it include certification?',
+  faq_2_answer: 'Certification depends on the selected diamond and will be confirmed before delivery.',
+  faq_3_question: '',
+  faq_3_answer: '',
+  faq_4_question: '',
+  faq_4_answer: '',
+  faq_5_question: '',
+  faq_5_answer: '',
   engraving_label: 'Complimentary Engraving',
   system_notes: 'Importer will auto-derive base price, shipping, care & warranty, featured, and ready-to-ship defaults.',
 }
@@ -426,6 +457,16 @@ const SAMPLE_ROW_HIPHOP: Record<string, string> = {
   spec_3_value: '',
   spec_4_key: '',
   spec_4_value: '',
+  faq_1_question: 'Can I choose a different length?',
+  faq_1_answer: 'Yes, available lengths can be confirmed by the team before checkout or order processing.',
+  faq_2_question: '',
+  faq_2_answer: '',
+  faq_3_question: '',
+  faq_3_answer: '',
+  faq_4_question: '',
+  faq_4_answer: '',
+  faq_5_question: '',
+  faq_5_answer: '',
   engraving_label: '',
   system_notes: 'Importer will force hiphop template rules and apply default policies from the master tables.',
 }

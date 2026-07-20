@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { CheckCircle2, Link2, RefreshCcw, TableProperties, Trash2 } from 'lucide-react'
+import { CheckCircle2, Download, ExternalLink, Link2, RefreshCcw, TableProperties, Trash2 } from 'lucide-react'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
@@ -67,6 +67,8 @@ function formatPreviewChanges(row: SyncPreviewRow) {
     variant_images: 'Variant Images',
     variant_videos: 'Variant Videos',
     materials: 'Material',
+    stone_shapes: 'Stone Shapes',
+    faqs: 'FAQs',
   }
   const fields = (row.changedFields ?? []).map((field) => labels[field] ?? field)
   return fields.length > 0 ? fields.join(', ') : 'Updated fields'
@@ -100,6 +102,7 @@ export function GoogleSheetSyncClient() {
   const [syncingSourceId, setSyncingSourceId] = useState<string | null>(null)
   const [deletingSourceId, setDeletingSourceId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<ConnectedSource | null>(null)
+  const [downloadingLatest, setDownloadingLatest] = useState(false)
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -432,6 +435,49 @@ export function GoogleSheetSyncClient() {
     }
   }
 
+  const handleDownloadLatest = async () => {
+    setDownloadingLatest(true)
+    try {
+      const { data } = await supabase.auth.getSession()
+      const accessToken = data.session?.access_token
+      if (!accessToken) throw new Error('Admin session not found. Please sign in again and retry.')
+
+      const response = await fetch('/api/product-imports/export/latest', {
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+        },
+      })
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null)
+        throw new Error(payload?.error ?? 'Unable to download the latest product sheet.')
+      }
+
+      const blob = await response.blob()
+      const objectUrl = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = objectUrl
+      link.download = `house-of-diams-latest-products-${new Date().toISOString().slice(0, 10)}.xlsx`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(objectUrl)
+
+      toast({
+        title: 'Latest sheet downloaded',
+        description: 'The current product database was exported in the latest import format.',
+      })
+    } catch (error) {
+      toast({
+        title: 'Download failed',
+        description: error instanceof Error ? error.message : 'Unable to download the latest product sheet.',
+        variant: 'destructive',
+      })
+    } finally {
+      setDownloadingLatest(false)
+    }
+  }
+
   return (
     <div className="p-8">
       <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
@@ -445,6 +491,15 @@ export function GoogleSheetSyncClient() {
             then validate before importing any product drafts.
           </p>
         </div>
+        <button
+          type="button"
+          onClick={() => void handleDownloadLatest()}
+          disabled={downloadingLatest}
+          className="inline-flex items-center gap-2 rounded-lg border border-border bg-white px-4 py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-secondary disabled:opacity-60"
+        >
+          <Download size={16} />
+          {downloadingLatest ? 'Downloading...' : 'Download Latest Product Sheet'}
+        </button>
       </div>
 
       <section className="mb-6 rounded-xl border border-border bg-white p-2 shadow-sm">
@@ -547,6 +602,16 @@ export function GoogleSheetSyncClient() {
                           <RefreshCcw size={14} />
                           {syncingSourceId === source.id ? 'Syncing...' : 'Sync'}
                         </button>
+                        <a
+                          href={source.sheetUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(event) => event.stopPropagation()}
+                          className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary"
+                        >
+                          <ExternalLink size={14} />
+                          Open Sheet
+                        </a>
                         <button
                           type="button"
                           onClick={(event) => {

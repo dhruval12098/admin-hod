@@ -168,6 +168,14 @@ function collectSpecifications(payload: Record<string, string> | null | undefine
   })).filter((entry) => entry.key && entry.value)
 }
 
+function collectFaqItems(payload: Record<string, string> | null | undefined, count: number) {
+  if (!payload) return []
+  return Array.from({ length: count }, (_, index) => ({
+    question: (payload[`faq_${index + 1}_question`] ?? '').trim(),
+    answer: (payload[`faq_${index + 1}_answer`] ?? '').trim(),
+  })).filter((entry) => entry.question && entry.answer)
+}
+
 function validateRow(
   row: ImportJobRowRecord,
   lookups: CatalogLookupSets,
@@ -190,6 +198,7 @@ function validateRow(
   const certificates = collectOrderedValues(row.raw_payload, 'certificate', 2)
   const materialValues = collectOrderedValues(row.raw_payload, 'material_value', 4)
   const specifications = collectSpecifications(row.raw_payload, 4)
+  const faqItems = collectFaqItems(row.raw_payload, 5)
   const sourceSubcategoryValues = splitFlexibleList(typeof row.raw_payload?.source_subcategory === 'string' ? row.raw_payload.source_subcategory : row.subcategory)
   const sourceOptionValues = splitFlexibleList(typeof row.raw_payload?.source_option === 'string' ? row.raw_payload.source_option : row.option_name)
   const featured = validateBooleanLike(row.raw_payload?.featured)
@@ -354,6 +363,7 @@ function validateRow(
           row.purity_3_label && row.purity_3_price ? { label: row.purity_3_label, price: row.purity_3_price } : null,
         ].filter(Boolean),
     specifications,
+    faq_items: faqItems,
     media: {
       image_1: row.image_1,
       image_2: row.image_2,

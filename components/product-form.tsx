@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Skeleton } from '@/components/ui/skeleton'
 import type {
   CatalogCategory,
   CatalogCertificate,
@@ -27,6 +28,7 @@ import type {
   CatalogStyle,
   CatalogSubcategory,
   ProductDetailSection,
+  ProductFaqItem,
   ProductKeyValue,
   ProductMetalMedia,
   ProductMetalVariant,
@@ -35,6 +37,10 @@ import type {
 } from '@/lib/product-catalog'
 import { formatCategoryPath } from '@/lib/product-catalog'
 import { buildCombinedMetalDisplayLabel } from '@/lib/product-metal-variants'
+import { KeyValueSection } from '@/components/product-form/KeyValueSection'
+import { PolicyEditor } from '@/components/product-form/PolicyEditor'
+import { ProductFaqEditor } from '@/components/product-form/ProductFaqEditor'
+import { ProductFormStepActions, ProductFormStepBar } from '@/components/product-form/ProductFormStepNavigation'
 
 type BootstrapPayload = {
   categories?: CatalogCategory[]
@@ -106,6 +112,7 @@ type ProductResponse = {
     specifications?: ProductKeyValue[]
     product_details?: ProductKeyValue[]
     detail_sections?: ProductDetailSection[]
+    faq_items?: ProductFaqItem[]
     image_1_path?: string | null
     image_2_path?: string | null
     image_3_path?: string | null
@@ -148,19 +155,21 @@ function applyBootstrapPayload(
 ) {
   if (!payload) return
 
-  setters.setCategories(payload.categories ?? [])
-  setters.setSubcategories(payload.subcategories ?? [])
-  setters.setOptions(payload.options ?? [])
-  setters.setMetals(payload.metals ?? [])
-  setters.setMaterialValues(payload.materialValues ?? [])
-  setters.setStoneShapes(payload.stoneShapes ?? [])
-  setters.setGstSlabs(payload.gstSlabs ?? [])
-  setters.setRingCategories(payload.ringCategories ?? [])
-  setters.setRingCategorySizes(payload.ringCategorySizes ?? [])
-  setters.setCertificates(payload.certificates ?? [])
-  setters.setStyles(payload.styles ?? [])
-  setters.setShippingRules((payload.productContentRules ?? []).filter((item) => item.kind === 'shipping'))
-  setters.setCareWarrantyRules((payload.productContentRules ?? []).filter((item) => item.kind === 'care_warranty'))
+  if (payload.categories) setters.setCategories(payload.categories)
+  if (payload.subcategories) setters.setSubcategories(payload.subcategories)
+  if (payload.options) setters.setOptions(payload.options)
+  if (payload.metals) setters.setMetals(payload.metals)
+  if (payload.materialValues) setters.setMaterialValues(payload.materialValues)
+  if (payload.stoneShapes) setters.setStoneShapes(payload.stoneShapes)
+  if (payload.gstSlabs) setters.setGstSlabs(payload.gstSlabs)
+  if (payload.ringCategories) setters.setRingCategories(payload.ringCategories)
+  if (payload.ringCategorySizes) setters.setRingCategorySizes(payload.ringCategorySizes)
+  if (payload.certificates) setters.setCertificates(payload.certificates)
+  if (payload.styles) setters.setStyles(payload.styles)
+  if (payload.productContentRules) {
+    setters.setShippingRules(payload.productContentRules.filter((item) => item.kind === 'shipping'))
+    setters.setCareWarrantyRules(payload.productContentRules.filter((item) => item.kind === 'care_warranty'))
+  }
 }
 
 function applyProductPayload(
@@ -218,6 +227,7 @@ function applyProductPayload(
     setSpecifications: Dispatch<SetStateAction<ProductKeyValue[]>>
     setProductDetails: Dispatch<SetStateAction<ProductKeyValue[]>>
     setDetailSections: Dispatch<SetStateAction<ProductDetailSection[]>>
+    setFaqItems: Dispatch<SetStateAction<ProductFaqItem[]>>
     setImagePaths: Dispatch<SetStateAction<(string | null)[]>>
     setImageSlots: Dispatch<SetStateAction<string[]>>
     setVideoPath: Dispatch<SetStateAction<string | null>>
@@ -309,6 +319,7 @@ function applyProductPayload(
   setters.setSpecifications(item.specifications?.length ? item.specifications : [emptyRow()])
   setters.setProductDetails(item.product_details?.length ? item.product_details : [emptyRow()])
   setters.setDetailSections(item.detail_sections?.length ? item.detail_sections : [emptySection()])
+  setters.setFaqItems(item.faq_items?.length ? item.faq_items : [])
   setters.setImagePaths([
     item.image_1_path ?? null,
     item.image_2_path ?? null,
@@ -350,7 +361,7 @@ const emptySection = (): ProductDetailSection => ({
 type ProductMetalMediaImageField = 'image_1_path' | 'image_2_path' | 'image_3_path' | 'image_4_path'
 const collectionBucket = process.env.NEXT_PUBLIC_SUPABASE_COLLECTION_BUCKET || 'hod'
 
-type ProductFormStepId = 'basics' | 'pricing' | 'attributes' | 'content' | 'details' | 'media'
+export type ProductFormStepId = 'basics' | 'pricing' | 'attributes' | 'content' | 'details' | 'media'
 
 const PRODUCT_FORM_STEPS: { id: ProductFormStepId; label: string; description: string }[] = [
   { id: 'basics', label: 'Basics', description: 'Core info, category, and template setup.' },
@@ -360,6 +371,15 @@ const PRODUCT_FORM_STEPS: { id: ProductFormStepId; label: string; description: s
   { id: 'details', label: 'Details', description: 'Specifications and detailed content sections.' },
   { id: 'media', label: 'Media', description: 'Images, video, and final review before save.' },
 ]
+const CATALOG_BOOTSTRAP_CACHE_TTL_MS = 45_000
+type CatalogBootstrapScope = 'basics' | 'pricing' | 'attributes' | 'content'
+const catalogBootstrapCache = new Map<CatalogBootstrapScope, { payload: BootstrapPayload; loadedAt: number }>()
+const catalogBootstrapPending = new Map<CatalogBootstrapScope, Promise<BootstrapPayload | null>>()
+
+function productFormDebug(label: string, startedAt: number) {
+  if (process.env.NODE_ENV !== 'development') return
+  console.info(`[ProductForm] ${label}: ${Math.round(performance.now() - startedAt)}ms`)
+}
 
 async function getAccessToken() {
   const { data } = await supabase.auth.getSession()
@@ -390,6 +410,19 @@ function sanitizeSections(sections: ProductDetailSection[]) {
       rows: sanitizeRows(section.rows),
     }))
     .filter((section) => section.title && section.rows.length > 0)
+}
+
+function sanitizeFaqItems(items: ProductFaqItem[]) {
+  return items
+    .map((item, index) => ({
+      ...item,
+      question: item.question.trim(),
+      answer: item.answer.trim(),
+      sort_order: index + 1,
+      is_active: item.is_active !== false,
+      source: item.source || 'admin',
+    }))
+    .filter((item) => item.question && item.answer)
 }
 
 function toStoragePreviewUrl(path: string | null | undefined) {
@@ -494,6 +527,8 @@ export function ProductForm({
   const [specifications, setSpecifications] = useState<ProductKeyValue[]>([emptyRow()])
   const [productDetails, setProductDetails] = useState<ProductKeyValue[]>([emptyRow()])
   const [detailSections, setDetailSections] = useState<ProductDetailSection[]>([emptySection()])
+  const [faqItems, setFaqItems] = useState<ProductFaqItem[]>([])
+  const [loadedBootstrapScopes, setLoadedBootstrapScopes] = useState<Set<CatalogBootstrapScope>>(() => new Set())
   const [imageSlots, setImageSlots] = useState<string[]>(['', '', '', ''])
   const [imagePaths, setImagePaths] = useState<(string | null)[]>([null, null, null, null])
   const [videoPath, setVideoPath] = useState<string | null>(null)
@@ -587,6 +622,7 @@ export function ProductForm({
       setSpecifications,
       setProductDetails,
       setDetailSections,
+      setFaqItems,
       setImagePaths,
       setImageSlots,
       setVideoPath,
@@ -603,6 +639,52 @@ export function ProductForm({
       setGramWeightValue,
     })
 
+  const markBootstrapScopeLoaded = (scope: CatalogBootstrapScope) => {
+    setLoadedBootstrapScopes((current) => new Set(current).add(scope))
+  }
+
+  const loadBootstrapScope = async (scope: CatalogBootstrapScope) => {
+    const startedAt = performance.now()
+    const cached = catalogBootstrapCache.get(scope)
+
+    if (cached && Date.now() - cached.loadedAt < CATALOG_BOOTSTRAP_CACHE_TTL_MS) {
+      applyBootstrap(cached.payload)
+      markBootstrapScopeLoaded(scope)
+      productFormDebug(`catalog ${scope} cache applied`, startedAt)
+      return cached.payload
+    }
+
+    const pending = catalogBootstrapPending.get(scope)
+    if (pending) {
+      const payload = await pending
+      if (payload) {
+        applyBootstrap(payload)
+        markBootstrapScopeLoaded(scope)
+      }
+      return payload
+    }
+
+    const pendingRequest = authedFetch(`/api/catalog/bootstrap?scope=${scope}`).then(async (response) => {
+      const payload = (await response.json().catch(() => null)) as BootstrapPayload | null
+      productFormDebug(`catalog ${scope} fetched`, startedAt)
+      if (response.ok && payload) {
+        catalogBootstrapCache.set(scope, { payload, loadedAt: Date.now() })
+        return payload
+      }
+      return null
+    }).finally(() => {
+      catalogBootstrapPending.delete(scope)
+    })
+
+    catalogBootstrapPending.set(scope, pendingRequest)
+    const payload = await pendingRequest
+    if (payload) {
+      applyBootstrap(payload)
+      markBootstrapScopeLoaded(scope)
+    }
+    return payload
+  }
+
   useEffect(() => {
     void loadData()
   }, [productId, productSlug])
@@ -610,25 +692,44 @@ export function ProductForm({
   const loadData = async () => {
     setLoading(true)
     try {
-      const bootstrapResponse = await authedFetch('/api/catalog/bootstrap')
-      const bootstrapPayload = (await bootstrapResponse.json().catch(() => null)) as BootstrapPayload | null
-      if (bootstrapResponse.ok && bootstrapPayload) {
-        applyBootstrap(bootstrapPayload)
-      }
-
       const productLookupUrl = productSlug ? `/api/products/by-slug/${productSlug}` : productId ? `/api/products/${productId}` : null
+      const loadStartedAt = performance.now()
+      const bootstrapPromise = loadBootstrapScope('basics')
 
-      if (productLookupUrl) {
-        const productResponse = await authedFetch(productLookupUrl)
-        const productPayload = (await productResponse.json().catch(() => null)) as ProductResponse | null
-        if (productResponse.ok && productPayload?.item) {
-          applyProduct(productPayload.item)
-        }
-      }
+      const productPromise = productLookupUrl
+        ? (() => {
+            const startedAt = performance.now()
+            return authedFetch(productLookupUrl).then(async (response) => {
+            const payload = (await response.json().catch(() => null)) as ProductResponse | null
+            productFormDebug('product fetched', startedAt)
+            return response.ok && payload?.item ? payload.item : null
+            })
+          })()
+        : Promise.resolve(null)
+
+      const [, productItem] = await Promise.all([bootstrapPromise, productPromise])
+
+      if (productItem) applyProduct(productItem)
+      productFormDebug('total loadData', loadStartedAt)
     } finally {
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    const requiredScopesByStep: Partial<Record<ProductFormStepId, CatalogBootstrapScope[]>> = {
+      basics: ['basics'],
+      pricing: ['pricing'],
+      attributes: ['pricing', 'attributes'],
+      content: ['content'],
+      media: ['pricing'],
+    }
+    const scopes = requiredScopesByStep[activeStep] ?? []
+    const missingScopes = scopes.filter((scope) => !loadedBootstrapScopes.has(scope))
+    if (missingScopes.length < 1) return
+
+    void Promise.all(missingScopes.map((scope) => loadBootstrapScope(scope)))
+  }, [activeStep, loadedBootstrapScopes])
 
   const uploadMedia = async (file: File, kind: 'image' | 'video', folder: 'products' | 'hiphop') => {
     const body = new FormData()
@@ -1219,6 +1320,7 @@ export function ProductForm({
           specifications: sanitizeRows(specifications),
           product_details: sanitizeRows(productDetails),
           detail_sections: sanitizeSections(detailSections),
+          faq_items: sanitizeFaqItems(faqItems),
           image_1_path: imagePaths[0],
           image_2_path: imagePaths[1],
           image_3_path: imagePaths[2],
@@ -1274,7 +1376,7 @@ export function ProductForm({
   }
 
   if (loading) {
-    return <div className="rounded-lg border border-border bg-white px-8 py-12 text-sm text-muted-foreground shadow-sm">Loading product flow...</div>
+    return <ProductFormSkeleton />
   }
 
   return (
@@ -2066,6 +2168,17 @@ export function ProductForm({
               onChange={setProductDetails}
             />
 
+            <ProductFaqEditor
+              items={faqItems}
+              onChange={setFaqItems}
+              onValidationError={(message) =>
+                toast({
+                  title: 'FAQ needs both fields',
+                  description: message,
+                  variant: 'destructive',
+                })
+              }
+            />
             <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
               <div className="mb-6 flex items-start justify-between gap-4">
                 <div>
@@ -2557,6 +2670,66 @@ function TagList({ items, onRemove }: { items: string[]; onRemove: (value: strin
   )
 }
 
+function ProductFormSkeleton() {
+  return (
+    <div className="flex max-w-5xl flex-col gap-8">
+      <div className="flex items-center gap-3">
+        <Skeleton className="h-9 w-9 rounded-lg" />
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-56" />
+          <Skeleton className="h-3 w-80 max-w-[70vw]" />
+        </div>
+      </div>
+
+      <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-2">
+            <Skeleton className="h-6 w-48" />
+            <Skeleton className="h-3 w-72 max-w-[70vw]" />
+          </div>
+          <Skeleton className="h-7 w-16 rounded-full" />
+        </div>
+        <div className="mt-6 grid grid-cols-1 gap-2 md:grid-cols-6">
+          {Array.from({ length: 6 }, (_, index) => (
+            <Skeleton key={index} className="h-[58px] rounded-xl" />
+          ))}
+        </div>
+        <Skeleton className="mt-4 h-3 w-64 max-w-[70vw]" />
+      </section>
+
+      <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
+        <Skeleton className="mb-8 h-6 w-44" />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-28" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-20" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        </div>
+        <div className="mt-4 flex items-center gap-2">
+          <Skeleton className="h-4 w-4 rounded" />
+          <Skeleton className="h-4 w-32" />
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
+        <Skeleton className="mb-8 h-6 w-56" />
+        <div className="space-y-6">
+          {Array.from({ length: 3 }, (_, index) => (
+            <div key={index} className="space-y-2">
+              <Skeleton className="h-4 w-32" />
+              <Skeleton className="h-10 w-full" />
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  )
+}
+
 function PillToggle({
   value,
   onChange,
@@ -2614,276 +2787,6 @@ function TogglePillGroup({
           </button>
         ))}
       </div>
-    </div>
-  )
-}
-
-function ProductFormStepBar({
-  steps,
-  activeStep,
-  onStepChange,
-}: {
-  steps: { id: ProductFormStepId; label: string; description: string }[]
-  activeStep: ProductFormStepId
-  onStepChange: (step: ProductFormStepId) => void
-}) {
-  return (
-    <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-bold text-foreground">Product Setup Flow</h2>
-          <p className="mt-2 text-xs text-muted-foreground">Move step by step so the form loads lighter and each edit stays easier to manage.</p>
-        </div>
-        <span className="rounded-full border border-border bg-secondary/20 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-          {steps.findIndex((step) => step.id === activeStep) + 1} / {steps.length}
-        </span>
-      </div>
-
-        <div className="mt-6 grid grid-cols-1 gap-2 md:grid-cols-6">
-          {steps.map((step, index) => {
-            const isActive = step.id === activeStep
-            const isCompleted = steps.findIndex((entry) => entry.id === activeStep) > index
-
-          return (
-              <button
-                key={step.id}
-                type="button"
-                onClick={() => onStepChange(step.id)}
-                className={`rounded-xl border px-3 py-3 text-left transition-colors ${
-                  isActive
-                    ? 'border-foreground bg-foreground text-white shadow-md'
-                    : isCompleted
-                      ? 'border-border bg-secondary/20 text-foreground hover:bg-secondary/40'
-                      : 'border-border bg-white text-foreground hover:bg-secondary/10'
-                }`}
-              >
-                <div className="flex items-center gap-2.5">
-                  <span
-                    className={`inline-flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-semibold ${
-                      isActive ? 'bg-white/15 text-white' : 'bg-secondary text-foreground'
-                    }`}
-                  >
-                    {index + 1}
-                  </span>
-                  <p className="text-[13px] font-semibold leading-none">{step.label}</p>
-                </div>
-              </button>
-            )
-        })}
-      </div>
-      <p className="mt-4 text-xs text-muted-foreground">{steps.find((step) => step.id === activeStep)?.description}</p>
-    </section>
-  )
-}
-
-function ProductFormStepActions({
-  isFirstStep,
-  isLastStep,
-  saving,
-  backHref,
-  submitLabel,
-  onPrevious,
-  onNext,
-}: {
-  isFirstStep: boolean
-  isLastStep: boolean
-  saving: boolean
-  backHref: string
-  submitLabel: string
-  onPrevious: () => void
-  onNext: () => void
-}) {
-  return (
-    <div className="sticky bottom-4 z-20 rounded-2xl border border-border border-t bg-white/98 p-4 shadow-lg backdrop-blur">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          {!isFirstStep ? (
-            <button
-              type="button"
-              onClick={onPrevious}
-              className="rounded border border-border px-5 py-2.5 text-sm font-medium text-foreground hover:bg-secondary transition-colors"
-            >
-              Back
-            </button>
-          ) : (
-            <Link href={backHref} className="rounded border border-border px-5 py-2.5 text-sm font-medium text-foreground hover:bg-secondary transition-colors">
-              Cancel
-            </Link>
-          )}
-        </div>
-
-        <div className="flex items-center gap-3">
-          {!isLastStep ? (
-            <button
-              type="button"
-              onClick={onNext}
-              className="rounded bg-primary px-6 py-2.5 text-sm font-medium text-white hover:bg-primary/90 transition-colors"
-            >
-              Continue
-            </button>
-          ) : (
-            <>
-              <Link href={backHref} className="rounded border border-border px-5 py-2.5 text-sm font-medium text-foreground hover:bg-secondary transition-colors">
-                Cancel
-              </Link>
-              <button type="submit" disabled={saving} className="rounded bg-primary px-6 py-2.5 text-sm font-medium text-white hover:bg-primary/90 transition-colors disabled:opacity-60">
-                {saving ? 'Saving...' : submitLabel}
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function KeyValueSection({
-  title,
-  description,
-  rows,
-  onChange,
-}: {
-  title: string
-  description: string
-  rows: ProductKeyValue[]
-  onChange: Dispatch<SetStateAction<ProductKeyValue[]>>
-}) {
-  return (
-    <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
-      <div className="mb-6 flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-bold text-foreground">{title}</h2>
-          <p className="mt-2 text-xs text-muted-foreground">{description}</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => onChange((prev) => [...prev, emptyRow()])}
-          className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary"
-        >
-          <Plus size={14} />
-          Add Row
-        </button>
-      </div>
-
-      <div className="space-y-0">
-        {rows.map((row, index) => (
-          <div key={`${title}-${index}`} className={`grid grid-cols-1 gap-3 py-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] ${index < rows.length - 1 ? 'border-b border-border/40' : ''}`}>
-            <input
-              value={row.key}
-              onChange={(e) => onChange((prev) => prev.map((entry, rowIndex) => (rowIndex === index ? { ...entry, key: e.target.value } : entry)))}
-              placeholder="Label"
-              className={inputClassName}
-            />
-            <input
-              value={row.value}
-              onChange={(e) => onChange((prev) => prev.map((entry, rowIndex) => (rowIndex === index ? { ...entry, value: e.target.value } : entry)))}
-              placeholder="Value"
-              className={inputClassName}
-            />
-            <button
-              type="button"
-              onClick={() => onChange((prev) => (prev.length > 1 ? prev.filter((_, rowIndex) => rowIndex !== index) : prev))}
-              className="inline-flex items-center justify-center rounded-lg border border-transparent px-3 py-2 text-sm text-muted-foreground hover:border-border hover:bg-secondary"
-            >
-              <Trash2 size={14} />
-            </button>
-          </div>
-        ))}
-      </div>
-    </section>
-  )
-}
-
-function PolicyEditor({
-  title,
-  description,
-  enabled,
-  onEnabledChange,
-  rules,
-  selectedRuleId,
-  onRuleChange,
-  overrideEnabled,
-  onOverrideEnabledChange,
-  titleOverride,
-  onTitleOverrideChange,
-  bodyOverride,
-  onBodyOverrideChange,
-}: {
-  title: string
-  description: string
-  enabled: boolean
-  onEnabledChange: (value: boolean) => void
-  rules: ProductContentRule[]
-  selectedRuleId: string
-  onRuleChange: (value: string) => void
-  overrideEnabled: boolean
-  onOverrideEnabledChange: (value: boolean) => void
-  titleOverride: string
-  onTitleOverrideChange: Dispatch<SetStateAction<string>>
-  bodyOverride: string
-  onBodyOverrideChange: Dispatch<SetStateAction<string>>
-}) {
-  return (
-    <div className="rounded-lg border border-border bg-secondary/10 p-4">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <p className="text-sm font-semibold text-foreground">{title}</p>
-          <p className="mt-1 text-xs text-muted-foreground">{description}</p>
-        </div>
-        <PillToggle value={enabled} onChange={onEnabledChange} onLabel="Enabled" offLabel="Disabled" />
-      </div>
-
-      {enabled ? (
-        <div className="mt-4 space-y-4">
-          <FormField label={`${title} Rule`}>
-            <Select value={selectedRuleId || '__none__'} onValueChange={(value) => onRuleChange(value === '__none__' ? '' : value)}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder={`Select ${title.toLowerCase()} rule`} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__">No linked rule</SelectItem>
-                {rules.map((rule) => (
-                  <SelectItem key={rule.id} value={rule.id}>
-                    {rule.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </FormField>
-
-          <div className="rounded-lg border border-border/70 bg-white p-4">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <p className="text-sm font-semibold text-foreground">Override Linked Rule</p>
-                <p className="mt-2 text-xs text-muted-foreground">Only enable this when the product needs custom shipping or warranty text instead of the shared rule.</p>
-              </div>
-              <PillToggle value={overrideEnabled} onChange={onOverrideEnabledChange} onLabel="Override On" offLabel="Use Rule" />
-            </div>
-
-            {overrideEnabled ? (
-              <div className="mt-4 grid grid-cols-1 gap-4">
-                <FormField label={`${title} Title Override`}>
-                  <input
-                    value={titleOverride}
-                    onChange={(e) => onTitleOverrideChange(e.target.value)}
-                    placeholder={`Leave blank to use the selected ${title.toLowerCase()} rule title`}
-                    className={inputClassName}
-                  />
-                </FormField>
-                <FormField label={`${title} Body Override`}>
-                  <textarea
-                    value={bodyOverride}
-                    onChange={(e) => onBodyOverrideChange(e.target.value)}
-                    rows={4}
-                    placeholder={`Leave blank to use the selected ${title.toLowerCase()} rule body`}
-                    className={inputClassName}
-                  />
-                </FormField>
-              </div>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
     </div>
   )
 }

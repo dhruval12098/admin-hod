@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 
 const CMS_TABS = [
   { label: 'Home', href: '/dashboard/cms/home', key: 'home' },
+  { label: 'Bespoke', href: '/dashboard/cms/bespoke', key: 'bespoke' },
   { label: 'Hip Hop', href: '/dashboard/cms/hiphop', key: 'hiphop' },
   { label: 'Collection', href: '/dashboard/cms/collection', key: 'collection' },
   { label: 'About', href: '/dashboard/cms/about', key: 'about' },

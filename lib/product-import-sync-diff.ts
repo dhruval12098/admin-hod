@@ -50,6 +50,13 @@ type ProductVariantMediaItemRow = {
   sort_order?: number | null
   is_default_fallback?: boolean | null
 }
+type ProductFaqRow = {
+  product_id: string
+  question: string | null
+  answer: string | null
+  sort_order?: number | null
+  is_active?: boolean | null
+}
 
 type ExistingProductSnapshot = {
   id: string
@@ -76,6 +83,7 @@ type ExistingProductSnapshot = {
   variant_price_values: string
   variant_image_group_values: string
   variant_video_group_values: string
+  faq_items: string[]
 }
 
 export type GoogleSheetRowChangeField =
@@ -93,6 +101,7 @@ export type GoogleSheetRowChangeField =
   | 'variant_videos'
   | 'materials'
   | 'stone_shapes'
+  | 'faqs'
 
 export type ClassifiedGoogleSheetRow = {
   rowNumber: number
@@ -157,6 +166,15 @@ function splitCommaValues(value: string | null | undefined) {
     .split(',')
     .map((entry) => entry.trim())
     .filter(Boolean)
+}
+
+function collectFaqValues(values: ParsedProductImportRow) {
+  return Array.from({ length: 5 }, (_, index) => {
+    const faqNumber = index + 1
+    const question = strictComparable(values[`faq_${faqNumber}_question`])
+    const answer = strictComparable(values[`faq_${faqNumber}_answer`])
+    return question && answer ? `${question}\n${answer}` : ''
+  }).filter(Boolean)
 }
 
 function normalizeMediaValue(value: unknown) {
@@ -243,7 +261,7 @@ export async function classifyGoogleSheetRows(
   const refs = await loadReferenceMaps(adminClient)
   const skus = rows.map((entry) => entry.values.sku?.trim()).filter((value): value is string => Boolean(value))
 
-  const [productsResult, metalSelectionsResult, metalsResult, purityResult, materialSelectionsResult, stoneShapeSelectionsResult, subcategoryLinksResult, optionLinksResult, metalVariantsResult, variantMediaResult] = await Promise.all([
+  const [productsResult, metalSelectionsResult, metalsResult, purityResult, materialSelectionsResult, stoneShapeSelectionsResult, subcategoryLinksResult, optionLinksResult, metalVariantsResult, variantMediaResult, faqItemsResult] = await Promise.all([
     adminClient
       .from('products')
       .select('id, sku, name, description, main_category_id, subcategory_id, option_id, style_id, discount_price, image_1_path, image_2_path, image_3_path, image_4_path, video_path')
@@ -257,6 +275,7 @@ export async function classifyGoogleSheetRows(
     adminClient.from('product_option_links').select('product_id, option_id, is_primary').order('sort_order', { ascending: true }),
     adminClient.from('product_metal_variants').select('id, product_id, metal_id, price, sort_order').order('sort_order', { ascending: true }),
     adminClient.from('product_variant_media_items').select('product_id, variant_id, media_type, media_path, sort_order, is_default_fallback').order('sort_order', { ascending: true }),
+    adminClient.from('product_faq_items').select('product_id, question, answer, sort_order, is_active').order('sort_order', { ascending: true }),
   ])
 
   if (productsResult.error) throw new Error(productsResult.error.message)
@@ -269,6 +288,7 @@ export async function classifyGoogleSheetRows(
   if (optionLinksResult.error) throw new Error(optionLinksResult.error.message)
   if (metalVariantsResult.error) throw new Error(metalVariantsResult.error.message)
   if (variantMediaResult.error) throw new Error(variantMediaResult.error.message)
+  if (faqItemsResult.error) throw new Error(faqItemsResult.error.message)
 
   const metalRows = (metalsResult.data ?? []) as CatalogMetalRow[]
   const metalNameById = new Map<string, string>(metalRows.map((row) => [row.id, row.name]))
@@ -332,6 +352,15 @@ export async function classifyGoogleSheetRows(
     variantMediaByVariantId.set(row.variant_id, [...(variantMediaByVariantId.get(row.variant_id) ?? []), row])
   }
 
+  const faqsByProduct = new Map<string, string[]>()
+  for (const row of (faqItemsResult.data ?? []) as ProductFaqRow[]) {
+    if (row.is_active === false) continue
+    const question = strictComparable(row.question)
+    const answer = strictComparable(row.answer)
+    if (!question || !answer) continue
+    faqsByProduct.set(row.product_id, [...(faqsByProduct.get(row.product_id) ?? []), `${question}\n${answer}`])
+  }
+
   const snapshotsBySku = new Map<string, ExistingProductSnapshot>()
   for (const product of (productsResult.data ?? []) as ProductLookupRow[]) {
     const purityRows = purityByProduct.get(product.id) ?? []
@@ -383,6 +412,7 @@ export async function classifyGoogleSheetRows(
       variant_price_values: variantPrices.join('~~'),
       variant_image_group_values: variantImageGroups.join('~~'),
       variant_video_group_values: variantVideoGroups.join('~~'),
+      faq_items: faqsByProduct.get(product.id) ?? [],
     })
   }
 
@@ -459,6 +489,10 @@ export async function classifyGoogleSheetRows(
     }
     if (expectedStoneShapes.length > 0 && !sameLists(existing.stone_shapes, expectedStoneShapes)) {
       changedFields.push('stone_shapes')
+    }
+    const expectedFaqs = collectFaqValues(entry.values)
+    if (expectedFaqs.length > 0 && !sameLists(existing.faq_items, expectedFaqs)) {
+      changedFields.push('faqs')
     }
 
     return {

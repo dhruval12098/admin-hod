@@ -15,6 +15,7 @@ import type {
   CatalogStyle,
   CatalogSubcategory,
   ProductDetailSection,
+  ProductFaqItem,
   ProductKeyValue,
   ProductRecord,
 } from '@/lib/product-catalog'
@@ -26,6 +27,8 @@ import {
   replaceProductMetalVariants,
   replaceProductVariantMediaItems,
 } from '@/lib/product-metal-variants'
+import { replaceProductFaqItems } from '@/lib/product-faqs'
+import { validateProductMasterReferences } from '@/lib/product-master-validation'
 
 function isMissingStyleIdColumn(error: { message?: string | null } | null | undefined) {
   return error?.message?.includes("Could not find the 'style_id' column of 'products'") ?? false
@@ -341,6 +344,7 @@ type ProductPayload = {
   specifications: ProductKeyValue[]
   product_details: ProductKeyValue[]
   detail_sections: ProductDetailSection[]
+  faq_items?: ProductFaqItem[]
   image_1_path?: string | null
   image_2_path?: string | null
   image_3_path?: string | null
@@ -516,6 +520,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid payload.' }, { status: 400 })
   }
 
+  const masterValidation = await validateProductMasterReferences(adminClient, body)
+  if (!masterValidation.ok) {
+    return NextResponse.json({ error: masterValidation.message }, { status: 400 })
+  }
+
   const variantRows = body.metal_variants ?? []
   const resolvedMetalIds =
     variantRows.length > 0
@@ -665,6 +674,11 @@ export async function POST(request: Request) {
   })
   if ('error' in variantMediaResult && variantMediaResult.error) {
     return NextResponse.json({ error: variantMediaResult.error.message }, { status: 500 })
+  }
+
+  const faqResult = await replaceProductFaqItems(adminClient, product.id, body.faq_items ?? [])
+  if ('error' in faqResult && faqResult.error) {
+    return NextResponse.json({ error: faqResult.error.message }, { status: 500 })
   }
 
   return NextResponse.json({ item: product })

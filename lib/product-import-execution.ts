@@ -5,6 +5,7 @@ import sharp from 'sharp'
 import { buildAdminClient } from '@/lib/cms-auth'
 import { buildNormalizedLookupMap, normalizeImportValue } from '@/lib/import-normalization'
 import { replaceProductOptionLinks, replaceProductSubcategoryLinks } from '@/lib/product-catalog-links'
+import { replaceProductFaqItems } from '@/lib/product-faqs'
 import { buildCombinedMetalDisplayLabel, replaceProductMetalVariants, replaceProductVariantMediaItems } from '@/lib/product-metal-variants'
 import { productImportBucket } from '@/lib/product-import-staging'
 import type { ImportJobIssueRecord, ImportJobRowRecord } from '@/lib/import-jobs'
@@ -77,6 +78,15 @@ function collectSpecifications(payload: Record<string, unknown> | null | undefin
     const value = typeof payload[`spec_${index + 1}_value`] === 'string' ? String(payload[`spec_${index + 1}_value`]).trim() : ''
     return { key, value }
   }).filter((entry) => entry.key && entry.value)
+}
+
+function collectFaqItems(payload: Record<string, unknown> | null | undefined, count: number) {
+  if (!payload) return []
+  return Array.from({ length: count }, (_, index) => {
+    const question = typeof payload[`faq_${index + 1}_question`] === 'string' ? String(payload[`faq_${index + 1}_question`]).trim() : ''
+    const answer = typeof payload[`faq_${index + 1}_answer`] === 'string' ? String(payload[`faq_${index + 1}_answer`]).trim() : ''
+    return { question, answer, sort_order: index + 1, is_active: true, source: 'google_sheet' }
+  }).filter((entry) => entry.question && entry.answer)
 }
 
 function fileExtension(fileName: string) {
@@ -305,6 +315,12 @@ async function saveProduct(adminClient: any, row: ImportJobRowRecord, mediaPaths
         .map((entry) => ({ key: entry.key.trim(), value: entry.value.trim() }))
         .filter((entry) => entry.key && entry.value)
     : collectSpecifications(row.raw_payload ?? {}, 4)
+  const faqItems = Array.isArray(normalized.faq_items)
+    ? normalized.faq_items
+        .filter((entry): entry is { question: string; answer: string } => typeof entry === 'object' && entry !== null && typeof (entry as { question?: unknown }).question === 'string' && typeof (entry as { answer?: unknown }).answer === 'string')
+        .map((entry, index) => ({ question: entry.question.trim(), answer: entry.answer.trim(), sort_order: index + 1, is_active: true, source: 'google_sheet' }))
+        .filter((entry) => entry.question && entry.answer)
+    : collectFaqItems(row.raw_payload ?? {}, 5)
   const combinedVariantLabels = splitGroupedValues(
     typeof row.raw_payload?.variant_combined_values === 'string' ? row.raw_payload.variant_combined_values : ''
   )
@@ -541,6 +557,11 @@ async function saveProduct(adminClient: any, row: ImportJobRowRecord, mediaPaths
   const optionLinkResult = await replaceProductOptionLinks(adminClient, product.id, option?.id ?? null, linkedOptionIds)
   if ('error' in optionLinkResult && optionLinkResult.error) {
     throw new Error(optionLinkResult.error.message)
+  }
+
+  const faqResult = await replaceProductFaqItems(adminClient, product.id, faqItems, 'google_sheet')
+  if ('error' in faqResult && faqResult.error) {
+    throw new Error(faqResult.error.message)
   }
 
   if (combinedVariantRows.length > 0) {

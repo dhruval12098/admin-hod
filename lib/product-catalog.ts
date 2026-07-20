@@ -15,6 +15,16 @@ export type ProductDetailSection = {
   visible: boolean
 }
 
+export type ProductFaqItem = {
+  id?: string
+  product_id?: string
+  question: string
+  answer: string
+  sort_order: number
+  is_active: boolean
+  source?: 'admin' | 'google_sheet' | string
+}
+
 export type CatalogCategory = {
   id: string
   code: CategoryCode
