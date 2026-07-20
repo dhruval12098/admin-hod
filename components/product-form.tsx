@@ -66,6 +66,9 @@ type ProductResponse = {
     featured?: boolean
     description?: string | null
     tag_line?: string | null
+    seo_title?: string | null
+    seo_description?: string | null
+    h1_title?: string | null
     base_price?: number | null
     discount_price?: number | null
     gst_slab_id?: string | null
@@ -117,6 +120,10 @@ type ProductResponse = {
     image_2_path?: string | null
     image_3_path?: string | null
     image_4_path?: string | null
+    image_1_alt?: string | null
+    image_2_alt?: string | null
+    image_3_alt?: string | null
+    image_4_alt?: string | null
     video_path?: string | null
     model_3d_url?: string | null
     show_image_1?: boolean | null
@@ -187,6 +194,9 @@ function applyProductPayload(
     setAllowCheckout: Dispatch<SetStateAction<boolean>>
     setDescription: Dispatch<SetStateAction<string>>
     setTagLine: Dispatch<SetStateAction<string>>
+    setSeoTitle: Dispatch<SetStateAction<string>>
+    setSeoDescription: Dispatch<SetStateAction<string>>
+    setH1Title: Dispatch<SetStateAction<string>>
     setMainCategoryId: Dispatch<SetStateAction<string>>
     setSubcategoryId: Dispatch<SetStateAction<string>>
     setOptionId: Dispatch<SetStateAction<string>>
@@ -230,6 +240,7 @@ function applyProductPayload(
     setFaqItems: Dispatch<SetStateAction<ProductFaqItem[]>>
     setImagePaths: Dispatch<SetStateAction<(string | null)[]>>
     setImageSlots: Dispatch<SetStateAction<string[]>>
+    setImageAlts: Dispatch<SetStateAction<string[]>>
     setVideoPath: Dispatch<SetStateAction<string | null>>
     setModel3dUrl: Dispatch<SetStateAction<string>>
     setShowImageSlots: Dispatch<SetStateAction<boolean[]>>
@@ -258,6 +269,9 @@ function applyProductPayload(
   setters.setAllowCheckout(Boolean(item.allow_checkout))
   setters.setDescription(item.description ?? '')
   setters.setTagLine(item.tag_line ?? '')
+  setters.setSeoTitle(item.seo_title ?? '')
+  setters.setSeoDescription(item.seo_description ?? '')
+  setters.setH1Title(item.h1_title ?? '')
   setters.setMainCategoryId(item.main_category_id ?? '')
   setters.setSubcategoryId(item.subcategory_id ?? '')
   setters.setOptionId(item.option_id ?? '')
@@ -331,6 +345,12 @@ function applyProductPayload(
     item.image_2_path ?? '',
     item.image_3_path ?? '',
     item.image_4_path ?? '',
+  ])
+  setters.setImageAlts([
+    item.image_1_alt ?? '',
+    item.image_2_alt ?? '',
+    item.image_3_alt ?? '',
+    item.image_4_alt ?? '',
   ])
   setters.setVideoPath(item.video_path ?? null)
   setters.setModel3dUrl(item.model_3d_url ?? '')
@@ -485,6 +505,9 @@ export function ProductForm({
   const [allowCheckout, setAllowCheckout] = useState(false)
   const [description, setDescription] = useState('')
   const [tagLine, setTagLine] = useState('')
+  const [seoTitle, setSeoTitle] = useState('')
+  const [seoDescription, setSeoDescription] = useState('')
+  const [h1Title, setH1Title] = useState('')
   const [mainCategoryId, setMainCategoryId] = useState('')
   const [subcategoryId, setSubcategoryId] = useState('')
   const [optionId, setOptionId] = useState('')
@@ -531,6 +554,7 @@ export function ProductForm({
   const [loadedBootstrapScopes, setLoadedBootstrapScopes] = useState<Set<CatalogBootstrapScope>>(() => new Set())
   const [imageSlots, setImageSlots] = useState<string[]>(['', '', '', ''])
   const [imagePaths, setImagePaths] = useState<(string | null)[]>([null, null, null, null])
+  const [imageAlts, setImageAlts] = useState<string[]>(['', '', '', ''])
   const [videoPath, setVideoPath] = useState<string | null>(null)
   const [model3dUrl, setModel3dUrl] = useState('')
   const [showImageSlots, setShowImageSlots] = useState([true, true, true, true])
@@ -582,6 +606,9 @@ export function ProductForm({
       setAllowCheckout,
       setDescription,
       setTagLine,
+      setSeoTitle,
+      setSeoDescription,
+      setH1Title,
       setMainCategoryId,
       setSubcategoryId,
       setOptionId,
@@ -625,6 +652,7 @@ export function ProductForm({
       setFaqItems,
       setImagePaths,
       setImageSlots,
+      setImageAlts,
       setVideoPath,
       setModel3dUrl,
       setShowImageSlots,
@@ -1254,6 +1282,9 @@ export function ProductForm({
           featured,
           description: description || null,
           tag_line: tagLine || null,
+          seo_title: seoTitle.trim() || null,
+          seo_description: seoDescription.trim() || null,
+          h1_title: h1Title.trim() || null,
           base_price: basePrice ? Number(basePrice) : null,
           discount_price: discountPrice ? Number(discountPrice) : null,
           gst_slab_id: gstSlabId || null,
@@ -1325,6 +1356,10 @@ export function ProductForm({
           image_2_path: imagePaths[1],
           image_3_path: imagePaths[2],
           image_4_path: imagePaths[3],
+          image_1_alt: imageAlts[0]?.trim() || null,
+          image_2_alt: imageAlts[1]?.trim() || null,
+          image_3_alt: imageAlts[2]?.trim() || null,
+          image_4_alt: imageAlts[3]?.trim() || null,
           video_path: videoPath,
           model_3d_url: model3dUrl.trim() || null,
           show_image_1: showImageSlots[0],
@@ -2064,6 +2099,25 @@ export function ProductForm({
                 <FormField label="Tag Line">
                   <input value={tagLine} onChange={(e) => setTagLine(e.target.value)} className={inputClassName} />
                 </FormField>
+                <div className="rounded-lg border border-border bg-secondary/10 p-4">
+                  <div className="mb-4">
+                    <p className="text-sm font-semibold text-foreground">Optional SEO Fields</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Leave blank to use the automatic product name and description metadata.</p>
+                  </div>
+                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                    <FormField label="SEO Title">
+                      <input value={seoTitle} onChange={(e) => setSeoTitle(e.target.value)} className={inputClassName} placeholder="Custom Google title" />
+                    </FormField>
+                    <FormField label="On-page H1 Title">
+                      <input value={h1Title} onChange={(e) => setH1Title(e.target.value)} className={inputClassName} placeholder="Optional display title" />
+                    </FormField>
+                    <div className="lg:col-span-2">
+                      <FormField label="SEO Meta Description">
+                        <textarea value={seoDescription} onChange={(e) => setSeoDescription(e.target.value)} rows={3} className={inputClassName} placeholder="Custom Google description, ideally around 150-160 characters." />
+                      </FormField>
+                    </div>
+                  </div>
+                </div>
                 <div>
                   <label className="mb-2 block text-sm font-medium text-foreground">Highlights</label>
                   <div className="flex gap-2">
@@ -2349,6 +2403,7 @@ export function ProductForm({
                         onClear={() => {
                           setImageSlots((prev) => prev.map((entry, slotIndex) => (slotIndex === index ? '' : entry)))
                           setImagePaths((prev) => prev.map((entry, slotIndex) => (slotIndex === index ? null : entry)))
+                          setImageAlts((prev) => prev.map((entry, slotIndex) => (slotIndex === index ? '' : entry)))
                         }}
                         onUpload={async (file) => {
                           setUploadingSlots((prev) => ({ ...prev, [`base-image-${index}`]: true }))
@@ -2368,6 +2423,18 @@ export function ProductForm({
                           }
                         }}
                       />
+                    ))}
+                  </div>
+                  <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+                    {['Image 1 Alt Text', 'Image 2 Alt Text', 'Image 3 Alt Text', 'Image 4 Alt Text'].map((label, index) => (
+                      <FormField key={label} label={label}>
+                        <input
+                          value={imageAlts[index] ?? ''}
+                          onChange={(event) => setImageAlts((prev) => prev.map((entry, slotIndex) => (slotIndex === index ? event.target.value : entry)))}
+                          className={inputClassName}
+                          placeholder="Optional image description for SEO/accessibility"
+                        />
+                      </FormField>
                     ))}
                   </div>
                 </div>
@@ -2563,6 +2630,23 @@ export function ProductForm({
                                     {activeItem.media_path ? (
                                       <p className="mt-2 break-all text-[11px] text-muted-foreground">{activeItem.media_path}</p>
                                     ) : null}
+                                  </div>
+
+                                  <div className="xl:col-span-3">
+                                    <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                                      Alt Text
+                                    </label>
+                                    <input
+                                      value={activeItem.alt_text ?? ''}
+                                      onChange={(e) =>
+                                        updateVariantMediaItem(isDefaultFallback ? null : activeVariantMediaKey, itemIndex, (entry) => ({
+                                          ...entry,
+                                          alt_text: e.target.value,
+                                        }))
+                                      }
+                                      placeholder="Optional media description for SEO/accessibility"
+                                      className={inputClassName}
+                                    />
                                   </div>
 
                                   <div className="flex items-end justify-end gap-2">

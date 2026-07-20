@@ -192,6 +192,9 @@ function buildProductUpdatePayload(body: ProductPayload, includeStyleId = true) 
     option_id: body.option_id,
     description: body.description,
     tag_line: body.tag_line,
+    seo_title: body.seo_title?.trim() || null,
+    seo_description: body.seo_description?.trim() || null,
+    h1_title: body.h1_title?.trim() || null,
     base_price: body.base_price,
     discount_price: body.discount_price,
     gst_slab_id: body.gst_slab_id ?? null,
@@ -229,6 +232,10 @@ function buildProductUpdatePayload(body: ProductPayload, includeStyleId = true) 
     image_2_path: body.image_2_path ?? null,
     image_3_path: body.image_3_path ?? null,
     image_4_path: body.image_4_path ?? null,
+    image_1_alt: body.image_1_alt?.trim() || null,
+    image_2_alt: body.image_2_alt?.trim() || null,
+    image_3_alt: body.image_3_alt?.trim() || null,
+    image_4_alt: body.image_4_alt?.trim() || null,
     video_path: body.video_path ?? null,
     model_3d_url: body.model_3d_url ?? null,
     show_image_1: body.show_image_1 ?? true,
@@ -265,6 +272,9 @@ type ProductPayload = {
   featured: boolean
   description: string | null
   tag_line: string | null
+  seo_title?: string | null
+  seo_description?: string | null
+  h1_title?: string | null
   base_price: number | null
   discount_price: number | null
   gst_slab_id?: string | null
@@ -317,6 +327,10 @@ type ProductPayload = {
   image_2_path?: string | null
   image_3_path?: string | null
   image_4_path?: string | null
+  image_1_alt?: string | null
+  image_2_alt?: string | null
+  image_3_alt?: string | null
+  image_4_alt?: string | null
   video_path?: string | null
   model_3d_url?: string | null
   show_image_1?: boolean

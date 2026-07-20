@@ -156,6 +156,7 @@ export type ProductVariantMediaItem = {
   variant_id?: string | null
   media_type: 'image' | 'video'
   media_path: string
+  alt_text?: string | null
   sort_order: number
   is_default_fallback?: boolean
 }
@@ -257,6 +258,9 @@ export type ProductRecord = {
   wedding_gender: WeddingGender
   description: string | null
   tag_line: string | null
+  seo_title?: string | null
+  seo_description?: string | null
+  h1_title?: string | null
   base_price: number | null
   default_purity_price_id?: string | null
   discount_price: number | null
@@ -267,6 +271,10 @@ export type ProductRecord = {
   image_2_path?: string | null
   image_3_path?: string | null
   image_4_path?: string | null
+  image_1_alt?: string | null
+  image_2_alt?: string | null
+  image_3_alt?: string | null
+  image_4_alt?: string | null
   video_path?: string | null
   model_3d_url?: string | null
   show_image_1?: boolean | null

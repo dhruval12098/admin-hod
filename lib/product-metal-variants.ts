@@ -6,6 +6,7 @@ export type ProductVariantMediaItem = {
   variant_id?: string | null
   media_type: 'image' | 'video'
   media_path: string
+  alt_text?: string | null
   sort_order: number
   is_default_fallback?: boolean
 }
@@ -33,6 +34,7 @@ function normalizeMediaItems(items: ProductVariantMediaItem[] | null | undefined
       id: item.id,
       media_type: item.media_type === 'video' ? 'video' : 'image',
       media_path: item.media_path?.trim() ?? '',
+      alt_text: item.alt_text?.trim() || null,
       sort_order: Number(item.sort_order ?? index + 1),
       is_default_fallback: Boolean(item.is_default_fallback),
     }))
@@ -179,6 +181,7 @@ export async function replaceProductVariantMediaItems(
       variant_id: null,
       media_type: item.media_type,
       media_path: item.media_path,
+      alt_text: item.alt_text,
       sort_order: Number(item.sort_order ?? index + 1),
       is_default_fallback: true,
     })
@@ -194,6 +197,7 @@ export async function replaceProductVariantMediaItems(
         variant_id: variantId,
         media_type: item.media_type,
         media_path: item.media_path,
+        alt_text: item.alt_text,
         sort_order: Number(item.sort_order ?? index + 1),
         is_default_fallback: false,
       })
