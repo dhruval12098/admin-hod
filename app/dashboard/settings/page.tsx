@@ -10,6 +10,7 @@ async function getSettingsPageData(): Promise<SettingsPageData> {
       .from('site_settings')
       .select('*')
       .eq('settings_key', 'global_site_settings')
+      .limit(1)
       .maybeSingle(),
     adminClient
       .from('catalog_gst_slabs')

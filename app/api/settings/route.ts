@@ -11,6 +11,7 @@ export async function GET(request: Request) {
     .from('site_settings')
     .select('*')
     .eq('settings_key', settingsKey)
+    .limit(1)
     .maybeSingle()
 
   if (error) {
@@ -49,12 +50,25 @@ export async function POST(request: Request) {
       : 'Our atelier is receiving a careful polish. House of Diams will be back online shortly.',
   }
 
-  const { error } = await access.adminClient
+  const updateResult = await access.adminClient
     .from('site_settings')
-    .upsert(payload, { onConflict: 'settings_key' })
+    .update(payload)
+    .eq('settings_key', settingsKey)
+    .select('settings_key')
+    .limit(1)
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+  if (updateResult.error) {
+    return NextResponse.json({ error: updateResult.error.message }, { status: 500 })
+  }
+
+  if (!updateResult.data?.length) {
+    const insertResult = await access.adminClient
+      .from('site_settings')
+      .insert(payload)
+
+    if (insertResult.error) {
+      return NextResponse.json({ error: insertResult.error.message }, { status: 500 })
+    }
   }
 
   return NextResponse.json({ success: true })
