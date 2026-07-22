@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useState, type ChangeEvent } from 'react'
-import { ArrowLeft, Edit2, Upload } from 'lucide-react'
+import { ArrowLeft, Edit2, Trash2, Upload } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -66,6 +66,8 @@ export function CollectionEditorClient({ initialData }: { initialData: Collectio
   const [uploadState, setUploadState] = useState<'idle' | 'uploading' | 'done' | 'error'>('idle')
   const [isSaving, setIsSaving] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false)
+  const [removeTarget, setRemoveTarget] = useState<CollectionItem | null>(null)
   const [editorOpen, setEditorOpen] = useState(false)
   const [editorItem, setEditorItem] = useState<CollectionItem | null>(null)
 
@@ -123,6 +125,23 @@ export function CollectionEditorClient({ initialData }: { initialData: Collectio
   }
 
   const handleSave = () => setConfirmOpen(true)
+
+  const handleRemoveRequest = (item: CollectionItem) => {
+    setRemoveTarget(item)
+    setRemoveConfirmOpen(true)
+  }
+
+  const confirmRemove = () => {
+    if (!removeTarget) return
+    setItems((prev) => normalizeCollectionItems(prev.filter((item) => item.id !== removeTarget.id)))
+    setLoadStatus('Collection item removed. Save changes to publish.')
+    setRemoveTarget(null)
+    setRemoveConfirmOpen(false)
+    toast({
+      title: 'Removed',
+      description: 'Collection item removed from this draft. Save changes to publish.',
+    })
+  }
 
   const confirmSave = async () => {
     setIsSaving(true)
@@ -209,6 +228,7 @@ export function CollectionEditorClient({ initialData }: { initialData: Collectio
                 <td className="px-5 py-4 text-sm">{item.image_path}</td>
                 <td className="px-5 py-4 text-sm">{item.link}</td>
                 <td className="px-5 py-4 text-right">
+                  <div className="inline-flex items-center gap-2">
                   <button
                     onClick={() => handleOpenEditor(item)}
                     className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-secondary"
@@ -216,6 +236,14 @@ export function CollectionEditorClient({ initialData }: { initialData: Collectio
                     <Edit2 size={14} />
                     Edit
                   </button>
+                    <button
+                      onClick={() => handleRemoveRequest(item)}
+                      className="inline-flex items-center gap-2 rounded-md border border-red-200 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
+                    >
+                      <Trash2 size={14} />
+                      Remove
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -235,6 +263,20 @@ export function CollectionEditorClient({ initialData }: { initialData: Collectio
         isLoading={isSaving}
         onConfirm={confirmSave}
         onCancel={() => setConfirmOpen(false)}
+      />
+
+      <ConfirmDialog
+        isOpen={removeConfirmOpen}
+        title="Remove Collection Item?"
+        description={`This will remove "${removeTarget?.title || removeTarget?.label || 'this item'}" from the collection list. Uploaded images will not be deleted.`}
+        confirmText="Remove"
+        cancelText="Cancel"
+        type="delete"
+        onConfirm={confirmRemove}
+        onCancel={() => {
+          setRemoveTarget(null)
+          setRemoveConfirmOpen(false)
+        }}
       />
 
       <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
