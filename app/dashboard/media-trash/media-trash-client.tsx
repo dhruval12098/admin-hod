@@ -37,7 +37,7 @@ function isImageFile(path: string) {
   return /\.(png|jpe?g|webp|avif|gif|svg)$/i.test(path)
 }
 
-export function MediaTrashClient({ initialSections }: { initialSections: MediaSection[] }) {
+export function MediaTrashClient({ initialSections, autoLoad = false }: { initialSections: MediaSection[]; autoLoad?: boolean }) {
   const { toast } = useToast()
   const [refreshing, setRefreshing] = useState(false)
   const [sections, setSections] = useState<MediaSection[]>(initialSections)
@@ -94,7 +94,7 @@ export function MediaTrashClient({ initialSections }: { initialSections: MediaSe
     setSelectedPaths((prev) => prev.filter((path) => visibleItems.some((item) => item.path === path && item.status === 'unused')))
   }, [visibleItems])
 
-  const loadData = async () => {
+  async function loadData() {
     setRefreshing(true)
 
     try {
@@ -127,6 +127,11 @@ export function MediaTrashClient({ initialSections }: { initialSections: MediaSe
       setRefreshing(false)
     }
   }
+
+  useEffect(() => {
+    if (!autoLoad) return
+    void loadData()
+  }, [autoLoad])
 
   const handleDelete = async (path: string) => {
     setDeletingPath(path)
@@ -237,6 +242,12 @@ export function MediaTrashClient({ initialSections }: { initialSections: MediaSe
       </div>
 
       <div className="space-y-8">
+        {refreshing && sections.length === 0 ? (
+          <div className="rounded-2xl border border-border bg-white p-8 text-sm text-muted-foreground shadow-xs">
+            Scanning media library...
+          </div>
+        ) : null}
+
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {sections.map((section) => {
             const isActive = activeSection?.name === section.name

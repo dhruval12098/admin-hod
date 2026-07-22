@@ -13,7 +13,7 @@ type SectionSource = {
 }
 
 const SECTION_SOURCES: SectionSource[] = [
-  { key: 'products', label: 'Products', table: 'products', columns: ['image_1_path', 'image_2_path', 'image_3_path', 'image_4_path', 'video_path'] },
+  { key: 'products', label: 'Products', table: 'products', columns: ['image_1_path', 'image_2_path', 'image_3_path', 'image_4_path', 'video_path', 'model_3d_url'] },
   { key: 'product-metal-media', label: 'Product Metal Media', table: 'product_metal_media', columns: ['image_1_path', 'image_2_path', 'image_3_path', 'image_4_path', 'video_path'] },
   { key: 'product-variant-media', label: 'Product Variant Media', table: 'product_variant_media_items', columns: ['media_path'] },
   { key: 'hero', label: 'Hero Slider', table: 'homepage_hero_slider_items', columns: ['image_path', 'mobile_image_path'] },
@@ -21,6 +21,7 @@ const SECTION_SOURCES: SectionSource[] = [
   { key: 'collection-page-config', label: 'Collection Page', table: 'collection_page_config', columns: ['showcase_image_path', 'showcase_mobile_image_path'] },
   { key: 'bespoke-showcase', label: 'Bespoke Home Showcase', table: 'home_bespoke_showcase_section', columns: ['image_path', 'mobile_image_path'] },
   { key: 'hiphop', label: 'Hip Hop Showcase', table: 'hiphop_showcase_section', columns: ['image_path'] },
+  { key: 'hiphop-hero-content', label: 'Hip Hop Hero', table: 'hiphop_hero_content', columns: ['image_path'] },
   { key: 'hiphop-hero', label: 'Hip Hop Hero Slider', table: 'hiphop_hero_slider_items', columns: ['image_path', 'mobile_image_path'] },
   { key: 'couples', label: 'Couples', table: 'couples_items', columns: ['image_path'] },
   { key: 'certifications', label: 'Certifications', table: 'certifications_items', columns: ['icon_path'] },
@@ -277,11 +278,17 @@ export async function DELETE(request: Request) {
     }
 
     if (!permanent) {
+      const trashedAt = new Date()
+      const eligibleDeleteAt = new Date(trashedAt)
+      eligibleDeleteAt.setDate(eligibleDeleteAt.getDate() + 30)
+
       const records = normalizedPaths.map((path) => ({
         bucket: collectionBucket,
         path,
         original_url: access.adminClient.storage.from(collectionBucket).getPublicUrl(path).data.publicUrl,
         status: 'trashed',
+        trashed_at: trashedAt.toISOString(),
+        eligible_delete_at: eligibleDeleteAt.toISOString(),
         requested_by: access.user.id,
       }))
 
