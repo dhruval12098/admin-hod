@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useMemo, useState, type ChangeEvent } from 'react'
 import { ArrowLeft, Edit2, Plus, Trash2 } from 'lucide-react'
 import {
@@ -13,6 +14,7 @@ import {
 } from '@/components/ui/dialog'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { CmsSaveAction } from '@/components/cms-save-action'
+import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
 
 type ContactInfoItem = {
@@ -51,6 +53,8 @@ const empty = (sortOrder: number): EditorItem => ({
 })
 
 export function ContactInfoEditorClient({ initialData }: { initialData: ContactInfoInitialData }) {
+  const router = useRouter()
+  const { toast } = useToast()
   const [items, setItems] = useState<ContactInfoItem[]>(
     initialData.items.map((item) => ({ clientId: `id-${item.id}`, ...item }))
   )
@@ -69,43 +73,74 @@ export function ContactInfoEditorClient({ initialData }: { initialData: ContactI
 
   const save = async () => {
     setIsSaving(true)
-    const { data: sessionData } = await supabase.auth.getSession()
-    const accessToken = sessionData.session?.access_token
-    if (!accessToken) {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const accessToken = sessionData.session?.access_token
+      if (!accessToken) {
+        setStatus('You are not signed in.')
+        toast({ title: 'Save failed', description: 'You are not signed in.', variant: 'destructive' })
+        return
+      }
+
+      const response = await fetch('/api/cms/contact/info', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({
+          items: sorted.map(({ sort_order, label, value, note, href, icon_path }) => ({
+            sort_order,
+            label,
+            value,
+            note,
+            href,
+            icon_path,
+          })),
+        }),
+      })
+
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null
+      if (!response.ok) {
+        const message = payload?.error ?? 'Unable to save contact info.'
+        setStatus(message)
+        toast({ title: 'Save failed', description: message, variant: 'destructive' })
+        return
+      }
+
+      setConfirmOpen(false)
+      setStatus('Contact info saved')
+      toast({ title: 'Contact info saved', description: 'Contact info cards were updated successfully.' })
+      router.refresh()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to save contact info.'
+      setStatus(message)
+      toast({ title: 'Save failed', description: message, variant: 'destructive' })
+    } finally {
       setIsSaving(false)
-      setStatus('You are not signed in.')
-      return
     }
+  }
 
-    const response = await fetch('/api/cms/contact/info', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` },
-      body: JSON.stringify({
-        items: sorted.map(({ sort_order, label, value, note, href, icon_path }) => ({
-          sort_order,
-          label,
-          value,
-          note,
-          href,
-          icon_path,
-        })),
-      }),
+  const saveEditorItem = () => {
+    setItems((prev) => {
+      const idx = prev.findIndex((x) => x.clientId === editorItem.clientId)
+      if (idx >= 0) {
+        const copy = [...prev]
+        copy[idx] = editorItem
+        return copy
+      }
+      return [...prev, editorItem]
     })
-
-    const payload = (await response.json().catch(() => null)) as { error?: string } | null
-    setIsSaving(false)
-    if (!response.ok) {
-      setStatus(payload?.error ?? 'Unable to save contact info.')
-      return
-    }
-    setConfirmOpen(false)
-    setStatus('Contact info saved')
+    setEditorOpen(false)
+    setStatus('Draft updated. Save changes to publish.')
+    toast({ title: 'Draft updated', description: 'Use Save Changes to publish the contact info cards.' })
   }
 
   const uploadIcon = async (file: File) => {
     const { data: sessionData } = await supabase.auth.getSession()
     const accessToken = sessionData.session?.access_token
-    if (!accessToken) return
+    if (!accessToken) {
+      setStatus('You are not signed in.')
+      toast({ title: 'Upload failed', description: 'You are not signed in.', variant: 'destructive' })
+      return
+    }
     setUploading(true)
     const formData = new FormData()
     formData.append('file', file)
@@ -113,11 +148,14 @@ export function ContactInfoEditorClient({ initialData }: { initialData: ContactI
     const payload = (await response.json().catch(() => null)) as { path?: string; error?: string } | null
     setUploading(false)
     if (!response.ok || !payload?.path) {
-      setStatus(payload?.error ?? 'Unable to upload contact icon.')
+      const message = payload?.error ?? 'Unable to upload contact icon.'
+      setStatus(message)
+      toast({ title: 'Upload failed', description: message, variant: 'destructive' })
       return
     }
     setEditorItem((prev) => ({ ...prev, icon_path: payload.path ?? '' }))
     setStatus('Contact icon uploaded')
+    toast({ title: 'Contact icon uploaded', description: 'Icon uploaded successfully.' })
   }
 
   return (
@@ -207,7 +245,7 @@ export function ContactInfoEditorClient({ initialData }: { initialData: ContactI
           </div>
           <DialogFooter>
             <button onClick={() => setEditorOpen(false)} className="rounded-lg border px-4 py-2.5 text-sm">Cancel</button>
-            <button onClick={() => { setItems((prev) => { const idx = prev.findIndex((x) => x.clientId === editorItem.clientId); if (idx >= 0) { const copy = [...prev]; copy[idx] = editorItem; return copy } return [...prev, editorItem] }); setEditorOpen(false) }} className="rounded-lg bg-primary px-4 py-2.5 text-sm text-white">Update</button>
+            <button onClick={saveEditorItem} className="rounded-lg bg-primary px-4 py-2.5 text-sm text-white">Update</button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
