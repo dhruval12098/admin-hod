@@ -83,10 +83,13 @@ export async function POST(
   const body = (await request.json().catch(() => null)) as BlogPayload | null
   if (!body) return NextResponse.json({ error: 'Invalid payload.' }, { status: 400 })
 
+  const title = String(body.title ?? '').trim()
+  const titleHtml = String(body.title_html ?? '').trim() || title
+
   const payload = {
     slug: String(body.slug ?? '').trim(),
-    title: String(body.title ?? '').trim(),
-    title_html: String(body.title_html ?? '').trim(),
+    title,
+    title_html: titleHtml,
     subtitle: String(body.subtitle ?? '').trim(),
     category: String(body.category ?? '').trim(),
     author: String(body.author ?? '').trim(),
@@ -101,8 +104,8 @@ export async function POST(
     updated_at: new Date().toISOString(),
   }
 
-  if (!payload.slug || !payload.title || !payload.title_html || !payload.subtitle || !payload.body_html) {
-    return NextResponse.json({ error: 'Slug, title, styled title, subtitle, and body are required.' }, { status: 400 })
+  if (!payload.slug || !payload.title || !payload.subtitle || !payload.body_html) {
+    return NextResponse.json({ error: 'Slug, title, subtitle, and body are required.' }, { status: 400 })
   }
 
   const { adminClient } = access
@@ -148,6 +151,31 @@ export async function POST(
     const { error: blocksError } = await adminClient.from('blog_post_content_blocks').insert(blockRows)
     if (blocksError) return NextResponse.json({ error: blocksError.message }, { status: 500 })
   }
+
+  return NextResponse.json({ ok: true })
+}
+
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const access = await assertAdmin(request)
+  if ('error' in access) return access.error
+
+  const { id } = await params
+  const postId = Number(id)
+  if (!Number.isFinite(postId)) return NextResponse.json({ error: 'Invalid blog id.' }, { status: 400 })
+
+  const { adminClient } = access
+
+  const { error: blocksError } = await adminClient.from('blog_post_content_blocks').delete().eq('post_id', postId)
+  if (blocksError) return NextResponse.json({ error: blocksError.message }, { status: 500 })
+
+  const { error: tagsError } = await adminClient.from('blog_post_tags').delete().eq('post_id', postId)
+  if (tagsError) return NextResponse.json({ error: tagsError.message }, { status: 500 })
+
+  const { error: postError } = await adminClient.from('blog_posts').delete().eq('id', postId)
+  if (postError) return NextResponse.json({ error: postError.message }, { status: 500 })
 
   return NextResponse.json({ ok: true })
 }

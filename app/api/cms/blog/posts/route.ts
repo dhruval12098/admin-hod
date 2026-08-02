@@ -51,10 +51,13 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as BlogPayload | null
   if (!body) return NextResponse.json({ error: 'Invalid payload.' }, { status: 400 })
 
+  const title = String(body.title ?? '').trim()
+  const titleHtml = String(body.title_html ?? '').trim() || title
+
   const payload = {
     slug: String(body.slug ?? '').trim(),
-    title: String(body.title ?? '').trim(),
-    title_html: String(body.title_html ?? '').trim(),
+    title,
+    title_html: titleHtml,
     subtitle: String(body.subtitle ?? '').trim(),
     category: String(body.category ?? '').trim(),
     author: String(body.author ?? '').trim(),
@@ -68,8 +71,8 @@ export async function POST(request: Request) {
     sort_order: Number(body.sort_order) || 0,
   }
 
-  if (!payload.slug || !payload.title || !payload.title_html || !payload.subtitle || !payload.body_html) {
-    return NextResponse.json({ error: 'Slug, title, styled title, subtitle, and body are required.' }, { status: 400 })
+  if (!payload.slug || !payload.title || !payload.subtitle || !payload.body_html) {
+    return NextResponse.json({ error: 'Slug, title, subtitle, and body are required.' }, { status: 400 })
   }
 
   const { adminClient } = access

@@ -2,10 +2,12 @@
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
-import { Plus, Edit2 } from 'lucide-react'
+import { Plus, Edit2, Trash2 } from 'lucide-react'
 import { CMSTabs } from '@/components/cms-tabs'
 import { supabase } from '@/lib/supabase'
 import { TablePagination } from '@/components/table-pagination'
+import { ConfirmDialog } from '@/components/confirm-dialog'
+import { useToast } from '@/hooks/use-toast'
 
 type BlogListItem = {
   id: number
@@ -22,9 +24,12 @@ type BlogListItem = {
 const PAGE_SIZE = 20
 
 export default function BlogCMSPage() {
+  const { toast } = useToast()
   const [items, setItems] = useState<BlogListItem[]>([])
   const [status, setStatus] = useState('Loading blogs...')
   const [page, setPage] = useState(1)
+  const [deleteTarget, setDeleteTarget] = useState<BlogListItem | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   useEffect(() => {
     const load = async () => {
@@ -48,6 +53,38 @@ export default function BlogCMSPage() {
     const start = (page - 1) * PAGE_SIZE
     return items.slice(start, start + PAGE_SIZE)
   }, [items, page])
+
+  const deleteBlog = async () => {
+    if (!deleteTarget) return
+
+    const { data: sessionData } = await supabase.auth.getSession()
+    const accessToken = sessionData.session?.access_token
+    if (!accessToken) {
+      setStatus('You are not signed in.')
+      toast({ title: 'Delete failed', description: 'You are not signed in.', variant: 'destructive' })
+      return
+    }
+
+    setIsDeleting(true)
+    const response = await fetch(`/api/cms/blog/posts/${deleteTarget.id}`, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${accessToken}` },
+    })
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null
+    setIsDeleting(false)
+
+    if (!response.ok) {
+      const message = payload?.error ?? 'Unable to delete blog.'
+      setStatus(message)
+      toast({ title: 'Delete failed', description: message, variant: 'destructive' })
+      return
+    }
+
+    setItems((prev) => prev.filter((item) => item.id !== deleteTarget.id))
+    setDeleteTarget(null)
+    setStatus('Blog deleted')
+    toast({ title: 'Deleted', description: 'Blog post deleted successfully.' })
+  }
 
   return (
     <div>
@@ -86,10 +123,20 @@ export default function BlogCMSPage() {
                   <td className="px-5 py-4 text-sm">{item.author}</td>
                   <td className="px-5 py-4 text-sm">{item.is_published ? 'Yes' : 'No'}</td>
                   <td className="px-5 py-4 text-right">
-                    <Link href={`/dashboard/cms/blog/${item.id}`} className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-secondary">
-                      <Edit2 size={14} />
-                      Edit
-                    </Link>
+                    <div className="inline-flex items-center gap-2">
+                      <Link href={`/dashboard/cms/blog/${item.id}`} className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-secondary">
+                        <Edit2 size={14} />
+                        Edit
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => setDeleteTarget(item)}
+                        className="inline-flex items-center gap-2 rounded-md border border-red-200 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
+                      >
+                        <Trash2 size={14} />
+                        Delete
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -100,6 +147,17 @@ export default function BlogCMSPage() {
           <TablePagination page={page} totalItems={items.length} pageSize={PAGE_SIZE} onPageChange={setPage} />
         ) : null}
       </div>
+      <ConfirmDialog
+        isOpen={Boolean(deleteTarget)}
+        title="Delete blog post?"
+        description={deleteTarget ? `This permanently deletes "${deleteTarget.title}", including its tags and content blocks.` : undefined}
+        confirmText="Delete"
+        cancelText="Cancel"
+        type="delete"
+        isLoading={isDeleting}
+        onConfirm={deleteBlog}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   )
 }

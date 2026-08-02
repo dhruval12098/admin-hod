@@ -143,7 +143,9 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
   const [status, setStatus] = useState(mode === 'create' ? 'Create a new blog post.' : 'Loading blog post...')
   const [isSaving, setIsSaving] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const cleanedTags = useMemo(() => tags.map((tag) => tag.value.trim()).filter(Boolean), [tags])
 
@@ -272,6 +274,34 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
     }
   }
 
+  const deletePost = async () => {
+    if (mode !== 'edit' || !id) return
+
+    const { data: sessionData } = await supabase.auth.getSession()
+    const accessToken = sessionData.session?.access_token
+    if (!accessToken) return setStatus('You are not signed in.')
+
+    setIsDeleting(true)
+    const response = await fetch(`/api/cms/blog/posts/${id}`, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${accessToken}` },
+    })
+
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null
+    setIsDeleting(false)
+    if (!response.ok) {
+      const message = payload?.error ?? 'Unable to delete blog post.'
+      setStatus(message)
+      toast({ title: 'Delete failed', description: message, variant: 'destructive' })
+      return
+    }
+
+    setDeleteConfirmOpen(false)
+    toast({ title: 'Deleted', description: 'Blog post deleted successfully.' })
+    router.push('/dashboard/cms/blog')
+    router.refresh()
+  }
+
   return (
     <div className="min-h-screen bg-background p-8">
       <div className="mb-8 flex items-center justify-between gap-4">
@@ -279,36 +309,63 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
           <ArrowLeft size={16} />
           Back to Blog
         </Link>
-        <CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={isSaving} position="inline" />
+        <div className="flex items-center gap-3">
+          {mode === 'edit' ? (
+            <button
+              type="button"
+              onClick={() => setDeleteConfirmOpen(true)}
+              disabled={isDeleting || isSaving}
+              className="inline-flex items-center gap-2 rounded-lg border border-red-200 px-5 py-3 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Trash2 size={16} />
+              {isDeleting ? 'Deleting...' : 'Delete Blog'}
+            </button>
+          ) : null}
+          <CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={isSaving} position="inline" />
+        </div>
       </div>
 
       <div className="mb-10">
         <h1 className="font-jakarta text-3xl font-semibold text-foreground">{mode === 'create' ? 'Create Blog' : 'Edit Blog'}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Manage all blog fields, hero image, tags, and article body.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Write the article, set its public URL, upload images, and control whether it is live.</p>
         <p className="mt-2 text-xs text-muted-foreground">{status}</p>
       </div>
 
       <div className="grid max-w-6xl grid-cols-1 gap-6 lg:grid-cols-2">
         <div className="space-y-4 rounded-lg border border-border bg-white p-6 shadow-xs">
-          <div><label className="mb-2 block text-sm font-semibold text-foreground">Slug</label><input value={form.slug} onChange={(e) => setForm((prev) => ({ ...prev, slug: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" /></div>
-          <div><label className="mb-2 block text-sm font-semibold text-foreground">Title</label><input value={form.title} onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" /></div>
-          <div><label className="mb-2 block text-sm font-semibold text-foreground">Styled Title HTML</label><textarea value={form.title_html} onChange={(e) => setForm((prev) => ({ ...prev, title_html: e.target.value }))} rows={3} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" /></div>
-          <div><label className="mb-2 block text-sm font-semibold text-foreground">Subtitle</label><textarea value={form.subtitle} onChange={(e) => setForm((prev) => ({ ...prev, subtitle: e.target.value }))} rows={4} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" /></div>
+          <div>
+            <label className="mb-2 block text-sm font-semibold text-foreground">Article URL</label>
+            <input placeholder="example: diamond-buying-guide" value={form.slug} onChange={(e) => setForm((prev) => ({ ...prev, slug: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" />
+            <p className="mt-1 text-xs text-muted-foreground">This becomes /blog/article-url. Use lowercase words separated by hyphens.</p>
+          </div>
+          <div>
+            <label className="mb-2 block text-sm font-semibold text-foreground">Article Title</label>
+            <input placeholder="Title shown in admin, SEO, and fallbacks" value={form.title} onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label className="mb-2 block text-sm font-semibold text-foreground">Display Title</label>
+            <textarea placeholder="Optional. Leave blank to use the Article Title. Advanced: supports simple HTML for line breaks or emphasis." value={form.title_html} onChange={(e) => setForm((prev) => ({ ...prev, title_html: e.target.value }))} rows={3} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" />
+            <p className="mt-1 text-xs text-muted-foreground">Optional styled title for the website cards and article hero.</p>
+          </div>
+          <div>
+            <label className="mb-2 block text-sm font-semibold text-foreground">Short Intro</label>
+            <textarea placeholder="Brief summary shown near the top of the article" value={form.subtitle} onChange={(e) => setForm((prev) => ({ ...prev, subtitle: e.target.value }))} rows={4} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" />
+          </div>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div><label className="mb-2 block text-sm font-semibold text-foreground">Category</label><input value={form.category} onChange={(e) => setForm((prev) => ({ ...prev, category: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" /></div>
-            <div><label className="mb-2 block text-sm font-semibold text-foreground">Author</label><input value={form.author} onChange={(e) => setForm((prev) => ({ ...prev, author: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" /></div>
-            <div><label className="mb-2 block text-sm font-semibold text-foreground">Date Label</label><input value={form.date_label} onChange={(e) => setForm((prev) => ({ ...prev, date_label: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" /></div>
-            <div><label className="mb-2 block text-sm font-semibold text-foreground">Read Time</label><input value={form.read_time} onChange={(e) => setForm((prev) => ({ ...prev, read_time: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" /></div>
-            <div><label className="mb-2 block text-sm font-semibold text-foreground">Background Key</label><input value={form.bg_key} onChange={(e) => setForm((prev) => ({ ...prev, bg_key: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" /></div>
-            <div><label className="mb-2 block text-sm font-semibold text-foreground">Background Color</label><input value={form.bg_color} onChange={(e) => setForm((prev) => ({ ...prev, bg_color: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" /></div>
-            <div><label className="mb-2 block text-sm font-semibold text-foreground">Sort Order</label><input type="number" value={form.sort_order} onChange={(e) => setForm((prev) => ({ ...prev, sort_order: Number(e.target.value) || 0 }))} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" /></div>
-            <label className="flex items-center gap-3 pt-8 text-sm font-semibold text-foreground"><input type="checkbox" checked={form.is_published} onChange={(e) => setForm((prev) => ({ ...prev, is_published: e.target.checked }))} className="h-4 w-4" />Published</label>
+            <div><label className="mb-2 block text-sm font-semibold text-foreground">Topic</label><input placeholder="example: Buying Guide" value={form.category} onChange={(e) => setForm((prev) => ({ ...prev, category: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" /></div>
+            <div><label className="mb-2 block text-sm font-semibold text-foreground">Written By</label><input placeholder="Author name" value={form.author} onChange={(e) => setForm((prev) => ({ ...prev, author: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" /></div>
+            <div><label className="mb-2 block text-sm font-semibold text-foreground">Publish Date Text</label><input placeholder="example: Apr 22, 2026" value={form.date_label} onChange={(e) => setForm((prev) => ({ ...prev, date_label: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" /></div>
+            <div><label className="mb-2 block text-sm font-semibold text-foreground">Reading Time</label><input placeholder="example: 5 min read" value={form.read_time} onChange={(e) => setForm((prev) => ({ ...prev, read_time: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" /></div>
+            <div><label className="mb-2 block text-sm font-semibold text-foreground">Card Style Key</label><input placeholder="example: bg-0" value={form.bg_key} onChange={(e) => setForm((prev) => ({ ...prev, bg_key: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" /></div>
+            <div><label className="mb-2 block text-sm font-semibold text-foreground">Card Background Color</label><input placeholder="#EEF1F8" value={form.bg_color} onChange={(e) => setForm((prev) => ({ ...prev, bg_color: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" /></div>
+            <div><label className="mb-2 block text-sm font-semibold text-foreground">Display Order</label><input type="number" value={form.sort_order} onChange={(e) => setForm((prev) => ({ ...prev, sort_order: Number(e.target.value) || 0 }))} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" /></div>
+            <label className="flex items-center gap-3 pt-8 text-sm font-semibold text-foreground"><input type="checkbox" checked={form.is_published} onChange={(e) => setForm((prev) => ({ ...prev, is_published: e.target.checked }))} className="h-4 w-4" />Show on website</label>
           </div>
         </div>
 
         <div className="space-y-4 rounded-lg border border-border bg-white p-6 shadow-xs">
           <div>
-            <label className="mb-2 block text-sm font-semibold text-foreground">Hero Image</label>
+            <label className="mb-2 block text-sm font-semibold text-foreground">Main Blog Image</label>
             <div className="flex items-center gap-3">
               <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary">
                 <Upload size={14} />
@@ -342,15 +399,15 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
       </div>
 
       <div className="mt-6 max-w-6xl rounded-lg border border-border bg-white p-6 shadow-xs">
-        <label className="mb-3 block text-sm font-semibold text-foreground">Blog Body</label>
+        <label className="mb-3 block text-sm font-semibold text-foreground">Article Content</label>
         <RichTextEditor value={form.body_html} onChange={(value) => setForm((prev) => ({ ...prev, body_html: value }))} />
       </div>
 
       <div className="mt-6 max-w-6xl rounded-lg border border-border bg-white p-6 shadow-xs">
         <div className="mb-4 flex items-center justify-between gap-4">
           <div>
-            <label className="block text-sm font-semibold text-foreground">Content Blocks</label>
-            <p className="mt-1 text-xs text-muted-foreground">Add repeatable image, text, heading, or quote sections below the main article body.</p>
+            <label className="block text-sm font-semibold text-foreground">Extra Article Sections</label>
+            <p className="mt-1 text-xs text-muted-foreground">Optional sections shown below the main article content, such as extra images, headings, quotes, or text.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             {(['image', 'text', 'heading', 'quote'] as const).map((type) => (
@@ -396,7 +453,7 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
               {block.block_type === 'image' ? (
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div>
-                    <label className="mb-2 block text-sm font-semibold text-foreground">Image</label>
+                    <label className="mb-2 block text-sm font-semibold text-foreground">Section Image</label>
                     <div className="flex items-center gap-3">
                       <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary">
                         <Upload size={14} />
@@ -416,7 +473,7 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
                     </div>
                   </div>
                   <div>
-                    <label className="mb-2 block text-sm font-semibold text-foreground">Image Alt</label>
+                    <label className="mb-2 block text-sm font-semibold text-foreground">Image Description</label>
                     <input
                       value={block.image_alt}
                       onChange={(e) => setContentBlocks((prev) => prev.map((entry) => (entry.clientId === block.clientId ? { ...entry, image_alt: e.target.value } : entry)))}
@@ -424,7 +481,7 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
                     />
                   </div>
                   <div className="md:col-span-2">
-                    <label className="mb-2 block text-sm font-semibold text-foreground">Image Caption</label>
+                    <label className="mb-2 block text-sm font-semibold text-foreground">Caption</label>
                     <textarea
                       value={block.image_caption}
                       onChange={(e) => setContentBlocks((prev) => prev.map((entry) => (entry.clientId === block.clientId ? { ...entry, image_caption: e.target.value } : entry)))}
@@ -444,7 +501,7 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
                 </div>
               ) : (
                 <div>
-                  <label className="mb-2 block text-sm font-semibold text-foreground">{block.block_type === 'quote' ? 'Quote HTML' : 'Text HTML'}</label>
+                  <label className="mb-2 block text-sm font-semibold text-foreground">{block.block_type === 'quote' ? 'Quote Text' : 'Section Text'}</label>
                   <RichTextEditor
                     value={block.body_html || '<p></p>'}
                     onChange={(value) =>
@@ -468,6 +525,17 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
         isLoading={isSaving}
         onConfirm={save}
         onCancel={() => setConfirmOpen(false)}
+      />
+      <ConfirmDialog
+        isOpen={deleteConfirmOpen}
+        title="Delete blog post?"
+        description="This permanently deletes the blog post, its tags, and its content blocks."
+        confirmText="Delete"
+        cancelText="Cancel"
+        type="delete"
+        isLoading={isDeleting}
+        onConfirm={deletePost}
+        onCancel={() => setDeleteConfirmOpen(false)}
       />
     </div>
   )
