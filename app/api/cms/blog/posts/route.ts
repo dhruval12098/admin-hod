@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { assertAdmin } from '@/lib/cms-auth'
+import { createUniqueBlogSlug } from '@/lib/blog-slug'
 
 type BlogPayload = {
   slug?: string
@@ -17,6 +18,7 @@ type BlogPayload = {
   is_published?: boolean
   sort_order?: number
   tags?: string[]
+  products?: string[]
   content_blocks?: Array<{
     id?: number
     block_type?: 'text' | 'image' | 'heading' | 'quote'
@@ -54,8 +56,16 @@ export async function POST(request: Request) {
   const title = String(body.title ?? '').trim()
   const titleHtml = String(body.title_html ?? '').trim() || title
 
+  const { adminClient } = access
+  let slug: string
+  try {
+    slug = await createUniqueBlogSlug(adminClient, title)
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Unable to create blog URL.' }, { status: 500 })
+  }
+
   const payload = {
-    slug: String(body.slug ?? '').trim(),
+    slug,
     title,
     title_html: titleHtml,
     subtitle: String(body.subtitle ?? '').trim(),
@@ -71,11 +81,10 @@ export async function POST(request: Request) {
     sort_order: Number(body.sort_order) || 0,
   }
 
-  if (!payload.slug || !payload.title || !payload.subtitle || !payload.body_html) {
-    return NextResponse.json({ error: 'Slug, title, subtitle, and body are required.' }, { status: 400 })
+  if (!payload.title || !payload.subtitle || !payload.body_html) {
+    return NextResponse.json({ error: 'Title, subtitle, and body are required.' }, { status: 400 })
   }
 
-  const { adminClient } = access
   const { data: post, error } = await adminClient
     .from('blog_posts')
     .insert(payload)
@@ -92,6 +101,16 @@ export async function POST(request: Request) {
   if (rows.length > 0) {
     const { error: tagsError } = await adminClient.from('blog_post_tags').insert(rows)
     if (tagsError) return NextResponse.json({ error: tagsError.message }, { status: 500 })
+  }
+
+  const products = Array.isArray(body.products) ? body.products : []
+  const productRows = products
+    .map((productId, index) => ({ post_id: post.id, product_id: String(productId ?? '').trim(), sort_order: index + 1 }))
+    .filter((product) => product.product_id)
+
+  if (productRows.length > 0) {
+    const { error: productsError } = await adminClient.from('blog_post_products').insert(productRows)
+    if (productsError) return NextResponse.json({ error: productsError.message }, { status: 500 })
   }
 
   const contentBlocks = Array.isArray(body.content_blocks) ? body.content_blocks : []
@@ -118,5 +137,5 @@ export async function POST(request: Request) {
     if (blocksError) return NextResponse.json({ error: blocksError.message }, { status: 500 })
   }
 
-  return NextResponse.json({ ok: true, id: post.id })
+  return NextResponse.json({ ok: true, id: post.id, slug })
 }

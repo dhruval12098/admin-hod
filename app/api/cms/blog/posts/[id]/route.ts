@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { assertAdmin } from '@/lib/cms-auth'
+import { createUniqueBlogSlug, isCleanBlogSlug } from '@/lib/blog-slug'
 
 type BlogPayload = {
   slug?: string
@@ -17,6 +18,7 @@ type BlogPayload = {
   is_published?: boolean
   sort_order?: number
   tags?: string[]
+  products?: string[]
   content_blocks?: Array<{
     id?: number
     block_type?: 'text' | 'image' | 'heading' | 'quote'
@@ -66,7 +68,15 @@ export async function GET(
 
   if (contentBlocksError) return NextResponse.json({ error: contentBlocksError.message }, { status: 500 })
 
-  return NextResponse.json({ post, tags: tags ?? [], content_blocks: contentBlocks ?? [] })
+  const { data: blogProducts, error: blogProductsError } = await adminClient
+    .from('blog_post_products')
+    .select('product_id, sort_order, product:products(id, slug, name, base_price, status)')
+    .eq('post_id', postId)
+    .order('sort_order', { ascending: true })
+
+  if (blogProductsError) return NextResponse.json({ error: blogProductsError.message }, { status: 500 })
+
+  return NextResponse.json({ post, tags: tags ?? [], content_blocks: contentBlocks ?? [], products: blogProducts ?? [] })
 }
 
 export async function POST(
@@ -86,8 +96,26 @@ export async function POST(
   const title = String(body.title ?? '').trim()
   const titleHtml = String(body.title_html ?? '').trim() || title
 
+  const { adminClient } = access
+  const { data: existingPost, error: existingPostError } = await adminClient
+    .from('blog_posts')
+    .select('slug')
+    .eq('id', postId)
+    .single()
+
+  if (existingPostError) return NextResponse.json({ error: existingPostError.message }, { status: 500 })
+
+  let slug = String(existingPost?.slug ?? '').trim()
+  if (!isCleanBlogSlug(slug)) {
+    try {
+      slug = await createUniqueBlogSlug(adminClient, title, postId)
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : 'Unable to create blog URL.' }, { status: 500 })
+    }
+  }
+
   const payload = {
-    slug: String(body.slug ?? '').trim(),
+    slug,
     title,
     title_html: titleHtml,
     subtitle: String(body.subtitle ?? '').trim(),
@@ -104,11 +132,10 @@ export async function POST(
     updated_at: new Date().toISOString(),
   }
 
-  if (!payload.slug || !payload.title || !payload.subtitle || !payload.body_html) {
-    return NextResponse.json({ error: 'Slug, title, subtitle, and body are required.' }, { status: 400 })
+  if (!payload.title || !payload.subtitle || !payload.body_html) {
+    return NextResponse.json({ error: 'Title, subtitle, and body are required.' }, { status: 400 })
   }
 
-  const { adminClient } = access
   const { error } = await adminClient.from('blog_posts').update(payload).eq('id', postId)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
@@ -123,6 +150,19 @@ export async function POST(
   if (rows.length > 0) {
     const { error: tagsError } = await adminClient.from('blog_post_tags').insert(rows)
     if (tagsError) return NextResponse.json({ error: tagsError.message }, { status: 500 })
+  }
+
+  const { error: deleteProductsError } = await adminClient.from('blog_post_products').delete().eq('post_id', postId)
+  if (deleteProductsError) return NextResponse.json({ error: deleteProductsError.message }, { status: 500 })
+
+  const products = Array.isArray(body.products) ? body.products : []
+  const productRows = products
+    .map((productId, index) => ({ post_id: postId, product_id: String(productId ?? '').trim(), sort_order: index + 1 }))
+    .filter((product) => product.product_id)
+
+  if (productRows.length > 0) {
+    const { error: productsError } = await adminClient.from('blog_post_products').insert(productRows)
+    if (productsError) return NextResponse.json({ error: productsError.message }, { status: 500 })
   }
 
   const { error: deleteBlocksError } = await adminClient.from('blog_post_content_blocks').delete().eq('post_id', postId)
@@ -152,7 +192,7 @@ export async function POST(
     if (blocksError) return NextResponse.json({ error: blocksError.message }, { status: 500 })
   }
 
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({ ok: true, slug })
 }
 
 export async function DELETE(
@@ -173,6 +213,9 @@ export async function DELETE(
 
   const { error: tagsError } = await adminClient.from('blog_post_tags').delete().eq('post_id', postId)
   if (tagsError) return NextResponse.json({ error: tagsError.message }, { status: 500 })
+
+  const { error: productsError } = await adminClient.from('blog_post_products').delete().eq('post_id', postId)
+  if (productsError) return NextResponse.json({ error: productsError.message }, { status: 500 })
 
   const { error: postError } = await adminClient.from('blog_posts').delete().eq('id', postId)
   if (postError) return NextResponse.json({ error: postError.message }, { status: 500 })

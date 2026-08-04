@@ -13,6 +13,13 @@ import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 
 type BlogTag = { clientId: string; value: string }
+type BlogProduct = {
+  id: string
+  slug: string
+  name: string
+  status?: string | null
+  base_price?: number | null
+}
 type BlogContentBlock = {
   clientId: string
   id?: number
@@ -46,6 +53,11 @@ type BlogForm = {
 type Payload = {
   post?: BlogForm & { id: number }
   tags?: Array<{ id: number; tag: string; sort_order: number }>
+  products?: Array<{
+    product_id: string
+    sort_order: number
+    product: BlogProduct | BlogProduct[] | null
+  }>
   content_blocks?: Array<{
     id: number
     block_type: 'text' | 'image' | 'heading' | 'quote'
@@ -75,6 +87,10 @@ function createEmptyBlock(
     image_caption: '',
     is_enabled: true,
   }
+}
+
+function formatBlogUrl(slug: string) {
+  return `/blog/${slug.replace(/^\/+/, '').replace(/^blog\/?/, '')}`
 }
 
 function RichTextEditor({ value, onChange }: { value: string; onChange: (value: string) => void }) {
@@ -139,6 +155,9 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
   const router = useRouter()
   const [form, setForm] = useState<BlogForm>(emptyForm)
   const [tags, setTags] = useState<BlogTag[]>([{ clientId: `tag-${Date.now()}`, value: '' }])
+  const [selectedProducts, setSelectedProducts] = useState<BlogProduct[]>([])
+  const [availableProducts, setAvailableProducts] = useState<BlogProduct[]>([])
+  const [productSearch, setProductSearch] = useState('')
   const [contentBlocks, setContentBlocks] = useState<BlogContentBlock[]>([])
   const [status, setStatus] = useState(mode === 'create' ? 'Create a new blog post.' : 'Loading blog post...')
   const [isSaving, setIsSaving] = useState(false)
@@ -148,6 +167,32 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
   const [isDeleting, setIsDeleting] = useState(false)
 
   const cleanedTags = useMemo(() => tags.map((tag) => tag.value.trim()).filter(Boolean), [tags])
+  const filteredProducts = useMemo(() => {
+    const search = productSearch.trim().toLowerCase()
+    const selectedIds = new Set(selectedProducts.map((product) => product.id))
+    return availableProducts
+      .filter((product) => !selectedIds.has(product.id))
+      .filter((product) => {
+        if (!search) return true
+        return [product.name, product.slug, product.status].some((value) => String(value ?? '').toLowerCase().includes(search))
+      })
+      .slice(0, 8)
+  }, [availableProducts, productSearch, selectedProducts])
+
+  useEffect(() => {
+    const loadProducts = async () => {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const accessToken = sessionData.session?.access_token
+      if (!accessToken) return
+
+      const response = await fetch('/api/products', { headers: { authorization: `Bearer ${accessToken}` } })
+      const payload = (await response.json().catch(() => null)) as { items?: BlogProduct[] } | null
+      if (!response.ok) return
+      setAvailableProducts(payload?.items ?? [])
+    }
+
+    loadProducts()
+  }, [])
 
   useEffect(() => {
     if (mode !== 'edit' || !id) return
@@ -163,6 +208,11 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
 
       setForm(payload.post)
       setTags((payload.tags ?? []).map((tag) => ({ clientId: `tag-${tag.id}`, value: tag.tag })))
+      setSelectedProducts(
+        (payload.products ?? [])
+          .map((item) => (Array.isArray(item.product) ? item.product[0] : item.product))
+          .filter((product): product is BlogProduct => Boolean(product?.id))
+      )
       setContentBlocks(
         (payload.content_blocks ?? []).map((block, index) => ({
           clientId: `block-${block.id}`,
@@ -257,12 +307,17 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
           image_caption: block.image_caption,
           is_enabled: block.is_enabled,
         })),
+        products: selectedProducts.map((product) => product.id),
       }),
     })
 
-    const payload = (await response.json().catch(() => null)) as { id?: number; error?: string } | null
+    const payload = (await response.json().catch(() => null)) as { id?: number; slug?: string; error?: string } | null
     setIsSaving(false)
     if (!response.ok) return setStatus(payload?.error ?? 'Unable to save blog post.')
+
+    if (payload?.slug) {
+      setForm((prev) => ({ ...prev, slug: payload.slug ?? prev.slug }))
+    }
 
     setConfirmOpen(false)
     setStatus('Blog post saved')
@@ -302,6 +357,18 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
     router.refresh()
   }
 
+  const moveSelectedProduct = (productId: string, direction: -1 | 1) => {
+    setSelectedProducts((prev) => {
+      const index = prev.findIndex((product) => product.id === productId)
+      const nextIndex = index + direction
+      if (index < 0 || nextIndex < 0 || nextIndex >= prev.length) return prev
+      const next = [...prev]
+      const [item] = next.splice(index, 1)
+      next.splice(nextIndex, 0, item)
+      return next
+    })
+  }
+
   return (
     <div className="min-h-screen bg-background p-8">
       <div className="mb-8 flex items-center justify-between gap-4">
@@ -327,17 +394,20 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
 
       <div className="mb-10">
         <h1 className="font-jakarta text-3xl font-semibold text-foreground">{mode === 'create' ? 'Create Blog' : 'Edit Blog'}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Write the article, set its public URL, upload images, and control whether it is live.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Write the article, upload images, and control whether it is live. The public URL is created automatically from the title.</p>
         <p className="mt-2 text-xs text-muted-foreground">{status}</p>
       </div>
 
       <div className="grid max-w-6xl grid-cols-1 gap-6 lg:grid-cols-2">
         <div className="space-y-4 rounded-lg border border-border bg-white p-6 shadow-xs">
-          <div>
-            <label className="mb-2 block text-sm font-semibold text-foreground">Article URL</label>
-            <input placeholder="example: diamond-buying-guide" value={form.slug} onChange={(e) => setForm((prev) => ({ ...prev, slug: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" />
-            <p className="mt-1 text-xs text-muted-foreground">This becomes /blog/article-url. Use lowercase words separated by hyphens.</p>
-          </div>
+          {mode === 'edit' && form.slug ? (
+            <div>
+              <label className="mb-2 block text-sm font-semibold text-foreground">Public URL</label>
+              <div className="rounded-lg border border-border bg-secondary/30 px-3 py-2 text-sm text-muted-foreground">
+                {formatBlogUrl(form.slug)}
+              </div>
+            </div>
+          ) : null}
           <div>
             <label className="mb-2 block text-sm font-semibold text-foreground">Article Title</label>
             <input placeholder="Title shown in admin, SEO, and fallbacks" value={form.title} onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" />
@@ -389,6 +459,55 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
                 <div key={tag.clientId} className="flex items-center gap-2">
                   <input value={tag.value} onChange={(e) => setTags((prev) => prev.map((item) => item.clientId === tag.clientId ? { ...item, value: e.target.value } : item))} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" />
                   <button type="button" onClick={() => setTags((prev) => prev.filter((item) => item.clientId !== tag.clientId))} className="rounded-lg border border-border px-3 py-2 text-sm text-red-600 hover:bg-red-50">
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <label className="block text-sm font-semibold text-foreground">Featured Products</label>
+              <span className="text-xs text-muted-foreground">{selectedProducts.length} selected</span>
+            </div>
+            <input
+              placeholder="Search products from any category"
+              value={productSearch}
+              onChange={(e) => setProductSearch(e.target.value)}
+              className="mb-3 w-full rounded-lg border border-border bg-white px-3 py-2 text-sm"
+            />
+            <div className="mb-3 space-y-2">
+              {filteredProducts.map((product) => (
+                <button
+                  key={product.id}
+                  type="button"
+                  onClick={() => setSelectedProducts((prev) => [...prev, product])}
+                  className="flex w-full items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 text-left text-sm hover:bg-secondary"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-semibold text-foreground">{product.name}</span>
+                    <span className="block truncate text-xs text-muted-foreground">{product.slug}</span>
+                  </span>
+                  <Plus size={14} />
+                </button>
+              ))}
+            </div>
+            <div className="space-y-2">
+              {selectedProducts.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border px-3 py-5 text-center text-sm text-muted-foreground">
+                  No featured products selected.
+                </div>
+              ) : null}
+              {selectedProducts.map((product, index) => (
+                <div key={product.id} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-semibold text-foreground">{index + 1}. {product.name}</div>
+                    <div className="truncate text-xs text-muted-foreground">{product.slug}</div>
+                  </div>
+                  <button type="button" onClick={() => moveSelectedProduct(product.id, -1)} disabled={index === 0} className="rounded-md border border-border px-2 py-1 text-xs disabled:opacity-40">Up</button>
+                  <button type="button" onClick={() => moveSelectedProduct(product.id, 1)} disabled={index === selectedProducts.length - 1} className="rounded-md border border-border px-2 py-1 text-xs disabled:opacity-40">Down</button>
+                  <button type="button" onClick={() => setSelectedProducts((prev) => prev.filter((item) => item.id !== product.id))} className="rounded-lg border border-border px-3 py-2 text-sm text-red-600 hover:bg-red-50">
                     <Trash2 size={14} />
                   </button>
                 </div>
