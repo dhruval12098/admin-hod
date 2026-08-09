@@ -681,42 +681,20 @@ export function ProductForm({
 
   const loadBootstrapScope = async (scope: CatalogBootstrapScope) => {
     const startedAt = performance.now()
-    const cached = catalogBootstrapCache.get(scope)
-
-    if (cached && Date.now() - cached.loadedAt < CATALOG_BOOTSTRAP_CACHE_TTL_MS) {
-      applyBootstrap(cached.payload)
-      markBootstrapScopeLoaded(scope)
-      productFormDebug(`catalog ${scope} cache applied`, startedAt)
-      return cached.payload
-    }
-
-    const pending = catalogBootstrapPending.get(scope)
-    if (pending) {
-      const payload = await pending
-      if (payload) {
-        applyBootstrap(payload)
-        markBootstrapScopeLoaded(scope)
-      }
-      return payload
-    }
-
-    const pendingRequest = authedFetch(`/api/catalog/bootstrap?scope=${scope}`).then(async (response) => {
-      const payload = (await response.json().catch(() => null)) as BootstrapPayload | null
-      productFormDebug(`catalog ${scope} fetched`, startedAt)
-      if (response.ok && payload) {
-        catalogBootstrapCache.set(scope, { payload, loadedAt: Date.now() })
-        return payload
-      }
-      return null
-    }).finally(() => {
-      catalogBootstrapPending.delete(scope)
+    const payload = await fetchCachedQuery<BootstrapPayload>({
+      key: `catalog-bootstrap:${scope}`,
+      staleTimeMs: CATALOG_BOOTSTRAP_CACHE_TTL_MS,
+      fetcher: async () => {
+        const response = await authedFetch(`/api/catalog/bootstrap?scope=${scope}`)
+        const payload = (await response.json().catch(() => null)) as BootstrapPayload | null
+        productFormDebug(`catalog ${scope} fetched`, startedAt)
+        return response.ok && payload ? payload : null
+      },
     })
-
-    catalogBootstrapPending.set(scope, pendingRequest)
-    const payload = await pendingRequest
     if (payload) {
       applyBootstrap(payload)
       markBootstrapScopeLoaded(scope)
+      productFormDebug(`catalog ${scope} applied`, startedAt)
     }
     return payload
   }
@@ -735,10 +713,15 @@ export function ProductForm({
       const productPromise = productLookupUrl
         ? (() => {
             const startedAt = performance.now()
-            return authedFetch(productLookupUrl).then(async (response) => {
-            const payload = (await response.json().catch(() => null)) as ProductResponse | null
-            productFormDebug('product fetched', startedAt)
-            return response.ok && payload?.item ? payload.item : null
+            return fetchCachedQuery<ProductResponse['item']>({
+              key: `product-edit:${productLookupUrl}`,
+              staleTimeMs: PRODUCT_EDIT_CACHE_TTL_MS,
+              fetcher: async () => {
+                const response = await authedFetch(productLookupUrl)
+                const payload = (await response.json().catch(() => null)) as ProductResponse | null
+                productFormDebug('product fetched', startedAt)
+                return response.ok && payload?.item ? payload.item : null
+              },
             })
           })()
         : Promise.resolve(null)
@@ -1280,7 +1263,8 @@ export function ProductForm({
         throw new Error('Add a price greater than 0 to the default metal option before saving.')
       }
 
-      const response = await authedFetch(productId ? `/api/products/${productId}` : productSlug ? `/api/products/by-slug/${encodeURIComponent(productSlug)}` : '/api/products', {
+      const saveUrl = productId ? `/api/products/${productId}` : productSlug ? `/api/products/by-slug/${encodeURIComponent(productSlug)}` : '/api/products'
+      const response = await authedFetch(saveUrl, {
         method: productId || productSlug ? 'PATCH' : 'POST',
         body: JSON.stringify({
           name,
@@ -1390,6 +1374,10 @@ export function ProductForm({
       if (!response.ok) {
         const payload = await response.json().catch(() => null)
         throw new Error(payload?.error ?? 'Unable to save product.')
+      }
+      const savedPayload = (await response.json().catch(() => null)) as ProductResponse | null
+      if ((productId || productSlug) && savedPayload?.item) {
+        setCachedQueryData(`product-edit:${saveUrl}`, savedPayload.item)
       }
 
       toast({
