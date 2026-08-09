@@ -257,8 +257,9 @@ type ProductPayload = {
 }
 
 async function getProductIdBySlug(adminClient: any, slug: string) {
-  const result = await adminClient.from('products').select('id').eq('slug', slug).single()
-  return result
+  const slugResult = await adminClient.from('products').select('id').eq('slug', slug).maybeSingle()
+  if (slugResult.data?.id || slugResult.error) return slugResult
+  return adminClient.from('products').select('id').eq('id', slug).maybeSingle()
 }
 
 export async function GET(request: Request, { params }: { params: Promise<{ slug: string }> }) {

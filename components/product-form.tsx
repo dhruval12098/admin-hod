@@ -3,6 +3,7 @@
 import type { Dispatch, FormEvent, ReactNode, SetStateAction } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { ChevronLeft, Eye, EyeOff, Loader2, Plus, Trash2, Video, X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/hooks/use-toast'
@@ -41,6 +42,8 @@ import { KeyValueSection } from '@/components/product-form/KeyValueSection'
 import { PolicyEditor } from '@/components/product-form/PolicyEditor'
 import { ProductFaqEditor } from '@/components/product-form/ProductFaqEditor'
 import { ProductFormStepActions, ProductFormStepBar } from '@/components/product-form/ProductFormStepNavigation'
+import { ConfirmDialog } from '@/components/confirm-dialog'
+import { fetchCachedQuery, setCachedQueryData } from '@/lib/query-cache'
 
 type BootstrapPayload = {
   categories?: CatalogCategory[]
@@ -391,10 +394,9 @@ const PRODUCT_FORM_STEPS: { id: ProductFormStepId; label: string; description: s
   { id: 'details', label: 'Details', description: 'Specifications and detailed content sections.' },
   { id: 'media', label: 'Media', description: 'Images, video, and final review before save.' },
 ]
-const CATALOG_BOOTSTRAP_CACHE_TTL_MS = 45_000
+const CATALOG_BOOTSTRAP_CACHE_TTL_MS = 10 * 60 * 1000
+const PRODUCT_EDIT_CACHE_TTL_MS = 2 * 60 * 1000
 type CatalogBootstrapScope = 'basics' | 'pricing' | 'attributes' | 'content'
-const catalogBootstrapCache = new Map<CatalogBootstrapScope, { payload: BootstrapPayload; loadedAt: number }>()
-const catalogBootstrapPending = new Map<CatalogBootstrapScope, Promise<BootstrapPayload | null>>()
 
 function productFormDebug(label: string, startedAt: number) {
   if (process.env.NODE_ENV !== 'development') return
@@ -476,6 +478,7 @@ export function ProductForm({
   pageDescription?: string
 }) {
   const { toast } = useToast()
+  const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [redirecting, setRedirecting] = useState(false)
@@ -563,6 +566,11 @@ export function ProductForm({
   const [activeVariantMediaKey, setActiveVariantMediaKey] = useState<string>('default')
   const [activeVariantMediaIndex, setActiveVariantMediaIndex] = useState<number | null>(null)
   const [uploadingSlots, setUploadingSlots] = useState<Record<string, boolean>>({})
+  const [deleteVariantMediaTarget, setDeleteVariantMediaTarget] = useState<{
+    metalId: string | null
+    itemIndex: number
+    label: string
+  } | null>(null)
   const [customOrderEnabled, setCustomOrderEnabled] = useState(false)
   const [readyToShip, setReadyToShip] = useState(false)
   const [hiphopBadges, setHiphopBadges] = useState<string[]>([])
@@ -720,7 +728,7 @@ export function ProductForm({
   const loadData = async () => {
     setLoading(true)
     try {
-      const productLookupUrl = productSlug ? `/api/products/by-slug/${productSlug}` : productId ? `/api/products/${productId}` : null
+      const productLookupUrl = productSlug ? `/api/products/by-slug/${encodeURIComponent(productSlug)}` : productId ? `/api/products/${productId}` : null
       const loadStartedAt = performance.now()
       const bootstrapPromise = loadBootstrapScope('basics')
 
@@ -1272,7 +1280,7 @@ export function ProductForm({
         throw new Error('Add a price greater than 0 to the default metal option before saving.')
       }
 
-      const response = await authedFetch(productId ? `/api/products/${productId}` : productSlug ? `/api/products/by-slug/${productSlug}` : '/api/products', {
+      const response = await authedFetch(productId ? `/api/products/${productId}` : productSlug ? `/api/products/by-slug/${encodeURIComponent(productSlug)}` : '/api/products', {
         method: productId || productSlug ? 'PATCH' : 'POST',
         body: JSON.stringify({
           name,
@@ -1394,7 +1402,7 @@ export function ProductForm({
       shouldRedirect = true
       setRedirecting(true)
       window.setTimeout(() => {
-        window.location.href = backHref
+        router.push(backHref)
       }, 700)
     } catch (error) {
       toast({
@@ -1415,6 +1423,7 @@ export function ProductForm({
   }
 
   return (
+    <>
     <div className="flex flex-col gap-10">
       {redirecting ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-sm">
@@ -2524,31 +2533,102 @@ export function ProductForm({
                         {items.map((item, itemIndex) => {
                           const isActive = activeVariantMediaIndex === itemIndex
                           const previewPath = item.media_type === 'image' ? toStoragePreviewUrl(item.media_path) : ''
+                          const uploadKey = `variant-media-${activeVariantMediaKey}-${itemIndex}`
+                          const inputId = `variant-media-upload-${activeVariantMediaKey}-${itemIndex}`
+                          const isUploading = Boolean(uploadingSlots[uploadKey])
                           return (
-                            <button
+                            <div
                               key={`variant-media-thumb-${activeVariantMediaKey}-${itemIndex}`}
-                              type="button"
-                              onClick={() => setActiveVariantMediaIndex(itemIndex)}
                               className={`group relative h-24 w-24 overflow-hidden rounded-xl border transition-colors ${
                                 isActive ? 'border-foreground ring-1 ring-foreground' : 'border-border hover:border-primary'
                               }`}
                             >
-                              {item.media_type === 'image' && previewPath ? (
-                                <img src={previewPath} alt={`${sectionLabel} item ${itemIndex + 1}`} className="h-full w-full object-cover" />
-                              ) : (
-                                <div className="flex h-full w-full flex-col items-center justify-center bg-secondary/20 px-2 text-center">
-                                  <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                                    {item.media_type}
-                                  </span>
-                                  <span className="mt-1 text-[11px] text-foreground">
-                                    {item.media_path ? 'Preview ready' : 'No file yet'}
-                                  </span>
+                              <label
+                                htmlFor={inputId}
+                                onClick={() => setActiveVariantMediaIndex(itemIndex)}
+                                className="block h-full w-full cursor-pointer"
+                                title={`Upload ${item.media_type}`}
+                              >
+                                {item.media_type === 'image' && previewPath ? (
+                                  <img src={previewPath} alt={`${sectionLabel} item ${itemIndex + 1}`} className="h-full w-full object-cover" />
+                                ) : (
+                                  <div className="flex h-full w-full flex-col items-center justify-center bg-secondary/20 px-2 text-center">
+                                    <Plus size={16} className="mb-2 text-muted-foreground" />
+                                    <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                                      {item.media_type}
+                                    </span>
+                                    <span className="mt-1 text-[11px] text-foreground">
+                                      {item.media_path ? 'Change file' : 'Upload'}
+                                    </span>
+                                  </div>
+                                )}
+                              </label>
+                              <input
+                                id={inputId}
+                                type="file"
+                                accept={item.media_type === 'video' ? 'video/*' : 'image/*'}
+                                className="hidden"
+                                onChange={async (event) => {
+                                  const input = event.currentTarget
+                                  const file = input.files?.[0]
+                                  if (!file) return
+                                  setActiveVariantMediaIndex(itemIndex)
+                                  setUploadingSlots((prev) => ({ ...prev, [uploadKey]: true }))
+                                  try {
+                                    const uploadedPath = await uploadMedia(
+                                      file,
+                                      item.media_type === 'video' ? 'video' : 'image',
+                                      isHiphopProduct ? 'hiphop' : 'products'
+                                    )
+                                    updateVariantMediaItem(isDefaultFallback ? null : activeVariantMediaKey, itemIndex, (entry) => ({
+                                      ...entry,
+                                      media_path: uploadedPath,
+                                    }))
+                                    toast({
+                                      title: 'Uploaded',
+                                      description: `${sectionLabel} ${item.media_type} uploaded successfully.`,
+                                    })
+                                  } catch (error) {
+                                    toast({
+                                      title: 'Upload failed',
+                                      description: error instanceof Error ? error.message : `Unable to upload ${item.media_type}.`,
+                                      variant: 'destructive',
+                                    })
+                                  } finally {
+                                    setUploadingSlots((prev) => ({ ...prev, [uploadKey]: false }))
+                                    input.value = ''
+                                  }
+                                }}
+                              />
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.preventDefault()
+                                  event.stopPropagation()
+                                  setActiveVariantMediaIndex(itemIndex)
+                                  setDeleteVariantMediaTarget({
+                                    metalId: isDefaultFallback ? null : activeVariantMediaKey,
+                                    itemIndex,
+                                    label: `${sectionLabel} media ${itemIndex + 1}`,
+                                  })
+                                }}
+                                className="absolute right-2 top-2 z-10 inline-flex h-7 w-7 items-center justify-center rounded-full bg-white/95 text-foreground opacity-0 shadow-sm transition-opacity hover:text-destructive group-hover:opacity-100"
+                                aria-label={`Delete ${sectionLabel} media ${itemIndex + 1}`}
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                              {isUploading ? (
+                                <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/80 text-foreground">
+                                  <div className="flex flex-col items-center gap-1">
+                                    <Loader2 size={18} className="animate-spin" />
+                                    <span className="text-[10px] font-semibold uppercase tracking-[0.18em]">Uploading</span>
+                                  </div>
                                 </div>
-                              )}
+                              ) : null}
                               <div className="absolute inset-x-0 bottom-0 bg-black/55 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-white">
                                 {itemIndex + 1}
                               </div>
-                            </button>
+                            </div>
                           )
                         })}
 
@@ -2580,7 +2660,13 @@ export function ProductForm({
                                   </div>
                                   <button
                                     type="button"
-                                    onClick={() => removeVariantMediaItem(isDefaultFallback ? null : activeVariantMediaKey, itemIndex)}
+                                    onClick={() =>
+                                      setDeleteVariantMediaTarget({
+                                        metalId: isDefaultFallback ? null : activeVariantMediaKey,
+                                        itemIndex,
+                                        label: `${sectionLabel} media ${itemIndex + 1}`,
+                                      })
+                                    }
                                     className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground hover:bg-secondary"
                                   >
                                     {Boolean(uploadingSlots[uploadKey]) ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
@@ -2725,6 +2811,20 @@ export function ProductForm({
         />
       </form>
     </div>
+    <ConfirmDialog
+      isOpen={Boolean(deleteVariantMediaTarget)}
+      title="Delete media block?"
+      description={`Are you sure you want to delete "${deleteVariantMediaTarget?.label ?? 'this media block'}"?`}
+      confirmText="Delete"
+      type="delete"
+      onConfirm={() => {
+        if (!deleteVariantMediaTarget) return
+        removeVariantMediaItem(deleteVariantMediaTarget.metalId, deleteVariantMediaTarget.itemIndex)
+        setDeleteVariantMediaTarget(null)
+      }}
+      onCancel={() => setDeleteVariantMediaTarget(null)}
+    />
+    </>
   )
 }
 

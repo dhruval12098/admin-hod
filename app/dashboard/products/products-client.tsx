@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Search, Plus, Edit2, Trash2, CheckCircle2, Circle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { ConfirmDialog } from '@/components/confirm-dialog'
@@ -9,7 +10,7 @@ import { TablePagination } from '@/components/table-pagination'
 
 export type ProductRow = {
   id: string
-  slug: string
+  slug: string | null
   name: string
   sku: string
   productLane?: 'standard' | 'hiphop' | 'collection'
@@ -35,6 +36,13 @@ function matchesLane(product: ProductRow, lane: 'standard' | 'hiphop' | 'collect
   return productLane === lane
 }
 
+function getProductEditHref(product: ProductRow, editBaseHref: string) {
+  const slug = product.slug?.trim()
+  if (slug) return `${editBaseHref}/${encodeURIComponent(slug)}`
+  if (editBaseHref === '/dashboard/products/edit') return `/dashboard/products/${encodeURIComponent(product.id)}`
+  return `${editBaseHref}/${encodeURIComponent(product.id)}`
+}
+
 export function ProductsClient({
   initialProducts,
   lane,
@@ -54,6 +62,7 @@ export function ProductsClient({
   editBaseHref: string
   emptyMessage: string
 }) {
+  const router = useRouter()
   const [products, setProducts] = useState<ProductRow[]>(initialProducts)
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(false)
@@ -239,6 +248,8 @@ export function ProductsClient({
           {createHref && createLabel ? (
             <Link
               href={createHref}
+              onMouseEnter={() => router.prefetch(createHref)}
+              onFocus={() => router.prefetch(createHref)}
               className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary/90 transition-colors duration-200"
             >
               <Plus size={18} />
@@ -287,7 +298,9 @@ export function ProductsClient({
               </tr>
             </thead>
             <tbody>
-              {visibleProducts.map((product) => (
+              {visibleProducts.map((product) => {
+                const editHref = getProductEditHref(product, editBaseHref)
+                return (
                 <tr key={product.id} className="border-b border-border hover:bg-secondary/30 transition-colors duration-150">
                   <td className="px-4 py-3.5">
                     <input
@@ -313,7 +326,7 @@ export function ProductsClient({
                   </td>
                   <td className="px-6 py-3.5">
                     <div className="flex items-center gap-1.5">
-                      <Link href={`${editBaseHref}/${product.slug}`} className="rounded p-1.5 hover:bg-secondary transition-colors" title="Edit">
+                      <Link href={editHref} onMouseEnter={() => router.prefetch(editHref)} onFocus={() => router.prefetch(editHref)} className="rounded p-1.5 hover:bg-secondary transition-colors" title="Edit">
                         <Edit2 size={14} className="text-muted-foreground" />
                       </Link>
                       <button onClick={() => setDeleteTarget(product)} className="rounded p-1.5 hover:bg-red-100 transition-colors" title="Delete">
@@ -322,7 +335,8 @@ export function ProductsClient({
                     </div>
                   </td>
                 </tr>
-              ))}
+                )
+              })}
             </tbody>
           </table>
         </div>
