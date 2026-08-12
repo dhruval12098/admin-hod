@@ -114,9 +114,24 @@ export async function POST(request: Request) {
   const normalizedItems = normalizeItems(items)
 
   const { adminClient } = access
-  const { error: deleteError } = await adminClient.from('collection_items').delete().gte('sort_order', 0)
-  if (deleteError) {
-    return NextResponse.json({ error: deleteError.message }, { status: 500 })
+
+  // Replace the complete ordered collection. The previous `sort_order >= 0`
+  // filter left legacy rows with null or negative order values in the table,
+  // so removed cards could return after saving.
+  const { error: orderedDeleteError } = await adminClient
+    .from('collection_items')
+    .delete()
+    .not('sort_order', 'is', null)
+  if (orderedDeleteError) {
+    return NextResponse.json({ error: orderedDeleteError.message }, { status: 500 })
+  }
+
+  const { error: unorderedDeleteError } = await adminClient
+    .from('collection_items')
+    .delete()
+    .is('sort_order', null)
+  if (unorderedDeleteError) {
+    return NextResponse.json({ error: unorderedDeleteError.message }, { status: 500 })
   }
 
   if (normalizedItems.length > 0) {
