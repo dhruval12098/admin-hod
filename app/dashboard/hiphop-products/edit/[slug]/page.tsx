@@ -1,4 +1,5 @@
 import { ProductForm } from '@/components/product-form'
+import { getProductFormBasicsBootstrap } from '../../../products/product-form-bootstrap'
 
 export default async function EditHipHopProductPage({
   params,
@@ -6,6 +7,7 @@ export default async function EditHipHopProductPage({
   params: Promise<{ slug: string }>
 }) {
   const { slug } = await params
+  const initialBasicsBootstrap = await getProductFormBasicsBootstrap()
 
   return (
     <div className="p-8">
@@ -16,6 +18,7 @@ export default async function EditHipHopProductPage({
         backHref="/dashboard/hiphop-products"
         pageTitle="Edit Hip Hop Product"
         pageDescription="Update the saved Hip Hop product model and storefront details."
+        initialBasicsBootstrap={initialBasicsBootstrap}
       />
     </div>
   )

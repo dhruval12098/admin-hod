@@ -1,10 +1,9 @@
 'use client'
 
-import type { Dispatch, FormEvent, ReactNode, SetStateAction } from 'react'
+import type { Dispatch, FormEvent, SetStateAction } from 'react'
 import { useEffect, useMemo, useState } from 'react'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, Eye, EyeOff, Loader2, Plus, Trash2, Video, X } from 'lucide-react'
+import { Eye, EyeOff, Loader2, Plus, Trash2, Video, X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/hooks/use-toast'
 import {
@@ -14,7 +13,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Skeleton } from '@/components/ui/skeleton'
 import type {
   CatalogCategory,
   CatalogCertificate,
@@ -38,14 +36,23 @@ import type {
 } from '@/lib/product-catalog'
 import { formatCategoryPath } from '@/lib/product-catalog'
 import { buildCombinedMetalDisplayLabel } from '@/lib/product-metal-variants'
-import { KeyValueSection } from '@/components/product-form/KeyValueSection'
-import { PolicyEditor } from '@/components/product-form/PolicyEditor'
-import { ProductFaqEditor } from '@/components/product-form/ProductFaqEditor'
+import { ProductAttributesStep } from '@/components/product-form/ProductAttributesStep'
+import { ProductBasicInfoCard } from '@/components/product-form/ProductBasicInfoCard'
+import { ProductCategoryCard } from '@/components/product-form/ProductCategoryCard'
+import { ProductExperienceCard } from '@/components/product-form/ProductExperienceCard'
+import { ProductLaneRuleCards } from '@/components/product-form/ProductLaneRuleCards'
+import { ProductMetalOptionsCard } from '@/components/product-form/ProductMetalOptionsCard'
+import { ProductPricingSummaryCard } from '@/components/product-form/ProductPricingSummaryCard'
+import { FormField, PillToggle, TagList, TogglePillGroup } from '@/components/product-form/ProductFormControls'
+import { ProductContentStep } from '@/components/product-form/ProductContentStep'
+import { ProductDetailsStep } from '@/components/product-form/ProductDetailsStep'
 import { ProductFormStepActions, ProductFormStepBar } from '@/components/product-form/ProductFormStepNavigation'
+import { ProductFormHeader, ProductFormRedirectOverlay } from '@/components/product-form/ProductFormChrome'
+import { ProductFormLoadingShell, ProductFormSkeleton } from '@/components/product-form/ProductFormLoadingStates'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { fetchCachedQuery, setCachedQueryData } from '@/lib/query-cache'
 
-type BootstrapPayload = {
+export type BootstrapPayload = {
   categories?: CatalogCategory[]
   subcategories?: CatalogSubcategory[]
   options?: CatalogOption[]
@@ -467,6 +474,7 @@ export function ProductForm({
   backHref = '/dashboard/products',
   pageTitle,
   pageDescription,
+  initialBasicsBootstrap,
 }: {
   productId?: number | string
   productSlug?: string
@@ -476,15 +484,16 @@ export function ProductForm({
   backHref?: string
   pageTitle?: string
   pageDescription?: string
+  initialBasicsBootstrap?: BootstrapPayload
 }) {
   const { toast } = useToast()
   const router = useRouter()
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(Boolean(productId || productSlug || !initialBasicsBootstrap))
   const [saving, setSaving] = useState(false)
   const [redirecting, setRedirecting] = useState(false)
-  const [categories, setCategories] = useState<CatalogCategory[]>([])
-  const [subcategories, setSubcategories] = useState<CatalogSubcategory[]>([])
-  const [options, setOptions] = useState<CatalogOption[]>([])
+  const [categories, setCategories] = useState<CatalogCategory[]>(initialBasicsBootstrap?.categories ?? [])
+  const [subcategories, setSubcategories] = useState<CatalogSubcategory[]>(initialBasicsBootstrap?.subcategories ?? [])
+  const [options, setOptions] = useState<CatalogOption[]>(initialBasicsBootstrap?.options ?? [])
   const [metals, setMetals] = useState<CatalogMetal[]>([])
   const [materialValues, setMaterialValues] = useState<CatalogMaterialValue[]>([])
   const [stoneShapes, setStoneShapes] = useState<CatalogStoneShape[]>([])
@@ -492,7 +501,7 @@ export function ProductForm({
   const [ringCategories, setRingCategories] = useState<CatalogRingCategory[]>([])
   const [ringCategorySizes, setRingCategorySizes] = useState<CatalogRingCategorySize[]>([])
   const [certificates, setCertificates] = useState<CatalogCertificate[]>([])
-  const [styles, setStyles] = useState<CatalogStyle[]>([])
+  const [styles, setStyles] = useState<CatalogStyle[]>(initialBasicsBootstrap?.styles ?? [])
   const [shippingRules, setShippingRules] = useState<ProductContentRule[]>([])
   const [careWarrantyRules, setCareWarrantyRules] = useState<ProductContentRule[]>([])
   const [activeStep, setActiveStep] = useState<ProductFormStepId>('basics')
@@ -554,7 +563,7 @@ export function ProductForm({
   const [productDetails, setProductDetails] = useState<ProductKeyValue[]>([emptyRow()])
   const [detailSections, setDetailSections] = useState<ProductDetailSection[]>([emptySection()])
   const [faqItems, setFaqItems] = useState<ProductFaqItem[]>([])
-  const [loadedBootstrapScopes, setLoadedBootstrapScopes] = useState<Set<CatalogBootstrapScope>>(() => new Set())
+  const [loadedBootstrapScopes, setLoadedBootstrapScopes] = useState<Set<CatalogBootstrapScope>>(() => new Set(initialBasicsBootstrap ? ['basics'] : []))
   const [imageSlots, setImageSlots] = useState<string[]>(['', '', '', ''])
   const [imagePaths, setImagePaths] = useState<(string | null)[]>([null, null, null, null])
   const [imageAlts, setImageAlts] = useState<string[]>(['', '', '', ''])
@@ -681,6 +690,14 @@ export function ProductForm({
 
   const loadBootstrapScope = async (scope: CatalogBootstrapScope) => {
     const startedAt = performance.now()
+    if (scope === 'basics' && initialBasicsBootstrap) {
+      setCachedQueryData(`catalog-bootstrap:${scope}`, initialBasicsBootstrap)
+      applyBootstrap(initialBasicsBootstrap)
+      markBootstrapScopeLoaded(scope)
+      productFormDebug(`catalog ${scope} hydrated`, startedAt)
+      return initialBasicsBootstrap
+    }
+
     const payload = await fetchCachedQuery<BootstrapPayload>({
       key: `catalog-bootstrap:${scope}`,
       staleTimeMs: CATALOG_BOOTSTRAP_CACHE_TTL_MS,
@@ -704,9 +721,14 @@ export function ProductForm({
   }, [productId, productSlug])
 
   const loadData = async () => {
-    setLoading(true)
     try {
       const productLookupUrl = productSlug ? `/api/products/by-slug/${encodeURIComponent(productSlug)}` : productId ? `/api/products/${productId}` : null
+      if (!productLookupUrl && initialBasicsBootstrap) {
+        setLoading(false)
+        return
+      }
+
+      setLoading(true)
       const loadStartedAt = performance.now()
       const bootstrapPromise = loadBootstrapScope('basics')
 
@@ -1406,6 +1428,16 @@ export function ProductForm({
     }
   }
 
+  if (loading && initialBasicsBootstrap) {
+    return (
+      <ProductFormLoadingShell
+        backHref={backHref}
+        title={pageTitle || (productId || productSlug ? 'Edit Product' : 'Create Product')}
+        description={pageDescription || (productId || productSlug ? 'Update the saved product model and storefront details.' : 'Add a new jewelry product to inventory.')}
+      />
+    )
+  }
+
   if (loading) {
     return <ProductFormSkeleton />
   }
@@ -1413,33 +1445,13 @@ export function ProductForm({
   return (
     <>
     <div className="flex flex-col gap-10">
-      {redirecting ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-sm">
-          <div className="rounded-2xl border border-border bg-white px-8 py-6 shadow-xl">
-            <div className="flex items-center gap-4">
-              <div className="h-9 w-9 animate-spin rounded-full border-2 border-black/10 border-t-foreground" />
-              <div>
-                <p className="text-sm font-semibold text-foreground">Redirecting to products</p>
-                <p className="mt-1 text-xs text-muted-foreground">Please wait while the updated product list loads.</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      {redirecting ? <ProductFormRedirectOverlay /> : null}
 
-      <div className="flex items-center gap-3">
-        <Link href={backHref} className="rounded p-1.5 hover:bg-secondary transition-colors">
-          <ChevronLeft size={20} />
-        </Link>
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">
-            {pageTitle || (productId || productSlug ? 'Edit Product' : 'Create Product')}
-          </h1>
-          <p className="mt-2 text-xs text-muted-foreground">
-            {pageDescription || (productId || productSlug ? 'Update the saved product model and storefront details.' : 'Add a new jewelry product to inventory.')}
-          </p>
-        </div>
-      </div>
+      <ProductFormHeader
+        backHref={backHref}
+        title={pageTitle || (productId || productSlug ? 'Edit Product' : 'Create Product')}
+        description={pageDescription || (productId || productSlug ? 'Update the saved product model and storefront details.' : 'Add a new jewelry product to inventory.')}
+      />
 
       {!productId && !productSlug ? (
         <div className="flex justify-end">
@@ -1462,908 +1474,245 @@ export function ProductForm({
 
         {activeStep === 'basics' ? (
           <>
-            <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
-              <h2 className="mb-8 text-xl font-bold text-foreground">Basic Information</h2>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <FormField label="Product Name *">
-                  <input value={name} onChange={(e) => setName(e.target.value)} className={inputClassName} />
-                </FormField>
-                <FormField label="SKU *">
-                  <input value={sku} onChange={(e) => setSku(e.target.value)} className={inputClassName} />
-                </FormField>
-              </div>
-              <div className="mt-4 flex items-center gap-2">
-                <input id="featured" type="checkbox" checked={featured} onChange={(e) => setFeatured(e.target.checked)} className="rounded border-border" />
-                <label htmlFor="featured" className="text-sm font-medium text-foreground">Featured Product</label>
-              </div>
-            </section>
+            <ProductBasicInfoCard
+              name={name}
+              setName={setName}
+              sku={sku}
+              setSku={setSku}
+              featured={featured}
+              setFeatured={setFeatured}
+              inputClassName={inputClassName}
+            />
 
-            <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
-              <h2 className="mb-8 text-xl font-bold text-foreground">Category and Classification</h2>
-              <div className="space-y-6">
-                <FormField label="Main Category">
-                  <Select
-                    value={mainCategoryId}
-                    onValueChange={(value) => {
-                      setMainCategoryId(value)
-                      setSubcategoryId('')
-                      setOptionId('')
-                      setLinkedSubcategoryIds([])
-                      setLinkedOptionIds([])
-                    }}
-                    disabled={forceHipHopCategory || isLockedLaneProduct}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Select category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {categories.map((category) => (
-                        <SelectItem key={category.id} value={category.id}>{category.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </FormField>
+            <ProductCategoryCard
+              mainCategoryId={mainCategoryId}
+              onMainCategoryChange={(value) => {
+                setMainCategoryId(value)
+                setSubcategoryId('')
+                setOptionId('')
+                setLinkedSubcategoryIds([])
+                setLinkedOptionIds([])
+              }}
+              categories={categories}
+              forceHipHopCategory={forceHipHopCategory}
+              isLockedLaneProduct={isLockedLaneProduct}
+              isCollectionProduct={isCollectionProduct}
+              categorySubcategories={categorySubcategories}
+              subcategoryId={subcategoryId}
+              onSubcategoryChange={(value) => {
+                setSubcategoryId(value)
+                setOptionId('')
+              }}
+              linkedSubcategoryCandidates={linkedSubcategoryCandidates}
+              linkedSubcategoryIds={linkedSubcategoryIds}
+              onLinkedSubcategoryToggle={(value) => setLinkedSubcategoryIds((prev) => toggleInArray(prev, value))}
+              optionId={optionId}
+              setOptionId={setOptionId}
+              subcategoryOptions={subcategoryOptions}
+              linkedOptionCandidates={linkedOptionCandidates}
+              linkedOptionIds={linkedOptionIds}
+              onLinkedOptionToggle={(value) => setLinkedOptionIds((prev) => toggleInArray(prev, value))}
+              styleId={styleId}
+              setStyleId={setStyleId}
+              styles={styles}
+              selectedPath={selectedPath}
+            />
 
-                {isLockedLaneProduct ? (
-                  <p className="text-xs text-muted-foreground">
-                    {isCollectionProduct
-                      ? 'Main category is locked for Collection products.'
-                      : 'Main category is locked for Hip Hop products.'}
-                  </p>
-                ) : null}
+            <ProductLaneRuleCards
+              isHiphopProduct={isHiphopProduct}
+              isCollectionProduct={isCollectionProduct}
+              allowCheckout={allowCheckout}
+              setAllowCheckout={setAllowCheckout}
+            />
 
-                {categorySubcategories.length > 0 ? (
-                  <FormField label="Subcategory">
-                    <Select
-                      value={subcategoryId}
-                      onValueChange={(value) => {
-                        setSubcategoryId(value)
-                        setOptionId('')
-                      }}
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Select subcategory" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {categorySubcategories.map((item) => (
-                          <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </FormField>
-                ) : null}
-
-                {linkedSubcategoryCandidates.length > 0 ? (
-                  <TogglePillGroup
-                    label="Linked Subcategories"
-                    items={linkedSubcategoryCandidates.map((item) => ({
-                      id: item.id,
-                      label: item.name,
-                    }))}
-                    selected={linkedSubcategoryIds}
-                    onToggle={(value) => setLinkedSubcategoryIds((prev) => toggleInArray(prev, value))}
-                  />
-                ) : null}
-
-                {subcategoryId ? (
-                  <FormField label="Option">
-                    <Select value={optionId} onValueChange={setOptionId}>
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Select option" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {subcategoryOptions.map((item) => (
-                          <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </FormField>
-                ) : null}
-
-                {linkedOptionCandidates.length > 0 ? (
-                  <TogglePillGroup
-                    label="Linked Options"
-                    items={linkedOptionCandidates.map((item) => ({
-                      id: item.id,
-                      label: item.name,
-                    }))}
-                    selected={linkedOptionIds}
-                    onToggle={(value) => setLinkedOptionIds((prev) => toggleInArray(prev, value))}
-                  />
-                ) : null}
-
-                <FormField label="Style">
-                  <Select value={styleId || '__none__'} onValueChange={(value) => setStyleId(value === '__none__' ? '' : value)}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Select style" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">No style</SelectItem>
-                      {styles.map((item) => (
-                        <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </FormField>
-
-                <div className="rounded-lg border border-border bg-secondary/20 px-4 py-4">
-                  <p className="text-sm font-semibold text-foreground">Selected Path</p>
-                  <p className="mt-3 text-xs text-muted-foreground">{selectedPath}</p>
-                </div>
-              </div>
-            </section>
-
-            {isHiphopProduct ? (
-              <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
-                <div className="border-l-2 border-foreground/20 pl-4">
-                  <p className="mb-4 text-xs font-semibold uppercase tracking-widest text-muted-foreground">Hip Hop Options</p>
-                  <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div>
-                      <h2 className="text-xl font-bold text-foreground">Hip Hop Checkout</h2>
-                      <p className="mt-2 text-xs text-muted-foreground">Allow this Hip Hop product to go directly to checkout from the product page.</p>
-                    </div>
-                    <PillToggle value={allowCheckout} onChange={setAllowCheckout} onLabel="Checkout Allowed" offLabel="Checkout Disabled" />
-                  </div>
-                </div>
-              </section>
-            ) : null}
-
-            {isCollectionProduct ? (
-              <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
-                <div className="border-l-2 border-foreground/20 pl-4">
-                  <p className="mb-4 text-xs font-semibold uppercase tracking-widest text-muted-foreground">Collection Rules</p>
-                  <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div>
-                      <h2 className="text-xl font-bold text-foreground">Checkout</h2>
-                      <p className="mt-2 text-xs text-muted-foreground">Collection products stay enquiry-first and never allow checkout.</p>
-                    </div>
-                    <span className="inline-flex rounded-full bg-secondary px-3 py-1.5 text-xs font-semibold text-foreground">Checkout Disabled</span>
-                  </div>
-                </div>
-              </section>
-            ) : null}
-
-            <section className="rounded-lg border border-border bg-card p-6">
-              <h2 className="mb-6 text-lg font-semibold text-foreground">Product Experience</h2>
-              <div className="space-y-6">
-                <div className="flex flex-wrap items-start justify-between gap-4 rounded-lg border border-border bg-secondary/10 p-4">
-                  <div>
-                    <p className="text-sm font-medium text-foreground">Product Mode</p>
-                    <p className="mt-2 text-xs text-muted-foreground">This form mode is set by the admin section you entered from, so the product stays in its correct lane.</p>
-                  </div>
-                  {forcedLane ? (
-                    <span className={`inline-flex rounded-full px-3 py-1.5 text-xs font-semibold ${
-                      forcedLane === 'hiphop'
-                        ? 'bg-foreground text-white'
-                        : forcedLane === 'collection'
-                          ? 'bg-secondary text-foreground'
-                          : 'bg-white border border-border text-foreground'
-                    }`}>
-                      {forcedLane === 'hiphop' ? 'Hip Hop' : forcedLane === 'collection' ? 'Collection' : 'Standard'}
-                    </span>
-                  ) : (
-                    <PillToggle
-                      value={detailTemplate === 'hiphop'}
-                      onChange={(next) => setDetailTemplate(next ? 'hiphop' : 'standard')}
-                      onLabel="Hip Hop"
-                      offLabel="Standard"
-                    />
-                  )}
-                </div>
-
-                {isHiphopProduct ? (
-                  <div className="space-y-6 border-l-2 border-foreground/20 pl-4">
-                    <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Hip Hop Options</p>
-                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                      <div className="rounded-lg border border-border bg-secondary/10 p-4">
-                        <div className="flex flex-wrap items-start justify-between gap-4">
-                          <div>
-                            <p className="text-sm font-medium text-foreground">Ready To Ship</p>
-                            <p className="mt-2 text-xs text-muted-foreground">Show the in-stock premium badge on the Hip Hop detail page.</p>
-                          </div>
-                          <PillToggle value={readyToShip} onChange={setReadyToShip} onLabel="Enabled" offLabel="Disabled" />
-                        </div>
-                      </div>
-                      <div className="rounded-lg border border-border bg-secondary/10 p-4">
-                        <div className="flex flex-wrap items-start justify-between gap-4">
-                          <div>
-                            <p className="text-sm font-medium text-foreground">Custom Order</p>
-                            <p className="mt-2 text-xs text-muted-foreground">Show the bespoke / custom-order CTA emphasis for Hip Hop products.</p>
-                          </div>
-                          <PillToggle value={customOrderEnabled} onChange={setCustomOrderEnabled} onLabel="Enabled" offLabel="Disabled" />
-                        </div>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="mb-3 block text-sm font-semibold text-foreground">Hip Hop Badges</label>
-                      <div className="flex gap-2">
-                        <input
-                          value={hiphopBadgeInput}
-                          onChange={(e) => setHiphopBadgeInput(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault()
-                              addHiphopBadge()
-                            }
-                          }}
-                          placeholder="Add badge like Bespoke, Ready to Ship, Full Iced..."
-                          className={`${inputClassName} flex-1`}
-                        />
-                        <button type="button" onClick={addHiphopBadge} className={secondaryButtonClassName}>Add</button>
-                      </div>
-                      <TagList items={hiphopBadges} onRemove={(value) => setHiphopBadges((prev) => prev.filter((item) => item !== value))} />
-                    </div>
-
-                    <div>
-                      <label className="mb-3 block text-sm font-semibold text-foreground">Chain / Length Options</label>
-                      <div className="flex gap-2">
-                        <input
-                          value={chainLengthInput}
-                          onChange={(e) => setChainLengthInput(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault()
-                              addChainLengthOption()
-                            }
-                          }}
-                          placeholder='Add chain length like 18", 20", 22"...'
-                          className={`${inputClassName} flex-1`}
-                        />
-                        <button type="button" onClick={addChainLengthOption} className={secondaryButtonClassName}>Add</button>
-                      </div>
-                      <TagList items={chainLengthOptions} onRemove={(value) => setChainLengthOptions((prev) => prev.filter((item) => item !== value))} />
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                      <FormField label="Carat Label">
-                        <input value={hiphopCaratLabel} onChange={(e) => setHiphopCaratLabel(e.target.value)} placeholder="Diamond Carat" className={inputClassName} />
-                      </FormField>
-                      <FormField label="Gram Weight Label">
-                        <input value={gramWeightLabel} onChange={(e) => setGramWeightLabel(e.target.value)} placeholder="Gram Weight" className={inputClassName} />
-                      </FormField>
-                    </div>
-
-                    <div>
-                      <label className="mb-3 block text-sm font-semibold text-foreground">Carat Values</label>
-                      <div className="flex gap-2">
-                        <input
-                          value={hiphopCaratInput}
-                          onChange={(e) => setHiphopCaratInput(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault()
-                              addHiphopCaratValue()
-                            }
-                          }}
-                          placeholder="Add carat like 0.5 ct, 1.0 ct, 4.0 ct+"
-                          className={`${inputClassName} flex-1`}
-                        />
-                        <button type="button" onClick={addHiphopCaratValue} className={secondaryButtonClassName}>Add</button>
-                      </div>
-                      <TagList items={hiphopCaratValues} onRemove={(value) => setHiphopCaratValues((prev) => prev.filter((item) => item !== value))} />
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                      <FormField label="Gram Weight Value">
-                        <input value={gramWeightValue} onChange={(e) => setGramWeightValue(e.target.value)} placeholder="148 g" className={inputClassName} />
-                      </FormField>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            </section>
+            <ProductExperienceCard
+              forcedLane={forcedLane}
+              detailTemplate={detailTemplate}
+              setDetailTemplate={setDetailTemplate}
+              isHiphopProduct={isHiphopProduct}
+              readyToShip={readyToShip}
+              setReadyToShip={setReadyToShip}
+              customOrderEnabled={customOrderEnabled}
+              setCustomOrderEnabled={setCustomOrderEnabled}
+              hiphopBadgeInput={hiphopBadgeInput}
+              setHiphopBadgeInput={setHiphopBadgeInput}
+              addHiphopBadge={addHiphopBadge}
+              hiphopBadges={hiphopBadges}
+              removeHiphopBadge={(value) => setHiphopBadges((prev) => prev.filter((item) => item !== value))}
+              chainLengthInput={chainLengthInput}
+              setChainLengthInput={setChainLengthInput}
+              addChainLengthOption={addChainLengthOption}
+              chainLengthOptions={chainLengthOptions}
+              removeChainLengthOption={(value) => setChainLengthOptions((prev) => prev.filter((item) => item !== value))}
+              hiphopCaratLabel={hiphopCaratLabel}
+              setHiphopCaratLabel={setHiphopCaratLabel}
+              gramWeightLabel={gramWeightLabel}
+              setGramWeightLabel={setGramWeightLabel}
+              hiphopCaratInput={hiphopCaratInput}
+              setHiphopCaratInput={setHiphopCaratInput}
+              addHiphopCaratValue={addHiphopCaratValue}
+              hiphopCaratValues={hiphopCaratValues}
+              removeHiphopCaratValue={(value) => setHiphopCaratValues((prev) => prev.filter((item) => item !== value))}
+              gramWeightValue={gramWeightValue}
+              setGramWeightValue={setGramWeightValue}
+              inputClassName={inputClassName}
+              secondaryButtonClassName={secondaryButtonClassName}
+            />
           </>
         ) : null}
 
         {activeStep === 'pricing' ? (
           <>
-            <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
-              <h2 className="mb-8 text-xl font-bold text-foreground">Pricing</h2>
-              <div className="mb-8 rounded-lg border border-border bg-secondary/10 p-4">
-                <TogglePillGroup
-                  label="Metal Options"
-                  items={combinedMetalOptions.map((item) => ({ id: item.id, label: buildCombinedMetalDisplayLabel(item) }))}
-                  selected={selectedMetalIds}
-                  onToggle={(value) => setSelectedMetalIds((prev) => toggleInArray(prev, value))}
-                />
-                <p className="mt-3 text-xs text-muted-foreground">
-                  Pick the sellable combined metal options here first. The prices and media blocks below will follow the same selection.
-                </p>
-              </div>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                <FormField label="Base Price *">
-                  <div className="rounded-lg border border-border bg-secondary/10 px-4 py-3 text-sm text-foreground">
-                    {defaultMetalVariant ? (
-                      <div>
-                        <p className="font-semibold">{getMetalVariantLabel(defaultMetalVariant.metal_id)}</p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {Number(defaultMetalVariant.price || 0).toLocaleString('en-IN', {
-                            style: 'currency',
-                            currency: 'INR',
-                            maximumFractionDigits: 0,
-                          })}
-                        </p>
-                      </div>
-                    ) : selectedBasePriceEntry ? (
-                      <div>
-                        <p className="font-semibold">Legacy base price</p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {Number(selectedBasePriceEntry.price || 0).toLocaleString('en-IN', {
-                            style: 'currency',
-                            currency: 'INR',
-                            maximumFractionDigits: 0,
-                          })}
-                        </p>
-                      </div>
-                    ) : (
-                      <span className="text-muted-foreground">Add at least one metal option first.</span>
-                    )}
-                  </div>
-                </FormField>
-                <FormField label="Discount Price">
-                  <input type="number" value={discountPrice} onChange={(e) => setDiscountPrice(e.target.value)} className={inputClassName} />
-                </FormField>
-                <FormField label="GST Slab">
-                  <Select value={gstSlabId || '__none__'} onValueChange={(value) => setGstSlabId(value === '__none__' ? '' : value)}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Select GST slab" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">No GST slab</SelectItem>
-                      {gstSlabs
-                        .filter((item) => item.status !== 'hidden')
-                        .map((item) => (
-                          <SelectItem key={item.id} value={item.id}>
-                            {item.name} ({item.percentage}%)
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
-                </FormField>
-                <FormField label="Stock Quantity">
-                  <input type="number" min="0" value={stockQuantity} onChange={(e) => setStockQuantity(e.target.value)} className={inputClassName} />
-                </FormField>
-              </div>
-              <p className="mt-3 text-xs text-muted-foreground">
-                Base price follows the default metal option shown below.
-              </p>
-            </section>
+            <ProductPricingSummaryCard
+              combinedMetalOptions={combinedMetalOptions}
+              selectedMetalIds={selectedMetalIds}
+              onSelectedMetalToggle={(value) => setSelectedMetalIds((prev) => toggleInArray(prev, value))}
+              defaultMetalVariant={defaultMetalVariant}
+              selectedBasePriceEntry={selectedBasePriceEntry}
+              getMetalVariantLabel={getMetalVariantLabel}
+              discountPrice={discountPrice}
+              setDiscountPrice={setDiscountPrice}
+              gstSlabId={gstSlabId}
+              setGstSlabId={setGstSlabId}
+              gstSlabs={gstSlabs}
+              stockQuantity={stockQuantity}
+              setStockQuantity={setStockQuantity}
+              inputClassName={inputClassName}
+            />
 
-            <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-xl font-bold text-foreground">Metal Options</h2>
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    Each selected metal option gets its own price. Mark one as default and that option will control the storefront price first.
-                  </p>
-                </div>
-              </div>
-              {metalVariants.length > 0 ? (
-                <div className="mt-4 space-y-3">
-                  <div className="space-y-2">
-                    {metalVariants.map((entry, index) => {
-                      const isDefault = entry.is_default
-                      return (
-                        <div key={`${entry.metal_id}-${index}`} className="grid grid-cols-1 gap-3 rounded-lg border border-border bg-white p-4 md:grid-cols-[minmax(0,1fr)_220px_auto]">
-                          <div className="rounded-lg border border-border bg-secondary/10 px-4 py-3 text-sm font-semibold text-foreground">
-                            {getMetalVariantLabel(entry.metal_id)}
-                          </div>
-                          <input
-                            type="number"
-                            min="1"
-                            step="0.01"
-                            value={String(entry.price ?? '')}
-                            onChange={(e) =>
-                              setMetalVariants((prev) =>
-                                prev.map((row, rowIndex) =>
-                                  rowIndex === index ? { ...row, price: Number(e.target.value || 0) } : row
-                                )
-                              )
-                            }
-                            className={inputClassName}
-                            placeholder="Price"
-                          />
-                          <div className="flex items-center justify-between gap-2">
-                            <span className={`text-xs font-semibold uppercase tracking-[0.2em] ${isDefault ? 'text-foreground' : 'text-muted-foreground'}`}>
-                              {isDefault ? 'Default Variant' : `Variant ${index + 1}`}
-                            </span>
-                            <button type="button" onClick={() => setDefaultMetalVariant(entry.metal_id)} className="rounded-lg border border-border px-3 py-2 text-xs font-semibold text-foreground hover:bg-secondary">
-                              {isDefault ? 'Default' : 'Make Default'}
-                            </button>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              ) : (
-                <div className="mt-4 rounded-lg border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
-                  Select at least one combined metal option above first.
-                </div>
-              )}
-            </section>
+            <ProductMetalOptionsCard
+              metalVariants={metalVariants}
+              setMetalVariants={setMetalVariants}
+              getMetalVariantLabel={getMetalVariantLabel}
+              setDefaultMetalVariant={setDefaultMetalVariant}
+              inputClassName={inputClassName}
+            />
           </>
         ) : null}
 
         {activeStep === 'attributes' ? (
-          <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
-            <h2 className="mb-8 text-xl font-bold text-foreground">Attributes and Filters</h2>
-            <div className="space-y-6">
-            {certificates.length > 0 ? (
-              <TogglePillGroup
-                label="Certificates"
-                items={certificates.map((item) => ({ id: item.id, label: item.name }))}
-                selected={selectedCertificateIds}
-                onToggle={(value) => setSelectedCertificateIds((prev) => toggleInArray(prev, value))}
-              />
-            ) : null}
-
-            {ringCategories.length > 0 ? (
-                <div className="rounded-lg border border-border bg-secondary/10 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-4">
-                    <div>
-                    <p className="text-sm font-semibold text-foreground">Ring Category</p>
-                  <p className="mt-2 text-xs text-muted-foreground">Enable this only for products that need ring size selection and pick the default ring category.</p>
-                    </div>
-                    <PillToggle
-                     value={ringSizesEnabled}
-                      onChange={(next) => {
-                       setRingSizesEnabled(next)
-                        if (!next) setRingCategoryId('')
-                      }}
-                      onLabel="Enabled"
-                      offLabel="Disabled"
-                    />
-                  </div>
-  
-                 {ringSizesEnabled ? (
-                    <div className="mt-4">
-                      <FormField label="Default Ring Category">
-                        <Select value={ringCategoryId || undefined} onValueChange={setRingCategoryId}>
-                          <SelectTrigger className="w-full">
-                            <SelectValue placeholder="Select ring category" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {ringCategories.map((item) => (
-                              <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </FormField>
-                      {ringCategoryId ? (
-                        <div className="mt-4">
-                          <label className="mb-3 block text-sm font-semibold text-foreground">Sizes In This Category</label>
-                          <div className="flex flex-wrap gap-2">
-                            {ringCategorySizes
-                              .filter((item) => item.ring_category_id === ringCategoryId && item.status === 'active')
-                              .sort((left, right) => left.display_order - right.display_order)
-                              .map((item) => (
-                                <span key={item.id} className="rounded-full border border-border px-3 py-2 text-sm text-foreground">
-                                  {item.size_label}
-                                </span>
-                              ))}
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </div>
-            ) : null}
-
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <FormField label="Generic Stone / Material Label">
-                  <input value={gemstoneLabel} onChange={(e) => setGemstoneLabel(e.target.value)} placeholder="Stone Type, Material, Gemstone..." className={inputClassName} />
-                </FormField>
-              <FormField label="Generic Stone / Material Values" className="sm:col-span-2">
-                {materialValues.length > 0 ? (
-                  <>
-                    <div className="flex flex-wrap gap-2">
-                      {materialValues.map((item) => (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={() =>
-                            setSelectedMaterialValueIds((prev) => {
-                              const base = prev.length > 0 ? prev : effectiveSelectedMaterialValueIds
-                              return toggleInArray(base, item.id)
-                            })
-                          }
-                          className={`rounded px-3 py-2 text-sm font-medium transition-colors ${effectiveSelectedMaterialValueIds.includes(item.id) ? 'bg-primary text-white' : 'border border-border hover:bg-secondary'}`}
-                        >
-                          {item.name}
-                        </button>
-                      ))}
-                    </div>
-                    <p className="mt-3 text-xs text-muted-foreground">Select the material values this product should expose on the storefront.</p>
-                  </>
-                ) : (
-                  <div className="rounded border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
-                    No material values found in the master table yet. Add them in the database first, then they will appear here.
-                  </div>
-                )}
-                </FormField>
-              </div>
-
-              <div className="rounded-lg border border-border bg-secondary/10 p-4">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">Stone Shape Selector</p>
-                    <p className="mt-2 text-xs text-muted-foreground">Enable only when this product should expose shape selection and shape-based filtering.</p>
-                  </div>
-                  <PillToggle
-                    value={shapesEnabled}
-                    onChange={(next) => {
-                      setShapesEnabled(next)
-                      if (!next) {
-                        setSelectedShapeIds([])
-                      }
-                    }}
-                    onLabel="Enabled"
-                    offLabel="Disabled"
-                  />
-                </div>
-
-                {shapesEnabled ? (
-                  <div className="mt-4">
-                    <TogglePillGroup
-                      label="Available Shapes"
-                      items={stoneShapes.map((shape) => ({ id: shape.id, label: shape.name }))}
-                      selected={selectedShapeIds}
-                      onToggle={(value) => setSelectedShapeIds((prev) => toggleInArray(prev, value))}
-                    />
-                    <p className="mt-3 text-xs text-muted-foreground">
-                      These selected master shapes will be used for the product page selector, listing filters, and shape-aware navigation.
-                    </p>
-                  </div>
-                ) : null}
-              </div>
-
-            <div className="rounded-lg border border-border bg-secondary/10 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div>
-                  <p className="text-sm font-semibold text-foreground">Fit</p>
-                  <p className="mt-2 text-xs text-muted-foreground">Use this for wear-style options like Comfort Fit, Screw Back, or Chain Length choices.</p>
-                </div>
-                <PillToggle
-                  value={fitEnabled}
-                  onChange={(next) => {
-                    setFitEnabled(next)
-                    if (!next) {
-                      setFitOptions([])
-                      setFitLabel('Fit')
-                    }
-                  }}
-                  onLabel="Enabled"
-                  offLabel="Disabled"
-                />
-              </div>
-
-              {fitEnabled ? (
-                <div className="mt-4 space-y-4">
-                  <FormField label="Fit Label">
-                    <input value={fitLabel} onChange={(e) => setFitLabel(e.target.value)} placeholder="Fit, Backing, Chain Length..." className={inputClassName} />
-                  </FormField>
-                  <div>
-                    <label className="mb-3 block text-sm font-semibold text-foreground">Fit Options</label>
-                    <div className="flex gap-2">
-                      <input
-                        value={fitInput}
-                        onChange={(e) => setFitInput(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault()
-                            addFitOption()
-                          }
-                        }}
-                        placeholder="Add fit option like Comfort Fit or Screw Back"
-                        className={`${inputClassName} flex-1`}
-                      />
-                      <button type="button" onClick={addFitOption} className={secondaryButtonClassName}>Add</button>
-                    </div>
-                    <TagList items={fitOptions} onRemove={(value) => setFitOptions((prev) => prev.filter((item) => item !== value))} />
-                  </div>
-                </div>
-              ) : null}
-            </div>
-            <div className="rounded-lg border border-border bg-secondary/10 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div>
-                  <p className="text-sm font-semibold text-foreground">Engraving</p>
-                  <p className="mt-2 text-xs text-muted-foreground">Control whether this product offers engraving on the storefront.</p>
-                </div>
-                <PillToggle value={engravingEnabled} onChange={setEngravingEnabled} onLabel="Enabled" offLabel="Disabled" />
-              </div>
-              {engravingEnabled ? (
-                <div className="mt-4">
-                  <label className="mb-2 block text-sm font-medium text-foreground">Engraving Label</label>
-                  <input value={engravingLabel} onChange={(e) => setEngravingLabel(e.target.value)} className={inputClassName} />
-                </div>
-              ) : null}
-            </div>
-          </div>
-          </section>
+          <ProductAttributesStep
+            certificates={certificates}
+            selectedCertificateIds={selectedCertificateIds}
+            onCertificateToggle={(value) => setSelectedCertificateIds((prev) => toggleInArray(prev, value))}
+            ringCategories={ringCategories}
+            ringCategorySizes={ringCategorySizes}
+            ringSizesEnabled={ringSizesEnabled}
+            onRingSizesEnabledChange={(next) => {
+              setRingSizesEnabled(next)
+              if (!next) setRingCategoryId('')
+            }}
+            ringCategoryId={ringCategoryId}
+            setRingCategoryId={setRingCategoryId}
+            gemstoneLabel={gemstoneLabel}
+            setGemstoneLabel={setGemstoneLabel}
+            materialValues={materialValues}
+            effectiveSelectedMaterialValueIds={effectiveSelectedMaterialValueIds}
+            onMaterialValueToggle={(value) =>
+              setSelectedMaterialValueIds((prev) => {
+                const base = prev.length > 0 ? prev : effectiveSelectedMaterialValueIds
+                return toggleInArray(base, value)
+              })
+            }
+            shapesEnabled={shapesEnabled}
+            onShapesEnabledChange={(next) => {
+              setShapesEnabled(next)
+              if (!next) {
+                setSelectedShapeIds([])
+              }
+            }}
+            stoneShapes={stoneShapes}
+            selectedShapeIds={selectedShapeIds}
+            onShapeToggle={(value) => setSelectedShapeIds((prev) => toggleInArray(prev, value))}
+            fitEnabled={fitEnabled}
+            onFitEnabledChange={(next) => {
+              setFitEnabled(next)
+              if (!next) {
+                setFitOptions([])
+                setFitLabel('Fit')
+              }
+            }}
+            fitLabel={fitLabel}
+            setFitLabel={setFitLabel}
+            fitInput={fitInput}
+            setFitInput={setFitInput}
+            addFitOption={addFitOption}
+            fitOptions={fitOptions}
+            removeFitOption={(value) => setFitOptions((prev) => prev.filter((item) => item !== value))}
+            engravingEnabled={engravingEnabled}
+            setEngravingEnabled={setEngravingEnabled}
+            engravingLabel={engravingLabel}
+            setEngravingLabel={setEngravingLabel}
+            inputClassName={inputClassName}
+            secondaryButtonClassName={secondaryButtonClassName}
+          />
         ) : null}
 
         {activeStep === 'content' ? (
-          <>
-            <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
-              <h2 className="mb-8 text-xl font-bold text-foreground">Content</h2>
-              <div className="space-y-4">
-                <FormField label="Description">
-                  <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4} className={inputClassName} />
-                </FormField>
-                <FormField label="Tag Line">
-                  <input value={tagLine} onChange={(e) => setTagLine(e.target.value)} className={inputClassName} />
-                </FormField>
-                <div className="rounded-lg border border-border bg-secondary/10 p-4">
-                  <div className="mb-4">
-                    <p className="text-sm font-semibold text-foreground">Optional SEO Fields</p>
-                    <p className="mt-1 text-xs text-muted-foreground">Leave blank to use the automatic product name and description metadata.</p>
-                  </div>
-                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                    <FormField label="SEO Title">
-                      <input value={seoTitle} onChange={(e) => setSeoTitle(e.target.value)} className={inputClassName} placeholder="Custom Google title" />
-                    </FormField>
-                    <FormField label="On-page H1 Title">
-                      <input value={h1Title} onChange={(e) => setH1Title(e.target.value)} className={inputClassName} placeholder="Optional display title" />
-                    </FormField>
-                    <div className="lg:col-span-2">
-                      <FormField label="SEO Meta Description">
-                        <textarea value={seoDescription} onChange={(e) => setSeoDescription(e.target.value)} rows={3} className={inputClassName} placeholder="Custom Google description, ideally around 150-160 characters." />
-                      </FormField>
-                    </div>
-                  </div>
-                </div>
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-foreground">Highlights</label>
-                  <div className="flex gap-2">
-                    <input
-                      value={featureInput}
-                      onChange={(e) => setFeatureInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault()
-                          addFeature()
-                        }
-                      }}
-                      className={`${inputClassName} flex-1`}
-                    />
-                    <button type="button" onClick={addFeature} className={secondaryButtonClassName}>Add</button>
-                  </div>
-                  <TagList items={features} onRemove={(value) => setFeatures((prev) => prev.filter((item) => item !== value))} />
-                </div>
-              </div>
-            </section>
-
-            <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
-              <h2 className="mb-8 text-xl font-bold text-foreground">Store Policies</h2>
-              <div className="space-y-6">
-                  <PolicyEditor
-                    title="Shipping"
-                    description="Select a reusable shipping rule and optionally override it for this product."
-                    enabled={shippingEnabled}
-                    onEnabledChange={(next) => {
-                      setShippingEnabled(next)
-                      if (!next) {
-                        setShippingOverrideEnabled(false)
-                        setShippingRuleId('')
-                        setShippingTitleOverride('')
-                        setShippingBodyOverride('')
-                    }
-                  }}
-                    rules={shippingRules}
-                    selectedRuleId={shippingRuleId}
-                    onRuleChange={setShippingRuleId}
-                    overrideEnabled={shippingOverrideEnabled}
-                    onOverrideEnabledChange={(next) => {
-                      setShippingOverrideEnabled(next)
-                      if (!next) {
-                        setShippingTitleOverride('')
-                        setShippingBodyOverride('')
-                      }
-                    }}
-                    titleOverride={shippingTitleOverride}
-                    onTitleOverrideChange={setShippingTitleOverride}
-                    bodyOverride={shippingBodyOverride}
-                  onBodyOverrideChange={setShippingBodyOverride}
-                />
-
-                  <PolicyEditor
-                    title="Care & Warranty"
-                    description="Select a reusable care rule and optionally override it for this product."
-                    enabled={careWarrantyEnabled}
-                    onEnabledChange={(next) => {
-                      setCareWarrantyEnabled(next)
-                      if (!next) {
-                        setCareWarrantyOverrideEnabled(false)
-                        setCareWarrantyRuleId('')
-                        setCareWarrantyTitleOverride('')
-                        setCareWarrantyBodyOverride('')
-                    }
-                  }}
-                    rules={careWarrantyRules}
-                    selectedRuleId={careWarrantyRuleId}
-                    onRuleChange={setCareWarrantyRuleId}
-                    overrideEnabled={careWarrantyOverrideEnabled}
-                    onOverrideEnabledChange={(next) => {
-                      setCareWarrantyOverrideEnabled(next)
-                      if (!next) {
-                        setCareWarrantyTitleOverride('')
-                        setCareWarrantyBodyOverride('')
-                      }
-                    }}
-                    titleOverride={careWarrantyTitleOverride}
-                    onTitleOverrideChange={setCareWarrantyTitleOverride}
-                    bodyOverride={careWarrantyBodyOverride}
-                  onBodyOverrideChange={setCareWarrantyBodyOverride}
-                />
-              </div>
-            </section>
-          </>
+          <ProductContentStep
+            description={description}
+            setDescription={setDescription}
+            tagLine={tagLine}
+            setTagLine={setTagLine}
+            seoTitle={seoTitle}
+            setSeoTitle={setSeoTitle}
+            h1Title={h1Title}
+            setH1Title={setH1Title}
+            seoDescription={seoDescription}
+            setSeoDescription={setSeoDescription}
+            featureInput={featureInput}
+            setFeatureInput={setFeatureInput}
+            addFeature={addFeature}
+            features={features}
+            setFeatures={setFeatures}
+            shippingEnabled={shippingEnabled}
+            setShippingEnabled={setShippingEnabled}
+            shippingRules={shippingRules}
+            shippingRuleId={shippingRuleId}
+            setShippingRuleId={setShippingRuleId}
+            shippingOverrideEnabled={shippingOverrideEnabled}
+            setShippingOverrideEnabled={setShippingOverrideEnabled}
+            shippingTitleOverride={shippingTitleOverride}
+            setShippingTitleOverride={setShippingTitleOverride}
+            shippingBodyOverride={shippingBodyOverride}
+            setShippingBodyOverride={setShippingBodyOverride}
+            careWarrantyEnabled={careWarrantyEnabled}
+            setCareWarrantyEnabled={setCareWarrantyEnabled}
+            careWarrantyRules={careWarrantyRules}
+            careWarrantyRuleId={careWarrantyRuleId}
+            setCareWarrantyRuleId={setCareWarrantyRuleId}
+            careWarrantyOverrideEnabled={careWarrantyOverrideEnabled}
+            setCareWarrantyOverrideEnabled={setCareWarrantyOverrideEnabled}
+            careWarrantyTitleOverride={careWarrantyTitleOverride}
+            setCareWarrantyTitleOverride={setCareWarrantyTitleOverride}
+            careWarrantyBodyOverride={careWarrantyBodyOverride}
+            setCareWarrantyBodyOverride={setCareWarrantyBodyOverride}
+            inputClassName={inputClassName}
+            secondaryButtonClassName={secondaryButtonClassName}
+          />
         ) : null}
 
         {activeStep === 'details' ? (
-          <>
-            <KeyValueSection
-              title="Specifications"
-              description="Add structured key-value rows for the product detail specifications tab."
-              rows={specifications}
-              onChange={setSpecifications}
-            />
-
-            <KeyValueSection
-              title="Product Details"
-              description="Use this for general product facts that should render separately from specifications."
-              rows={productDetails}
-              onChange={setProductDetails}
-            />
-
-            <ProductFaqEditor
-              items={faqItems}
-              onChange={setFaqItems}
-              onValidationError={(message) =>
-                toast({
-                  title: 'FAQ needs both fields',
-                  description: message,
-                  variant: 'destructive',
-                })
-              }
-            />
-            <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
-              <div className="mb-6 flex items-start justify-between gap-4">
-                <div>
-                  <h2 className="text-xl font-bold text-foreground">Additional Detail Sections</h2>
-                  <p className="mt-2 text-xs text-muted-foreground">Create dynamic sections like Diamond Details, Gemstone Details, or Material Details.</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setDetailSections((prev) => [...prev, emptySection()])}
-                  className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary"
-                >
-                  <Plus size={14} />
-                  Add Section
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                {detailSections.map((section, sectionIndex) => (
-                  <div key={section.id} className="rounded-lg border border-border bg-secondary/10 p-4">
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
-                      <FormField label="Section Title">
-                        <input
-                          value={section.title}
-                          onChange={(e) =>
-                            setDetailSections((prev) =>
-                              prev.map((entry, index) => (index === sectionIndex ? { ...entry, title: e.target.value } : entry))
-                            )
-                          }
-                          className={inputClassName}
-                        />
-                      </FormField>
-                      <label className="flex items-center gap-2 text-sm font-medium text-foreground">
-                        <input
-                          type="checkbox"
-                          checked={section.visible}
-                          onChange={(e) =>
-                            setDetailSections((prev) =>
-                              prev.map((entry, index) => (index === sectionIndex ? { ...entry, visible: e.target.checked } : entry))
-                            )
-                          }
-                          className="rounded border-border"
-                        />
-                        Visible
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => setDetailSections((prev) => prev.filter((_, index) => index !== sectionIndex))}
-                        className="inline-flex items-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
-                      >
-                        <Trash2 size={14} />
-                        Remove
-                      </button>
-                    </div>
-
-                    <div className="mt-4 space-y-3">
-                      {section.rows.map((row, rowIndex) => (
-                        <div key={`${section.id}-${rowIndex}`} className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
-                          <input
-                            value={row.key}
-                            onChange={(e) =>
-                              setDetailSections((prev) =>
-                                prev.map((entry, index) =>
-                                  index === sectionIndex
-                                    ? {
-                                        ...entry,
-                                        rows: entry.rows.map((sectionRow, sectionRowIndex) =>
-                                          sectionRowIndex === rowIndex ? { ...sectionRow, key: e.target.value } : sectionRow
-                                        ),
-                                      }
-                                    : entry
-                                )
-                              )
-                            }
-                            placeholder="Label"
-                            className={inputClassName}
-                          />
-                          <input
-                            value={row.value}
-                            onChange={(e) =>
-                              setDetailSections((prev) =>
-                                prev.map((entry, index) =>
-                                  index === sectionIndex
-                                    ? {
-                                        ...entry,
-                                        rows: entry.rows.map((sectionRow, sectionRowIndex) =>
-                                          sectionRowIndex === rowIndex ? { ...sectionRow, value: e.target.value } : sectionRow
-                                        ),
-                                      }
-                                    : entry
-                                )
-                              )
-                            }
-                            placeholder="Value"
-                            className={inputClassName}
-                          />
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setDetailSections((prev) =>
-                                prev.map((entry, index) =>
-                                  index === sectionIndex
-                                    ? {
-                                        ...entry,
-                                        rows: entry.rows.length > 1 ? entry.rows.filter((_, sectionRowIndex) => sectionRowIndex !== rowIndex) : entry.rows,
-                                      }
-                                    : entry
-                                )
-                              )
-                            }
-                            className="inline-flex items-center justify-center rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground hover:bg-secondary"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setDetailSections((prev) =>
-                          prev.map((entry, index) => (index === sectionIndex ? { ...entry, rows: [...entry.rows, emptyRow()] } : entry))
-                        )
-                      }
-                      className="mt-4 inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary"
-                    >
-                      <Plus size={14} />
-                      Add Row
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </section>
-          </>
+          <ProductDetailsStep
+            specifications={specifications}
+            setSpecifications={setSpecifications}
+            productDetails={productDetails}
+            setProductDetails={setProductDetails}
+            faqItems={faqItems}
+            setFaqItems={setFaqItems}
+            onFaqValidationError={(message) =>
+              toast({
+                title: 'FAQ needs both fields',
+                description: message,
+                variant: 'destructive',
+              })
+            }
+            detailSections={detailSections}
+            setDetailSections={setDetailSections}
+            createEmptyRow={emptyRow}
+            createEmptySection={emptySection}
+            inputClassName={inputClassName}
+          />
         ) : null}
 
         {activeStep === 'media' ? (
@@ -2813,153 +2162,6 @@ export function ProductForm({
       onCancel={() => setDeleteVariantMediaTarget(null)}
     />
     </>
-  )
-}
-
-function FormField({ label, children, className = '' }: { label: string; children: ReactNode; className?: string }) {
-  return (
-    <div className={className}>
-      <label className="mb-2 block text-sm font-medium text-foreground">{label}</label>
-      {children}
-    </div>
-  )
-}
-
-function TagList({ items, onRemove }: { items: string[]; onRemove: (value: string) => void }) {
-  if (items.length === 0) return null
-
-  return (
-    <div className="mt-3 flex flex-wrap gap-2">
-      {items.map((item) => (
-        <div key={item} className="inline-flex items-center gap-2 rounded bg-secondary px-3 py-1 text-sm">
-          <span>{item}</span>
-          <button type="button" onClick={() => onRemove(item)} className="hover:text-destructive">
-            <X size={14} />
-          </button>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function ProductFormSkeleton() {
-  return (
-    <div className="flex max-w-5xl flex-col gap-8">
-      <div className="flex items-center gap-3">
-        <Skeleton className="h-9 w-9 rounded-lg" />
-        <div className="space-y-2">
-          <Skeleton className="h-8 w-56" />
-          <Skeleton className="h-3 w-80 max-w-[70vw]" />
-        </div>
-      </div>
-
-      <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="space-y-2">
-            <Skeleton className="h-6 w-48" />
-            <Skeleton className="h-3 w-72 max-w-[70vw]" />
-          </div>
-          <Skeleton className="h-7 w-16 rounded-full" />
-        </div>
-        <div className="mt-6 grid grid-cols-1 gap-2 md:grid-cols-6">
-          {Array.from({ length: 6 }, (_, index) => (
-            <Skeleton key={index} className="h-[58px] rounded-xl" />
-          ))}
-        </div>
-        <Skeleton className="mt-4 h-3 w-64 max-w-[70vw]" />
-      </section>
-
-      <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
-        <Skeleton className="mb-8 h-6 w-44" />
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Skeleton className="h-4 w-28" />
-            <Skeleton className="h-10 w-full" />
-          </div>
-          <div className="space-y-2">
-            <Skeleton className="h-4 w-20" />
-            <Skeleton className="h-10 w-full" />
-          </div>
-        </div>
-        <div className="mt-4 flex items-center gap-2">
-          <Skeleton className="h-4 w-4 rounded" />
-          <Skeleton className="h-4 w-32" />
-        </div>
-      </section>
-
-      <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
-        <Skeleton className="mb-8 h-6 w-56" />
-        <div className="space-y-6">
-          {Array.from({ length: 3 }, (_, index) => (
-            <div key={index} className="space-y-2">
-              <Skeleton className="h-4 w-32" />
-              <Skeleton className="h-10 w-full" />
-            </div>
-          ))}
-        </div>
-      </section>
-    </div>
-  )
-}
-
-function PillToggle({
-  value,
-  onChange,
-  onLabel,
-  offLabel,
-}: {
-  value: boolean
-  onChange: (next: boolean) => void
-  onLabel: string
-  offLabel: string
-}) {
-  return (
-    <div className="inline-flex rounded-full border border-border bg-white p-1">
-      <button
-        type="button"
-        onClick={() => onChange(true)}
-        className={`rounded-full px-4 py-2 text-xs font-semibold transition-colors ${value ? 'bg-foreground text-white' : 'text-muted-foreground hover:bg-secondary'}`}
-      >
-        {onLabel}
-      </button>
-      <button
-        type="button"
-        onClick={() => onChange(false)}
-        className={`rounded-full px-4 py-2 text-xs font-semibold transition-colors ${!value ? 'bg-foreground text-white' : 'text-muted-foreground hover:bg-secondary'}`}
-      >
-        {offLabel}
-      </button>
-    </div>
-  )
-}
-
-function TogglePillGroup({
-  label,
-  items,
-  selected,
-  onToggle,
-}: {
-  label: string
-  items: { id: string; label: string }[]
-  selected: string[]
-  onToggle: (value: string) => void
-}) {
-  return (
-    <div>
-      <label className="mb-3 block text-sm font-semibold text-foreground">{label}</label>
-      <div className="flex flex-wrap gap-2">
-        {items.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => onToggle(item.id)}
-            className={`rounded px-3 py-2 text-sm font-medium transition-colors ${selected.includes(item.id) ? 'bg-primary text-white' : 'border border-border hover:bg-secondary'}`}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
-    </div>
   )
 }
 

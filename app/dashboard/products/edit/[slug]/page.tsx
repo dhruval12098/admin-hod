@@ -1,4 +1,5 @@
 import { ProductForm } from '@/components/product-form'
+import { getProductFormBasicsBootstrap } from '../../product-form-bootstrap'
 
 export default async function EditProductBySlugPage({
   params,
@@ -6,6 +7,7 @@ export default async function EditProductBySlugPage({
   params: Promise<{ slug: string }>
 }) {
   const { slug } = await params
+  const initialBasicsBootstrap = await getProductFormBasicsBootstrap()
 
   return (
     <div className="p-8">
@@ -16,6 +18,7 @@ export default async function EditProductBySlugPage({
         backHref="/dashboard/products"
         pageTitle="Edit Product"
         pageDescription="Update the saved standard product and storefront details."
+        initialBasicsBootstrap={initialBasicsBootstrap}
       />
     </div>
   )

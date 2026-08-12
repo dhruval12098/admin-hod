@@ -12,15 +12,15 @@ import { useEditor, useEditorState, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 
-type BlogTag = { clientId: string; value: string }
-type BlogProduct = {
+type EducationTag = { clientId: string; value: string }
+type EducationProduct = {
   id: string
   slug: string
   name: string
   status?: string | null
   base_price?: number | null
 }
-type BlogContentBlock = {
+type EducationContentBlock = {
   clientId: string
   id?: number
   block_type: 'text' | 'image' | 'heading' | 'quote'
@@ -33,7 +33,7 @@ type BlogContentBlock = {
   is_enabled: boolean
 }
 
-type BlogForm = {
+type EducationForm = {
   slug: string
   title: string
   title_html: string
@@ -52,12 +52,12 @@ type BlogForm = {
 }
 
 type Payload = {
-  post?: BlogForm & { id: number }
+  post?: EducationForm & { id: number }
   tags?: Array<{ id: number; tag: string; sort_order: number }>
   products?: Array<{
     product_id: string
     sort_order: number
-    product: BlogProduct | BlogProduct[] | null
+    product: EducationProduct | EducationProduct[] | null
   }>
   content_blocks?: Array<{
     id: number
@@ -74,9 +74,9 @@ type Payload = {
 }
 
 function createEmptyBlock(
-  type: BlogContentBlock['block_type'],
+  type: EducationContentBlock['block_type'],
   sortOrder: number
-): BlogContentBlock {
+): EducationContentBlock {
   return {
     clientId: `block-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     block_type: type,
@@ -90,15 +90,15 @@ function createEmptyBlock(
   }
 }
 
-function formatBlogUrl(slug: string) {
-  return `/blog/${slug.replace(/^\/+/, '').replace(/^blog\/?/, '')}`
+function formatEducationUrl(slug: string) {
+  return `/education/${slug.replace(/^\/+/, '').replace(/^education\/?/, '')}`
 }
 
 function RichTextEditor({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ heading: { levels: [2, 3, 4] } }),
-      Placeholder.configure({ placeholder: 'Write the blog body here...' }),
+      Placeholder.configure({ placeholder: 'Write the education body here...' }),
     ],
     content: value || '<p></p>',
     immediatelyRender: false,
@@ -151,7 +151,7 @@ function RichTextEditor({ value, onChange }: { value: string; onChange: (value: 
   )
 }
 
-const emptyForm: BlogForm = {
+const emptyForm: EducationForm = {
   slug: '',
   title: '',
   title_html: '',
@@ -169,16 +169,16 @@ const emptyForm: BlogForm = {
   sort_order: 1,
 }
 
-export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: string }) {
+export function EducationEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: string }) {
   const { toast } = useToast()
   const router = useRouter()
-  const [form, setForm] = useState<BlogForm>(emptyForm)
-  const [tags, setTags] = useState<BlogTag[]>([{ clientId: `tag-${Date.now()}`, value: '' }])
-  const [selectedProducts, setSelectedProducts] = useState<BlogProduct[]>([])
-  const [availableProducts, setAvailableProducts] = useState<BlogProduct[]>([])
+  const [form, setForm] = useState<EducationForm>(emptyForm)
+  const [tags, setTags] = useState<EducationTag[]>([{ clientId: `tag-${Date.now()}`, value: '' }])
+  const [selectedProducts, setSelectedProducts] = useState<EducationProduct[]>([])
+  const [availableProducts, setAvailableProducts] = useState<EducationProduct[]>([])
   const [productSearch, setProductSearch] = useState('')
-  const [contentBlocks, setContentBlocks] = useState<BlogContentBlock[]>([])
-  const [status, setStatus] = useState(mode === 'create' ? 'Create a new blog post.' : 'Loading blog post...')
+  const [contentBlocks, setContentBlocks] = useState<EducationContentBlock[]>([])
+  const [status, setStatus] = useState(mode === 'create' ? 'Create a new education post.' : 'Loading education post...')
   const [isSaving, setIsSaving] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
@@ -205,7 +205,7 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
       if (!accessToken) return
 
       const response = await fetch('/api/products', { headers: { authorization: `Bearer ${accessToken}` } })
-      const payload = (await response.json().catch(() => null)) as { items?: BlogProduct[] } | null
+      const payload = (await response.json().catch(() => null)) as { items?: EducationProduct[] } | null
       if (!response.ok) return
       setAvailableProducts(payload?.items ?? [])
     }
@@ -221,16 +221,16 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
       const accessToken = sessionData.session?.access_token
       if (!accessToken) return setStatus('You are not signed in.')
 
-      const response = await fetch(`/api/cms/blog/posts/${id}`, { headers: { authorization: `Bearer ${accessToken}` } })
+      const response = await fetch(`/api/cms/education/posts/${id}`, { headers: { authorization: `Bearer ${accessToken}` } })
       const payload = (await response.json().catch(() => null)) as Payload | null
-      if (!response.ok || !payload?.post) return setStatus(payload?.error ?? 'Unable to load blog post.')
+      if (!response.ok || !payload?.post) return setStatus(payload?.error ?? 'Unable to load education post.')
 
       setForm({ ...payload.post, hero_image_alt: payload.post.hero_image_alt ?? '' })
       setTags((payload.tags ?? []).map((tag) => ({ clientId: `tag-${tag.id}`, value: tag.tag })))
       setSelectedProducts(
         (payload.products ?? [])
           .map((item) => (Array.isArray(item.product) ? item.product[0] : item.product))
-          .filter((product): product is BlogProduct => Boolean(product?.id))
+          .filter((product): product is EducationProduct => Boolean(product?.id))
       )
       setContentBlocks(
         (payload.content_blocks ?? []).map((block, index) => ({
@@ -246,7 +246,7 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
           is_enabled: block.is_enabled !== false,
         }))
       )
-      setStatus('Blog post loaded')
+      setStatus('Education post loaded')
     }
 
     load()
@@ -258,11 +258,11 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
     if (!accessToken) return setStatus('You are not signed in.')
 
     setUploading(true)
-    setStatus('Uploading blog image...')
+    setStatus('Uploading education image...')
     const formData = new FormData()
     formData.append('file', file)
 
-    const response = await fetch('/api/cms/uploads/blog', {
+    const response = await fetch('/api/cms/uploads/education', {
       method: 'POST',
       headers: { authorization: `Bearer ${accessToken}` },
       body: formData,
@@ -273,7 +273,7 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
     if (!response.ok || !payload?.path) return setStatus(payload?.error ?? 'Unable to upload image.')
 
     setForm((prev) => ({ ...prev, hero_image_path: payload.path ?? '' }))
-    setStatus('Blog image uploaded successfully')
+    setStatus('Education image uploaded successfully')
   }
 
   const uploadBlockImage = async (clientId: string, file: File) => {
@@ -286,7 +286,7 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
     const formData = new FormData()
     formData.append('file', file)
 
-    const response = await fetch('/api/cms/uploads/blog', {
+    const response = await fetch('/api/cms/uploads/education', {
       method: 'POST',
       headers: { authorization: `Bearer ${accessToken}` },
       body: formData,
@@ -308,7 +308,7 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
     if (!accessToken) return setStatus('You are not signed in.')
 
     setIsSaving(true)
-    const endpoint = mode === 'create' ? '/api/cms/blog/posts' : `/api/cms/blog/posts/${id}`
+    const endpoint = mode === 'create' ? '/api/cms/education/posts' : `/api/cms/education/posts/${id}`
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` },
@@ -332,18 +332,18 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
 
     const payload = (await response.json().catch(() => null)) as { id?: number; slug?: string; error?: string } | null
     setIsSaving(false)
-    if (!response.ok) return setStatus(payload?.error ?? 'Unable to save blog post.')
+    if (!response.ok) return setStatus(payload?.error ?? 'Unable to save education post.')
 
     if (payload?.slug) {
       setForm((prev) => ({ ...prev, slug: payload.slug ?? prev.slug }))
     }
 
     setConfirmOpen(false)
-    setStatus('Blog post saved')
-    toast({ title: 'Saved', description: 'Blog post updated successfully.' })
+    setStatus('Education post saved')
+    toast({ title: 'Saved', description: 'Education post updated successfully.' })
 
     if (mode === 'create' && payload?.id) {
-      router.push(`/dashboard/cms/blog/${payload.id}`)
+      router.push(`/dashboard/cms/education/${payload.id}`)
       router.refresh()
     }
   }
@@ -356,7 +356,7 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
     if (!accessToken) return setStatus('You are not signed in.')
 
     setIsDeleting(true)
-    const response = await fetch(`/api/cms/blog/posts/${id}`, {
+    const response = await fetch(`/api/cms/education/posts/${id}`, {
       method: 'DELETE',
       headers: { authorization: `Bearer ${accessToken}` },
     })
@@ -364,15 +364,15 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
     const payload = (await response.json().catch(() => null)) as { error?: string } | null
     setIsDeleting(false)
     if (!response.ok) {
-      const message = payload?.error ?? 'Unable to delete blog post.'
+      const message = payload?.error ?? 'Unable to delete education post.'
       setStatus(message)
       toast({ title: 'Delete failed', description: message, variant: 'destructive' })
       return
     }
 
     setDeleteConfirmOpen(false)
-    toast({ title: 'Deleted', description: 'Blog post deleted successfully.' })
-    router.push('/dashboard/cms/blog')
+    toast({ title: 'Deleted', description: 'Education post deleted successfully.' })
+    router.push('/dashboard/cms/education')
     router.refresh()
   }
 
@@ -391,9 +391,9 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
   return (
     <div className="min-h-screen bg-background p-8">
       <div className="mb-8 flex items-center justify-between gap-4">
-        <Link href="/dashboard/cms/blog" className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:text-primary/80">
+        <Link href="/dashboard/cms/education" className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:text-primary/80">
           <ArrowLeft size={16} />
-          Back to Blog
+          Back to Education
         </Link>
         <div className="flex items-center gap-3">
           {mode === 'edit' ? (
@@ -404,7 +404,7 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
               className="inline-flex items-center gap-2 rounded-lg border border-red-200 px-5 py-3 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <Trash2 size={16} />
-              {isDeleting ? 'Deleting...' : 'Delete Blog'}
+              {isDeleting ? 'Deleting...' : 'Delete Education'}
             </button>
           ) : null}
           <CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={isSaving} position="inline" />
@@ -412,7 +412,7 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
       </div>
 
       <div className="mb-10">
-        <h1 className="font-jakarta text-3xl font-semibold text-foreground">{mode === 'create' ? 'Create Blog' : 'Edit Blog'}</h1>
+        <h1 className="font-jakarta text-3xl font-semibold text-foreground">{mode === 'create' ? 'Create Education' : 'Edit Education'}</h1>
         <p className="mt-1 text-sm text-muted-foreground">Write the article, upload images, and control whether it is live. The public URL is created automatically from the title.</p>
         <p className="mt-2 text-xs text-muted-foreground">{status}</p>
       </div>
@@ -423,7 +423,7 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
             <div>
               <label className="mb-2 block text-sm font-semibold text-foreground">Public URL</label>
               <div className="rounded-lg border border-border bg-secondary/30 px-3 py-2 text-sm text-muted-foreground">
-                {formatBlogUrl(form.slug)}
+                {formatEducationUrl(form.slug)}
               </div>
             </div>
           ) : null}
@@ -454,7 +454,7 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
 
         <div className="space-y-4 rounded-lg border border-border bg-white p-6 shadow-xs">
           <div>
-            <label className="mb-2 block text-sm font-semibold text-foreground">Main Blog Image</label>
+            <label className="mb-2 block text-sm font-semibold text-foreground">Main Education Image</label>
             <div className="flex items-center gap-3">
               <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary">
                 <Upload size={14} />
@@ -667,8 +667,8 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
 
       <ConfirmDialog
         isOpen={confirmOpen}
-        title={mode === 'create' ? 'Create blog post?' : 'Save blog post?'}
-        description="This will update the blog content on the live site."
+        title={mode === 'create' ? 'Create education post?' : 'Save education post?'}
+        description="This will update the education content on the live site."
         confirmText="Save"
         cancelText="Cancel"
         type="confirm"
@@ -678,8 +678,8 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
       />
       <ConfirmDialog
         isOpen={deleteConfirmOpen}
-        title="Delete blog post?"
-        description="This permanently deletes the blog post, its tags, and its content blocks."
+        title="Delete education post?"
+        description="This permanently deletes the education post, its tags, and its content blocks."
         confirmText="Delete"
         cancelText="Cancel"
         type="delete"

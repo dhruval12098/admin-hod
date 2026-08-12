@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 import { assertAdmin } from '@/lib/cms-auth'
-import { createUniqueBlogSlug } from '@/lib/blog-slug'
+import { createUniqueEducationSlug } from '@/lib/education-slug'
 
-type BlogPayload = {
+type EducationPayload = {
   slug?: string
   title?: string
   title_html?: string
@@ -39,7 +39,7 @@ export async function GET(request: Request) {
 
   const { adminClient } = access
   const { data, error } = await adminClient
-    .from('blog_posts')
+    .from('education_posts')
     .select('id, slug, title, category, author, date_label, read_time, is_published, sort_order, updated_at')
     .order('sort_order', { ascending: true })
 
@@ -51,7 +51,7 @@ export async function POST(request: Request) {
   const access = await assertAdmin(request)
   if ('error' in access) return access.error
 
-  const body = (await request.json().catch(() => null)) as BlogPayload | null
+  const body = (await request.json().catch(() => null)) as EducationPayload | null
   if (!body) return NextResponse.json({ error: 'Invalid payload.' }, { status: 400 })
 
   const title = String(body.title ?? '').trim()
@@ -60,9 +60,9 @@ export async function POST(request: Request) {
   const { adminClient } = access
   let slug: string
   try {
-    slug = await createUniqueBlogSlug(adminClient, title)
+    slug = await createUniqueEducationSlug(adminClient, title)
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Unable to create blog URL.' }, { status: 500 })
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Unable to create education URL.' }, { status: 500 })
   }
 
   const payload = {
@@ -88,12 +88,12 @@ export async function POST(request: Request) {
   }
 
   const { data: post, error } = await adminClient
-    .from('blog_posts')
+    .from('education_posts')
     .insert(payload)
     .select('id')
     .single()
 
-  if (error || !post) return NextResponse.json({ error: error?.message ?? 'Unable to create blog.' }, { status: 500 })
+  if (error || !post) return NextResponse.json({ error: error?.message ?? 'Unable to create education.' }, { status: 500 })
 
   const tags = Array.isArray(body.tags) ? body.tags : []
   const rows = tags
@@ -101,7 +101,7 @@ export async function POST(request: Request) {
     .filter((tag) => tag.tag)
 
   if (rows.length > 0) {
-    const { error: tagsError } = await adminClient.from('blog_post_tags').insert(rows)
+    const { error: tagsError } = await adminClient.from('education_post_tags').insert(rows)
     if (tagsError) return NextResponse.json({ error: tagsError.message }, { status: 500 })
   }
 
@@ -111,7 +111,7 @@ export async function POST(request: Request) {
     .filter((product) => product.product_id)
 
   if (productRows.length > 0) {
-    const { error: productsError } = await adminClient.from('blog_post_products').insert(productRows)
+    const { error: productsError } = await adminClient.from('education_post_products').insert(productRows)
     if (productsError) return NextResponse.json({ error: productsError.message }, { status: 500 })
   }
 
@@ -135,7 +135,7 @@ export async function POST(request: Request) {
     })
 
   if (blockRows.length > 0) {
-    const { error: blocksError } = await adminClient.from('blog_post_content_blocks').insert(blockRows)
+    const { error: blocksError } = await adminClient.from('education_post_content_blocks').insert(blockRows)
     if (blocksError) return NextResponse.json({ error: blocksError.message }, { status: 500 })
   }
 

@@ -1,6 +1,9 @@
 import { ProductForm } from '@/components/product-form'
+import { getProductFormBasicsBootstrap } from '../product-form-bootstrap'
 
-export default function CreateProductPage() {
+export default async function CreateProductPage() {
+  const initialBasicsBootstrap = await getProductFormBasicsBootstrap()
+
   return (
     <div className="p-8">
       <ProductForm
@@ -9,6 +12,7 @@ export default function CreateProductPage() {
         backHref="/dashboard/products"
         pageTitle="Create Product"
         pageDescription="Add a standard storefront product using the main product flow."
+        initialBasicsBootstrap={initialBasicsBootstrap}
       />
     </div>
   )

@@ -21,7 +21,6 @@ const SECTION_SOURCES: SectionSource[] = [
   { key: 'collection-page-config', label: 'Collection Page', table: 'collection_page_config', columns: ['showcase_image_path', 'showcase_mobile_image_path'] },
   { key: 'bespoke-showcase', label: 'Bespoke Home Showcase', table: 'home_bespoke_showcase_section', columns: ['image_path', 'mobile_image_path'] },
   { key: 'hiphop', label: 'Hip Hop Showcase', table: 'hiphop_showcase_section', columns: ['image_path'] },
-  { key: 'hiphop-hero-content', label: 'Hip Hop Hero', table: 'hiphop_hero_content', columns: ['image_path'] },
   { key: 'hiphop-hero', label: 'Hip Hop Hero Slider', table: 'hiphop_hero_slider_items', columns: ['image_path', 'mobile_image_path'] },
   { key: 'couples', label: 'Couples', table: 'couples_items', columns: ['image_path'] },
   { key: 'certifications', label: 'Certifications', table: 'certifications_items', columns: ['icon_path'] },
@@ -32,6 +31,8 @@ const SECTION_SOURCES: SectionSource[] = [
   { key: 'founders', label: 'Founders', table: 'about_founders', columns: ['image_path'] },
   { key: 'blog', label: 'Blog Posts', table: 'blog_posts', columns: ['hero_image_path'] },
   { key: 'blog-content-blocks', label: 'Blog Content Blocks', table: 'blog_post_content_blocks', columns: ['image_path'] },
+  { key: 'education', label: 'Education Posts', table: 'education_posts', columns: ['hero_image_path'] },
+  { key: 'education-content-blocks', label: 'Education Content Blocks', table: 'education_post_content_blocks', columns: ['image_path'] },
   { key: 'bespoke-process', label: 'Bespoke Manufacturing', table: 'bespoke_process_steps', columns: ['image_path', 'media_path'] },
   { key: 'bespoke-hero', label: 'Bespoke Hero Slider', table: 'bespoke_hero_slider_items', columns: ['image_path', 'mobile_image_path'] },
   { key: 'bespoke-portfolio', label: 'Bespoke Portfolio', table: 'bespoke_portfolio_items', columns: ['media_path', 'thumbnail_path'] },
@@ -134,21 +135,26 @@ async function collectReferencedPaths(adminClient: any) {
   const referencedByPath = new Map<string, Set<string>>()
 
   for (const source of SECTION_SOURCES) {
-    const { data, error } = await adminClient.from(source.table).select(source.columns.join(', '))
-    if (error) {
-      const isMissingRelation =
-        error.code === 'PGRST205' ||
-        error.message?.includes(`Could not find the table 'public.${source.table}'`)
+    for (const column of source.columns) {
+      const { data, error } = await adminClient.from(source.table).select(column)
+      if (error) {
+        const message = String(error.message ?? '')
+        const isMissingRelation =
+          error.code === 'PGRST205' ||
+          message.includes(`Could not find the table 'public.${source.table}'`)
+        const isMissingColumn =
+          error.code === 'PGRST204' ||
+          error.code === '42703' ||
+          message.includes(`${source.table}.${column}`) ||
+          message.includes(`'${column}' column of '${source.table}'`)
 
-      if (isMissingRelation) {
-        continue
+        if (isMissingRelation) break
+        if (isMissingColumn) continue
+
+        throw new Error(`${source.label}: ${message}`)
       }
 
-      throw new Error(`${source.label}: ${error.message}`)
-    }
-
-    for (const row of data ?? []) {
-      for (const column of source.columns) {
+      for (const row of data ?? []) {
         const normalized = normalizePath(row[column])
         if (!normalized) continue
         const existing = referencedByPath.get(normalized) ?? new Set<string>()

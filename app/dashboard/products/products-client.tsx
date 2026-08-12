@@ -3,10 +3,17 @@
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Search, Plus, Edit2, Trash2, CheckCircle2, Circle } from 'lucide-react'
+import { Search, Plus, Edit2, Trash2, CheckCircle2, Circle, Copy, MoreHorizontal } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { TablePagination } from '@/components/table-pagination'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { useToast } from '@/hooks/use-toast'
 
 export type ProductRow = {
   id: string
@@ -43,6 +50,13 @@ function getProductEditHref(product: ProductRow, editBaseHref: string) {
   return `${editBaseHref}/${encodeURIComponent(product.id)}`
 }
 
+function getDuplicatedProductEditHref(product: { slug: string; lane: ProductRow['productLane'] }) {
+  const encodedSlug = encodeURIComponent(product.slug)
+  if (product.lane === 'hiphop') return `/dashboard/hiphop-products/edit/${encodedSlug}`
+  if (product.lane === 'collection') return `/dashboard/collection-products/edit/${encodedSlug}`
+  return `/dashboard/products/edit/${encodedSlug}`
+}
+
 export function ProductsClient({
   initialProducts,
   lane,
@@ -63,11 +77,15 @@ export function ProductsClient({
   emptyMessage: string
 }) {
   const router = useRouter()
+  const { toast } = useToast()
   const [products, setProducts] = useState<ProductRow[]>(initialProducts)
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<ProductRow | null>(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
+  const [duplicateTarget, setDuplicateTarget] = useState<ProductRow | null>(null)
+  const [duplicateRequestId, setDuplicateRequestId] = useState<string | null>(null)
+  const [duplicateLoading, setDuplicateLoading] = useState(false)
   const [page, setPage] = useState(1)
   const [activatingDrafts, setActivatingDrafts] = useState(false)
   const [activateDialogOpen, setActivateDialogOpen] = useState(false)
@@ -132,20 +150,93 @@ export function ProductsClient({
 
   const deleteProduct = async (id: string) => {
     setDeleteLoading(true)
-    const accessToken = await getAccessToken()
-    if (!accessToken) {
-      setDeleteLoading(false)
-      return
-    }
-    const response = await fetch(`/api/products/${id}`, {
-      method: 'DELETE',
-      headers: { authorization: `Bearer ${accessToken}` },
-    })
-    if (response.ok) {
+    try {
+      const accessToken = await getAccessToken()
+      if (!accessToken) {
+        toast({ title: 'Not signed in', description: 'Please sign in again before deleting a product.', variant: 'destructive' })
+        return
+      }
+      const response = await fetch(`/api/products/${id}`, {
+        method: 'DELETE',
+        headers: { authorization: `Bearer ${accessToken}` },
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok) {
+        toast({ title: 'Delete failed', description: payload?.error ?? 'Unable to delete this product.', variant: 'destructive' })
+        return
+      }
+
+      const deletedName = deleteTarget?.name
       setDeleteTarget(null)
       await loadProducts()
+      toast({
+        title: 'Product deleted',
+        description: deletedName ? `“${deletedName}” was removed successfully.` : 'The product was removed successfully.',
+      })
+    } catch (error) {
+      toast({
+        title: 'Delete failed',
+        description: error instanceof Error ? error.message : 'Unable to delete this product.',
+        variant: 'destructive',
+      })
+    } finally {
+      setDeleteLoading(false)
     }
-    setDeleteLoading(false)
+  }
+
+  const openDuplicateDialog = (product: ProductRow) => {
+    setDuplicateTarget(product)
+    setDuplicateRequestId(crypto.randomUUID())
+  }
+
+  const duplicateProduct = async () => {
+    if (!duplicateTarget || !duplicateRequestId || duplicateLoading) return
+
+    setDuplicateLoading(true)
+    toast({
+      title: 'Creating duplicate…',
+      description: `A safe draft copy of “${duplicateTarget.name}” is being created.`,
+    })
+    try {
+      const accessToken = await getAccessToken()
+      if (!accessToken) {
+        toast({ title: 'Not signed in', description: 'Please sign in again before duplicating a product.', variant: 'destructive' })
+        return
+      }
+
+      const response = await fetch(`/api/products/${duplicateTarget.id}/duplicate`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ requestId: duplicateRequestId }),
+      })
+      const payload = await response.json().catch(() => null)
+
+      if (!response.ok || !payload?.item?.slug) {
+        toast({
+          title: 'Duplication failed',
+          description: payload?.error ?? 'Unable to duplicate this product. The original product was not changed.',
+          variant: 'destructive',
+        })
+        return
+      }
+
+      const editHref = getDuplicatedProductEditHref(payload.item)
+      toast({ title: 'Draft created', description: 'The product copy is ready for review with stock and checkout disabled.' })
+      setDuplicateTarget(null)
+      setDuplicateRequestId(null)
+      router.push(editHref)
+    } catch (error) {
+      toast({
+        title: 'Duplication failed',
+        description: error instanceof Error ? error.message : 'Unable to duplicate this product. The original product was not changed.',
+        variant: 'destructive',
+      })
+    } finally {
+      setDuplicateLoading(false)
+    }
   }
 
   const deleteSelectedProducts = async () => {
@@ -165,12 +256,26 @@ export function ProductsClient({
         },
         body: JSON.stringify({ ids: selectedProductIds }),
       })
+      const payload = await response.json().catch(() => null)
 
       if (response.ok) {
+        const deletedCount = selectedProductIds.length
         setBulkDeleteDialogOpen(false)
         setSelectedProductIds([])
         await loadProducts()
+        toast({
+          title: 'Products deleted',
+          description: `${deletedCount} product${deletedCount === 1 ? '' : 's'} removed successfully.`,
+        })
+      } else {
+        toast({ title: 'Delete failed', description: payload?.error ?? 'Unable to delete the selected products.', variant: 'destructive' })
       }
+    } catch (error) {
+      toast({
+        title: 'Delete failed',
+        description: error instanceof Error ? error.message : 'Unable to delete the selected products.',
+        variant: 'destructive',
+      })
     } finally {
       setBulkDeleteLoading(false)
     }
@@ -329,9 +434,30 @@ export function ProductsClient({
                       <Link href={editHref} onMouseEnter={() => router.prefetch(editHref)} onFocus={() => router.prefetch(editHref)} className="rounded p-1.5 hover:bg-secondary transition-colors" title="Edit">
                         <Edit2 size={14} className="text-muted-foreground" />
                       </Link>
-                      <button onClick={() => setDeleteTarget(product)} className="rounded p-1.5 hover:bg-red-100 transition-colors" title="Delete">
-                        <Trash2 size={14} className="text-red-600" />
-                      </button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            className="rounded p-1.5 transition-colors hover:bg-secondary"
+                            aria-label={`More actions for ${product.name}`}
+                          >
+                            <MoreHorizontal size={14} className="text-muted-foreground" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => openDuplicateDialog(product)}>
+                            <Copy size={14} />
+                            Duplicate Product
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => setDeleteTarget(product)}
+                            className="text-red-600 focus:text-red-600"
+                          >
+                            <Trash2 size={14} />
+                            Delete Product
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </td>
                 </tr>
@@ -383,6 +509,22 @@ export function ProductsClient({
         onConfirm={() => void deleteSelectedProducts()}
         onCancel={() => {
           if (!bulkDeleteLoading) setBulkDeleteDialogOpen(false)
+        }}
+      />
+
+      <ConfirmDialog
+        isOpen={Boolean(duplicateTarget)}
+        title="Duplicate this product?"
+        description={`This will create a hidden draft copy${duplicateTarget?.name ? ` of “${duplicateTarget.name}”` : ''}. Its stock will be zero and checkout and featured status will be disabled until you review it.`}
+        confirmText="Create Draft Copy"
+        cancelText="Cancel"
+        isLoading={duplicateLoading}
+        onConfirm={() => void duplicateProduct()}
+        onCancel={() => {
+          if (!duplicateLoading) {
+            setDuplicateTarget(null)
+            setDuplicateRequestId(null)
+          }
         }}
       />
 
