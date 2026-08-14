@@ -500,6 +500,17 @@ function SubcategoriesPanel({
     setUploading(true)
     try {
       const path = await uploadCatalogSvg('subcategories', file)
+      if (selectedId) {
+        const response = await authedFetch(`/api/catalog/subcategories/${selectedId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ icon_svg_path: path }),
+        })
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null)
+          throw new Error(payload?.error ?? 'SVG uploaded, but the subcategory could not be updated.')
+        }
+        await onChange()
+      }
       setFormData((current) => ({ ...current, iconSvgPath: path }))
       toast({ title: 'SVG uploaded', description: 'Subcategory icon uploaded successfully.' })
     } catch (error) {
@@ -704,6 +715,17 @@ function OptionsPanel({
     setUploading(true)
     try {
       const path = await uploadCatalogSvg('options', file)
+      if (selectedId) {
+        const response = await authedFetch(`/api/catalog/options/${selectedId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ icon_svg_path: path }),
+        })
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null)
+          throw new Error(payload?.error ?? 'SVG uploaded, but the option could not be updated.')
+        }
+        await onChange()
+      }
       setFormData((current) => ({ ...current, iconSvgPath: path }))
       toast({ title: 'SVG uploaded', description: 'Option icon uploaded successfully.' })
     } catch (error) {
