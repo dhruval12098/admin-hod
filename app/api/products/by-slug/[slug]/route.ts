@@ -382,6 +382,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ sl
       fit_options: body.fit_options ?? [],
       fit_label: body.fit_label,
       gemstone_label: body.gemstone_label,
+      gemstone_value: body.gemstone_value,
       shapes_enabled: body.shapes_enabled ?? false,
       show_purity: body.show_purity,
       engraving_enabled: body.engraving_enabled,
@@ -527,7 +528,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ sl
   }
 
   const deleteShapesResult = await adminClient.from('product_stone_shapes').delete().eq('product_id', id)
-  if (deleteShapesResult.error && !isMissingRelation(deleteShapesResult.error, 'product_stone_shapes')) {
+  if (deleteShapesResult.error) {
     return NextResponse.json({ error: deleteShapesResult.error.message }, { status: 500 })
   }
 
@@ -535,7 +536,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ sl
     const { error: shapeError } = await adminClient.from('product_stone_shapes').insert(
       (body.shape_ids ?? []).map((shapeId) => ({ product_id: id, shape_id: shapeId }))
     )
-    if (shapeError && !isMissingRelation(shapeError, 'product_stone_shapes')) {
+    if (shapeError) {
       return NextResponse.json({ error: shapeError.message }, { status: 500 })
     }
   }

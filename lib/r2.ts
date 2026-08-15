@@ -1,6 +1,6 @@
 import 'server-only'
 
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import { ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 
 type ProductMediaFolder = 'products' | 'hiphop' | 'bespoke'
 
@@ -94,4 +94,108 @@ export async function uploadProductVideoToR2({
     key: objectKey,
     url: joinPublicUrl(r2PublicBaseUrl, objectKey),
   }
+}
+
+export async function listProductVideosFromR2({
+  folder,
+  cursor,
+  pageSize = 48,
+}: {
+  folder: 'products' | 'hiphop'
+  cursor?: string | null
+  pageSize?: number
+}) {
+  requireR2Config()
+  const prefix = normalizePrefix(
+    folder === 'hiphop' ? `${r2VideoPrefix}/hiphop` : r2VideoPrefix,
+  )
+  const result = await getR2Client().send(
+    new ListObjectsV2Command({
+      Bucket: r2Bucket,
+      Prefix: prefix ? `${prefix}/` : undefined,
+      ContinuationToken: cursor || undefined,
+      MaxKeys: Math.min(Math.max(pageSize, 1), 100),
+    }),
+  )
+
+  return {
+    items: (result.Contents ?? [])
+      .filter((item) => Boolean(item.Key))
+      .map((item) => ({
+        key: item.Key as string,
+        url: joinPublicUrl(r2PublicBaseUrl, item.Key as string),
+        size: item.Size ?? 0,
+        lastModified: item.LastModified?.toISOString() ?? null,
+      })),
+    nextCursor: result.IsTruncated ? result.NextContinuationToken ?? null : null,
+  }
+}
+
+type CentralVideoAsset = {
+  key: string
+  url: string
+  size: number
+  lastModified: string | null
+}
+
+const CENTRAL_VIDEO_CACHE_TTL_MS = 5 * 60 * 1000
+let centralVideoCache: { items: CentralVideoAsset[]; loadedAt: number } | null = null
+let centralVideoPending: Promise<CentralVideoAsset[]> | null = null
+
+function isVideoObjectKey(key: string) {
+  return /\.(mp4|mov|webm|m4v)$/i.test(key)
+}
+
+async function loadAllR2Videos() {
+  requireR2Config()
+  const items: CentralVideoAsset[] = []
+  let continuationToken: string | undefined
+
+  do {
+    const result = await getR2Client().send(
+      new ListObjectsV2Command({
+        Bucket: r2Bucket,
+        ContinuationToken: continuationToken,
+        MaxKeys: 1000,
+      }),
+    )
+    for (const item of result.Contents ?? []) {
+      if (!item.Key || !isVideoObjectKey(item.Key)) continue
+      items.push({
+        key: item.Key,
+        url: joinPublicUrl(r2PublicBaseUrl, item.Key),
+        size: item.Size ?? 0,
+        lastModified: item.LastModified?.toISOString() ?? null,
+      })
+    }
+    continuationToken = result.IsTruncated ? result.NextContinuationToken : undefined
+  } while (continuationToken)
+
+  return items.sort((left, right) => {
+    const leftTime = left.lastModified ? Date.parse(left.lastModified) : 0
+    const rightTime = right.lastModified ? Date.parse(right.lastModified) : 0
+    return rightTime - leftTime
+  })
+}
+
+export async function getCentralVideoLibrary({ forceRefresh = false }: { forceRefresh?: boolean } = {}) {
+  if (!forceRefresh && centralVideoCache && Date.now() - centralVideoCache.loadedAt < CENTRAL_VIDEO_CACHE_TTL_MS) {
+    return centralVideoCache.items
+  }
+  if (!forceRefresh && centralVideoPending) return centralVideoPending
+
+  centralVideoPending = loadAllR2Videos()
+    .then((items) => {
+      centralVideoCache = { items, loadedAt: Date.now() }
+      return items
+    })
+    .finally(() => {
+      centralVideoPending = null
+    })
+
+  return centralVideoPending
+}
+
+export function invalidateCentralVideoLibrary() {
+  centralVideoCache = null
 }

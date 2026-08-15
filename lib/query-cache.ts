@@ -18,6 +18,11 @@ export function setCachedQueryData<T>(key: string, data: T) {
   queryData.set(key, { data, loadedAt: Date.now() })
 }
 
+export function deleteCachedQueryData(key: string) {
+  queryData.delete(key)
+  queryPending.delete(key)
+}
+
 export async function fetchCachedQuery<T>({
   key,
   staleTimeMs,

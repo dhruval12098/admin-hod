@@ -502,7 +502,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
 
   const deleteShapesResult = await adminClient.from('product_stone_shapes').delete().eq('product_id', id)
-  if (deleteShapesResult.error && !isMissingRelation(deleteShapesResult.error, 'product_stone_shapes')) {
+  if (deleteShapesResult.error) {
     return NextResponse.json({ error: deleteShapesResult.error.message }, { status: 500 })
   }
 
@@ -510,7 +510,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const { error: shapeError } = await adminClient.from('product_stone_shapes').insert(
       (body.shape_ids ?? []).map((shapeId) => ({ product_id: id, shape_id: shapeId }))
     )
-    if (shapeError && !isMissingRelation(shapeError, 'product_stone_shapes')) {
+    if (shapeError) {
       return NextResponse.json({ error: shapeError.message }, { status: 500 })
     }
   }

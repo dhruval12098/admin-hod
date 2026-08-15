@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import sharp from 'sharp'
 import { assertAdmin } from '@/lib/cms-auth'
-import { uploadProductVideoToR2 } from '@/lib/r2'
+import { invalidateCentralVideoLibrary, uploadProductVideoToR2 } from '@/lib/r2'
 
 const collectionBucket = process.env.SUPABASE_COLLECTION_BUCKET ?? 'hod'
 const allowedImageMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/svg+xml'])
@@ -66,6 +66,7 @@ export async function POST(request: Request) {
       folder: mediaFolder,
       contentType: file.type || 'video/mp4',
     })
+    invalidateCentralVideoLibrary()
 
     return NextResponse.json({
       path: uploadedVideo.url,

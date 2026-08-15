@@ -46,11 +46,12 @@ import { ProductPricingSummaryCard } from '@/components/product-form/ProductPric
 import { FormField, PillToggle, TagList, TogglePillGroup } from '@/components/product-form/ProductFormControls'
 import { ProductContentStep } from '@/components/product-form/ProductContentStep'
 import { ProductDetailsStep } from '@/components/product-form/ProductDetailsStep'
+import { VideoLibraryDialog } from '@/components/product-form/VideoLibraryDialog'
 import { ProductFormStepActions, ProductFormStepBar } from '@/components/product-form/ProductFormStepNavigation'
 import { ProductFormHeader, ProductFormRedirectOverlay } from '@/components/product-form/ProductFormChrome'
 import { ProductFormLoadingShell, ProductFormSkeleton } from '@/components/product-form/ProductFormLoadingStates'
 import { ConfirmDialog } from '@/components/confirm-dialog'
-import { fetchCachedQuery, setCachedQueryData } from '@/lib/query-cache'
+import { deleteCachedQueryData, fetchCachedQuery, setCachedQueryData } from '@/lib/query-cache'
 
 export type BootstrapPayload = {
   categories?: CatalogCategory[]
@@ -579,6 +580,10 @@ export function ProductForm({
     metalId: string | null
     itemIndex: number
     label: string
+  } | null>(null)
+  const [videoLibraryTarget, setVideoLibraryTarget] = useState<{
+    metalId: string | null
+    itemIndex: number
   } | null>(null)
   const [customOrderEnabled, setCustomOrderEnabled] = useState(false)
   const [readyToShip, setReadyToShip] = useState(false)
@@ -1397,9 +1402,12 @@ export function ProductForm({
         const payload = await response.json().catch(() => null)
         throw new Error(payload?.error ?? 'Unable to save product.')
       }
-      const savedPayload = (await response.json().catch(() => null)) as ProductResponse | null
-      if ((productId || productSlug) && savedPayload?.item) {
-        setCachedQueryData(`product-edit:${saveUrl}`, savedPayload.item)
+      await response.json().catch(() => null)
+      if (productId || productSlug) {
+        // The save response contains only the products row. Relation-backed fields
+        // (shapes, materials, variants, links, FAQs, and pricing) are loaded by GET,
+        // so never cache the partial PATCH response as a complete editor record.
+        deleteCachedQueryData(`product-edit:${saveUrl}`)
       }
 
       toast({
@@ -1869,7 +1877,7 @@ export function ProductForm({
                       <div className="flex flex-wrap gap-3">
                         {items.map((item, itemIndex) => {
                           const isActive = activeVariantMediaIndex === itemIndex
-                          const previewPath = item.media_type === 'image' ? toStoragePreviewUrl(item.media_path) : ''
+                          const previewPath = toStoragePreviewUrl(item.media_path)
                           const uploadKey = `variant-media-${activeVariantMediaKey}-${itemIndex}`
                           const inputId = `variant-media-upload-${activeVariantMediaKey}-${itemIndex}`
                           const isUploading = Boolean(uploadingSlots[uploadKey])
@@ -1888,6 +1896,20 @@ export function ProductForm({
                               >
                                 {item.media_type === 'image' && previewPath ? (
                                   <img src={previewPath} alt={`${sectionLabel} item ${itemIndex + 1}`} className="h-full w-full object-cover" />
+                                ) : item.media_type === 'video' && previewPath ? (
+                                  <div className="relative h-full w-full bg-black">
+                                    <video
+                                      src={`${previewPath}#t=0.01`}
+                                      muted
+                                      playsInline
+                                      preload="metadata"
+                                      className="h-full w-full object-cover"
+                                      aria-label={`${sectionLabel} video ${itemIndex + 1}`}
+                                    />
+                                    <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-black/60 px-2 py-1 text-center text-[9px] font-semibold uppercase tracking-[0.16em] text-white">
+                                      Video {itemIndex + 1}
+                                    </span>
+                                  </div>
                                 ) : (
                                   <div className="flex h-full w-full flex-col items-center justify-center bg-secondary/20 px-2 text-center">
                                     <Plus size={16} className="mb-2 text-muted-foreground" />
@@ -2072,7 +2094,20 @@ export function ProductForm({
                                     />
                                   </div>
 
-                                  <div className="flex items-end justify-end gap-2">
+                                  <div className="flex min-w-0 flex-wrap items-center justify-end gap-2 xl:col-span-3">
+                                    {activeItem.media_type === 'video' ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => setVideoLibraryTarget({
+                                          metalId: isDefaultFallback ? null : activeVariantMediaKey,
+                                          itemIndex,
+                                        })}
+                                        className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg border border-[#C9E1F5] bg-[#F1F8FE] px-4 py-2 text-sm font-semibold text-[#245F96] transition-colors hover:border-[#9BC5E9] hover:bg-[#E8F4FD]"
+                                      >
+                                        <Video size={14} />
+                                        Choose from library
+                                      </button>
+                                    ) : null}
                                     <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary">
                                       <Plus size={14} />
                                       Upload
@@ -2160,6 +2195,23 @@ export function ProductForm({
         setDeleteVariantMediaTarget(null)
       }}
       onCancel={() => setDeleteVariantMediaTarget(null)}
+    />
+    <VideoLibraryDialog
+      open={Boolean(videoLibraryTarget)}
+      onClose={() => setVideoLibraryTarget(null)}
+      onSelect={(video) => {
+        if (!videoLibraryTarget) return
+        updateVariantMediaItem(videoLibraryTarget.metalId, videoLibraryTarget.itemIndex, (item) => ({
+          ...item,
+          media_type: 'video',
+          media_path: video.url,
+        }))
+        setVideoLibraryTarget(null)
+        toast({
+          title: 'Video selected',
+          description: 'The Cloudflare video was assigned to this media slot.',
+        })
+      }}
     />
     </>
   )

@@ -636,7 +636,7 @@ export async function POST(request: Request) {
     const { error: shapeError } = await adminClient.from('product_stone_shapes').insert(
       (body.shape_ids ?? []).map((shapeId) => ({ product_id: product.id, shape_id: shapeId }))
     )
-    if (shapeError && !isMissingRelation(shapeError, 'product_stone_shapes')) {
+    if (shapeError) {
       return NextResponse.json({ error: shapeError.message }, { status: 500 })
     }
   }
