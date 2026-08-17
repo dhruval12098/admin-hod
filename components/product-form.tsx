@@ -52,6 +52,8 @@ import { ProductFormHeader, ProductFormRedirectOverlay } from '@/components/prod
 import { ProductFormLoadingShell, ProductFormSkeleton } from '@/components/product-form/ProductFormLoadingStates'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { deleteCachedQueryData, fetchCachedQuery, setCachedQueryData } from '@/lib/query-cache'
+import type { ProductCustomDropdown } from '@/lib/product-custom-dropdowns'
+import { validateProductCustomDropdowns } from '@/lib/product-custom-dropdowns'
 
 export type BootstrapPayload = {
   categories?: CatalogCategory[]
@@ -112,6 +114,8 @@ type ProductResponse = {
     show_purity?: boolean | null
     engraving_enabled?: boolean | null
     engraving_label?: string | null
+    custom_dropdowns_enabled?: boolean | null
+    custom_dropdowns?: ProductCustomDropdown[]
     shipping_rule_id?: string | null
     care_warranty_rule_id?: string | null
     shipping_enabled?: boolean | null
@@ -264,6 +268,8 @@ function applyProductPayload(
     setHiphopCaratValues: Dispatch<SetStateAction<string[]>>
     setGramWeightLabel: Dispatch<SetStateAction<string>>
     setGramWeightValue: Dispatch<SetStateAction<string>>
+    setCustomDropdownsEnabled: Dispatch<SetStateAction<boolean>>
+    setCustomDropdowns: Dispatch<SetStateAction<ProductCustomDropdown[]>>
   }
 ) {
   if (!item) return
@@ -330,6 +336,8 @@ function applyProductPayload(
   setters.setSelectedShapeIds(item.shape_ids ?? [])
   setters.setEngravingEnabled(Boolean(item.engraving_enabled))
   setters.setEngravingLabel(item.engraving_label ?? 'Complimentary Engraving')
+  setters.setCustomDropdownsEnabled(Boolean(item.custom_dropdowns_enabled))
+  setters.setCustomDropdowns(item.custom_dropdowns ?? [])
   setters.setShippingEnabled(item.shipping_enabled ?? true)
   setters.setCareWarrantyEnabled(item.care_warranty_enabled ?? true)
   setters.setShippingOverrideEnabled(Boolean(item.shipping_override_enabled))
@@ -548,6 +556,8 @@ export function ProductForm({
   const [selectedShapeIds, setSelectedShapeIds] = useState<string[]>([])
   const [engravingEnabled, setEngravingEnabled] = useState(false)
   const [engravingLabel, setEngravingLabel] = useState('Complimentary Engraving')
+  const [customDropdownsEnabled, setCustomDropdownsEnabled] = useState(false)
+  const [customDropdowns, setCustomDropdowns] = useState<ProductCustomDropdown[]>([])
   const [shippingEnabled, setShippingEnabled] = useState(true)
   const [careWarrantyEnabled, setCareWarrantyEnabled] = useState(true)
   const [shippingOverrideEnabled, setShippingOverrideEnabled] = useState(false)
@@ -687,6 +697,8 @@ export function ProductForm({
       setHiphopCaratValues,
       setGramWeightLabel,
       setGramWeightValue,
+      setCustomDropdownsEnabled,
+      setCustomDropdowns,
     })
 
   const markBootstrapScopeLoaded = (scope: CatalogBootstrapScope) => {
@@ -1289,6 +1301,10 @@ export function ProductForm({
       if (!Number.isFinite(resolvedPrice) || resolvedPrice <= 0) {
         throw new Error('Add a price greater than 0 to the default metal option before saving.')
       }
+      if (customDropdownsEnabled) {
+        const customDropdownError = validateProductCustomDropdowns(customDropdowns)
+        if (customDropdownError) throw new Error(customDropdownError)
+      }
 
       const saveUrl = productId ? `/api/products/${productId}` : productSlug ? `/api/products/by-slug/${encodeURIComponent(productSlug)}` : '/api/products'
       const response = await authedFetch(saveUrl, {
@@ -1356,6 +1372,8 @@ export function ProductForm({
             show_purity: false,
             engraving_enabled: engravingEnabled,
             engraving_label: engravingEnabled ? engravingLabel || null : null,
+            custom_dropdowns_enabled: customDropdownsEnabled,
+            custom_dropdowns: customDropdowns,
             shipping_enabled: shippingEnabled,
             care_warranty_enabled: careWarrantyEnabled,
             shipping_override_enabled: shippingEnabled ? shippingOverrideEnabled : false,
@@ -1651,6 +1669,10 @@ export function ProductForm({
             setEngravingEnabled={setEngravingEnabled}
             engravingLabel={engravingLabel}
             setEngravingLabel={setEngravingLabel}
+            customDropdownsEnabled={customDropdownsEnabled}
+            onCustomDropdownsEnabledChange={setCustomDropdownsEnabled}
+            customDropdowns={customDropdowns}
+            onCustomDropdownsChange={setCustomDropdowns}
             inputClassName={inputClassName}
             secondaryButtonClassName={secondaryButtonClassName}
           />

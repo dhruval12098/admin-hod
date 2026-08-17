@@ -10,6 +10,7 @@ import {
   replaceProductVariantMediaItems,
 } from '@/lib/product-metal-variants'
 import { loadProductFaqItems, replaceProductFaqItems } from '@/lib/product-faqs'
+import { loadProductCustomDropdowns, syncProductCustomDropdowns, validateProductCustomDropdowns, type ProductCustomDropdown } from '@/lib/product-custom-dropdowns'
 import { validateProductMasterReferences } from '@/lib/product-master-validation'
 
 function isMissingRelation(error: { message?: string | null } | null | undefined, table: string) {
@@ -216,6 +217,8 @@ type ProductPayload = {
   show_purity: boolean
   engraving_enabled: boolean
   engraving_label: string | null
+  custom_dropdowns_enabled?: boolean
+  custom_dropdowns?: ProductCustomDropdown[]
   shipping_rule_id: string | null
   care_warranty_rule_id: string | null
   shipping_enabled: boolean
@@ -293,6 +296,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
     ? []
     : (shapeResult.data ?? []).map((item) => item.shape_id)
 
+  const customDropdowns = await loadProductCustomDropdowns(adminClient, id)
+  if (customDropdowns.error) return NextResponse.json({ error: customDropdowns.error }, { status: 500 })
   return NextResponse.json({
     item: {
       ...(productResult.data as ProductRecord),
@@ -309,6 +314,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
       metal_variants: metalVariantBundle.metalVariants,
       default_variant_media_items: metalVariantBundle.defaultVariantMediaItems,
       faq_items: faqItems,
+      custom_dropdowns: customDropdowns.data ?? [],
     },
   })
 }
@@ -330,6 +336,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ sl
   if (!body?.name || !body?.sku || !body?.main_category_id) {
     return NextResponse.json({ error: 'Invalid payload.' }, { status: 400 })
   }
+  const customDropdownError = body.custom_dropdowns_enabled ? validateProductCustomDropdowns((body.custom_dropdowns ?? []) as ProductCustomDropdown[]) : null
+  if (customDropdownError) return NextResponse.json({ error: customDropdownError }, { status: 400 })
 
   const masterValidation = await validateProductMasterReferences(adminClient, body)
   if (!masterValidation.ok) {
@@ -378,6 +386,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ sl
       certificate_ids: body.certificate_ids ?? [],
       ring_size_ids: body.ring_size_ids ?? [],
       ring_enabled: body.ring_enabled ?? false,
+      custom_dropdowns_enabled: body.custom_dropdowns_enabled ?? false,
       ring_category_id: body.ring_enabled ? body.ring_category_id ?? null : null,
       fit_options: body.fit_options ?? [],
       fit_label: body.fit_label,
@@ -455,6 +464,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ sl
       certificate_ids: body.certificate_ids ?? [],
       ring_size_ids: body.ring_size_ids ?? [],
       ring_enabled: body.ring_enabled ?? false,
+      custom_dropdowns_enabled: body.custom_dropdowns_enabled ?? false,
       ring_category_id: body.ring_enabled ? body.ring_category_id ?? null : null,
       fit_options: body.fit_options ?? [],
       fit_label: body.fit_label,
@@ -593,6 +603,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ sl
   const faqResult = await replaceProductFaqItems(adminClient, id, body.faq_items ?? [])
   if ('error' in faqResult && faqResult.error) {
     return NextResponse.json({ error: faqResult.error.message }, { status: 500 })
+  }
+
+  if (body.custom_dropdowns_enabled) {
+    const customDropdownResult = await syncProductCustomDropdowns(adminClient, id, (body.custom_dropdowns ?? []) as ProductCustomDropdown[])
+    if (customDropdownResult.error) return NextResponse.json({ error: customDropdownResult.error }, { status: 400 })
   }
 
   return NextResponse.json({ item: product })

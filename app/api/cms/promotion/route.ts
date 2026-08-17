@@ -34,6 +34,10 @@ export async function POST(request: Request) {
     description: typeof body.description === 'string' ? body.description : '',
     cta_text: typeof body.cta_text === 'string' ? body.cta_text : '',
     cta_link: typeof body.cta_link === 'string' ? body.cta_link : '',
+    cta_action: body.cta_action === 'reveal_coupon' ? 'reveal_coupon' : 'redirect',
+    selected_coupon_id: body.cta_action === 'reveal_coupon' && body.selected_coupon_id != null && Number.isInteger(Number(body.selected_coupon_id)) && Number(body.selected_coupon_id) > 0
+      ? Number(body.selected_coupon_id)
+      : null,
     image_path: typeof body.image_path === 'string' ? body.image_path : '',
     mobile_image_path: typeof body.mobile_image_path === 'string' ? body.mobile_image_path : '',
     image_alt: typeof body.image_alt === 'string' ? body.image_alt : '',
@@ -42,34 +46,28 @@ export async function POST(request: Request) {
     show_once_per_session: body.show_once_per_session !== false,
   }
 
+  if (payload.cta_action === 'redirect' && !payload.cta_link.trim()) {
+    return NextResponse.json({ error: 'A destination link is required for Redirect mode.' }, { status: 400 })
+  }
+
+  if (payload.cta_action === 'reveal_coupon') {
+    if (payload.selected_coupon_id == null) {
+      return NextResponse.json({ error: 'Select an active coupon for Reveal coupon mode.' }, { status: 400 })
+    }
+    const { data: coupon, error: couponError } = await access.adminClient
+      .from('coupons')
+      .select('id, usage_limit, usage_count')
+      .eq('id', payload.selected_coupon_id)
+      .eq('is_active', true)
+      .maybeSingle()
+    if (couponError || !coupon || (coupon.usage_limit != null && Number(coupon.usage_count ?? 0) >= Number(coupon.usage_limit))) {
+      return NextResponse.json({ error: 'The selected coupon is unavailable or has reached its usage limit.' }, { status: 400 })
+    }
+  }
+
   const { error } = await access.adminClient
     .from('promotion_popup')
     .upsert(payload, { onConflict: 'section_key' })
-
-  if (error && (error.message.toLowerCase().includes('image_only_mode') || error.message.toLowerCase().includes('mobile_image_path'))) {
-    const fallbackPayload = {
-      section_key: payload.section_key,
-      label: payload.label,
-      title: payload.title,
-      description: payload.description,
-      cta_text: payload.cta_text,
-      cta_link: payload.cta_link,
-      image_path: payload.image_path,
-      image_alt: payload.image_alt,
-      is_active: payload.is_active,
-      show_once_per_session: payload.show_once_per_session,
-    }
-
-    const fallback = await access.adminClient
-      .from('promotion_popup')
-      .upsert(fallbackPayload, { onConflict: 'section_key' })
-
-    if (fallback.error) {
-      return NextResponse.json({ error: fallback.error.message }, { status: 500 })
-    }
-
-    return NextResponse.json({ success: true, fallback: true })
-  }
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })

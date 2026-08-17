@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useMemo } from 'react'
-import { Mail, Phone, Sparkles, MessageSquareText, ShoppingBag, Newspaper, ExternalLink } from 'lucide-react'
+import { Mail, Phone, Sparkles, MessageSquareText, ShoppingBag, Newspaper, ExternalLink, Gift } from 'lucide-react'
 import { useSearchParams } from 'next/navigation'
 import type { AdminEnquiryItem, EnquiriesPageData, EnquiryTab } from '@/lib/enquiries'
 
@@ -12,6 +12,7 @@ const TAB_ORDER: Array<{ id: EnquiryTab; label: string }> = [
   { id: 'contact', label: 'Contact' },
   { id: 'product', label: 'Product' },
   { id: 'newsletter', label: 'Newsletter' },
+  { id: 'promotion', label: 'Promotion Leads' },
 ]
 
 function getTabIcon(source: AdminEnquiryItem['source']) {
@@ -22,13 +23,15 @@ function getTabIcon(source: AdminEnquiryItem['source']) {
       return ShoppingBag
     case 'newsletter':
       return Newspaper
+    case 'promotion':
+      return Gift
     default:
       return MessageSquareText
   }
 }
 
 function normalizeTab(value: string | null): EnquiryTab {
-  if (value === 'bespoke' || value === 'contact' || value === 'product' || value === 'newsletter') return value
+  if (value === 'bespoke' || value === 'contact' || value === 'product' || value === 'newsletter' || value === 'promotion') return value
   return 'all'
 }
 
@@ -46,7 +49,7 @@ export function EnquiriesClient({ initialData }: { initialData: EnquiriesPageDat
       <div className="mb-8">
         <h1 className="font-jakarta text-3xl font-semibold text-foreground">Enquiries</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          One inbox for bespoke, contact, product, and newsletter leads.
+          One inbox for bespoke, contact, product, newsletter, and promotion leads.
         </p>
       </div>
 
@@ -77,6 +80,12 @@ export function EnquiriesClient({ initialData }: { initialData: EnquiriesPageDat
       {!initialData.newsletterEnabled ? (
         <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
           Newsletter inbox is ready in the UI, but newsletter persistence will only appear after the new `newsletter_submissions` table is added.
+        </div>
+      ) : null}
+
+      {!initialData.promotionLeadsEnabled ? (
+        <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
+          Promotion leads will appear after the promotion submissions table is available.
         </div>
       ) : null}
 
@@ -160,4 +169,3 @@ export function EnquiriesClient({ initialData }: { initialData: EnquiriesPageDat
     </div>
   )
 }
-

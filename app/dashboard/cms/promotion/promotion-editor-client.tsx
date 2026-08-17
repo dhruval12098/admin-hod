@@ -2,12 +2,13 @@
 
 import Link from 'next/link'
 import { useState } from 'react'
-import { ArrowLeft, Upload } from 'lucide-react'
+import { ArrowLeft, ExternalLink, Gift, ImageIcon, Monitor, Smartphone, Type, Upload } from 'lucide-react'
 import { CmsSaveAction } from '@/components/cms-save-action'
 import { CMSTabs } from '@/components/cms-tabs'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 async function getAccessToken() {
   const { data } = await supabase.auth.getSession()
@@ -21,6 +22,8 @@ export type PromotionInitialData = {
     description: string
     cta_text: string
     cta_link: string
+    cta_action: 'redirect' | 'reveal_coupon'
+    selected_coupon_id: number | null
     image_path: string
     mobile_image_path: string
     image_alt: string
@@ -28,6 +31,23 @@ export type PromotionInitialData = {
     is_active: boolean
     show_once_per_session: boolean
   }
+  coupons: Array<{
+    id: number
+    code: string
+    title: string
+    usage_limit: number | null
+    usage_count: number
+  }>
+}
+
+type ImageField = 'image_path' | 'mobile_image_path'
+
+function publicAssetUrl(path: string) {
+  if (!path) return ''
+  if (/^https?:\/\//.test(path)) return path
+  const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const bucket = process.env.NEXT_PUBLIC_SUPABASE_COLLECTION_BUCKET || 'hod'
+  return projectUrl ? `${projectUrl}/storage/v1/object/public/${bucket}/${path}` : path
 }
 
 export function PromotionEditorClient({ initialData }: { initialData: PromotionInitialData }) {
@@ -35,16 +55,16 @@ export function PromotionEditorClient({ initialData }: { initialData: PromotionI
   const [isSaving, setIsSaving] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [status, setStatus] = useState('Promotion popup loaded')
-  const [uploadState, setUploadState] = useState<'idle' | 'uploading' | 'done' | 'error'>('idle')
+  const [uploadingField, setUploadingField] = useState<ImageField | null>(null)
   const [form, setForm] = useState(initialData.item)
 
-  const uploadAsset = async (file: File, field: 'image_path' | 'mobile_image_path') => {
+  const uploadAsset = async (file: File, field: ImageField) => {
     const accessToken = await getAccessToken()
     if (!accessToken) {
       setStatus('Missing access token.')
       return
     }
-    setUploadState('uploading')
+    setUploadingField(field)
     setStatus(field === 'mobile_image_path' ? 'Uploading mobile promotion image...' : 'Uploading promotion image...')
     const formData = new FormData()
     formData.append('file', file)
@@ -55,15 +75,18 @@ export function PromotionEditorClient({ initialData }: { initialData: PromotionI
     })
     const payload = await response.json().catch(() => null) as { path?: string; error?: string } | null
     if (!response.ok || !payload?.path) {
-      setUploadState('error')
       setStatus(payload?.error ?? 'Unable to upload image.')
+      setUploadingField(null)
       return
     }
     setForm((prev) => ({ ...prev, [field]: payload.path ?? '' }))
-    setUploadState('done')
+    setUploadingField(null)
     setStatus(field === 'mobile_image_path' ? 'Mobile promotion image uploaded successfully' : 'Promotion image uploaded successfully')
     toast({ title: 'Uploaded', description: field === 'mobile_image_path' ? 'Mobile promotion image uploaded successfully.' : 'Promotion image uploaded successfully.' })
   }
+
+
+  const fieldClassName = 'w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15'
 
   const save = async () => {
     setIsSaving(true)
@@ -99,56 +122,83 @@ export function PromotionEditorClient({ initialData }: { initialData: PromotionI
         <p className="mt-1 text-sm text-muted-foreground">Manage the first-visit promotional modal shown on the storefront.</p>
         <p className="mt-2 text-xs text-muted-foreground">{status}</p>
       </div>
-      <div className="max-w-4xl space-y-6 rounded-lg border border-border bg-white p-8 shadow-xs">
-        <div className="rounded-lg border border-border bg-secondary/10 p-4">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <p className="text-sm font-semibold text-foreground">Popup Mode</p>
-              <p className="mt-1 text-xs text-muted-foreground">Choose whether the popup should show text content or a fixed banner image, while keeping the CTA at the bottom.</p>
-            </div>
-            <div className="inline-flex rounded-full border border-border bg-white p-1">
-              <button type="button" onClick={() => setForm((prev) => ({ ...prev, image_only_mode: false }))} className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${!form.image_only_mode ? 'bg-foreground text-white' : 'text-muted-foreground hover:bg-secondary'}`}>Text + CTA</button>
-              <button type="button" onClick={() => setForm((prev) => ({ ...prev, image_only_mode: true }))} className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${form.image_only_mode ? 'bg-foreground text-white' : 'text-muted-foreground hover:bg-secondary'}`}>Image + CTA</button>
-            </div>
+      <div className="max-w-4xl space-y-8 rounded-lg border border-border bg-white p-5 shadow-xs sm:p-8">
+        <section aria-labelledby="layout-heading">
+          <h2 id="layout-heading" className="text-base font-semibold text-foreground">Choose a layout</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Select how the promotion will appear to shoppers.</p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {[
+              { text: true, title: 'Text + CTA', description: 'A focused, text-only promotion card.', icon: Type },
+              { text: false, title: 'Image + Text + CTA', description: 'A split layout with responsive artwork.', icon: ImageIcon },
+            ].map((option) => {
+              const selected = form.image_only_mode === option.text
+              const Icon = option.icon
+              return <button key={option.title} type="button" aria-pressed={selected} onClick={() => setForm((prev) => ({ ...prev, image_only_mode: option.text }))} className={`rounded-lg border p-4 text-left outline-none transition focus:ring-2 focus:ring-primary/25 ${selected ? 'border-primary bg-primary/5' : 'border-border hover:border-foreground/30'}`}>
+                <div className="flex items-start gap-3"><span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md border ${selected ? 'border-primary/30 bg-white text-primary' : 'border-border bg-secondary/30 text-muted-foreground'}`}><Icon size={17} /></span><span><span className="block text-sm font-semibold text-foreground">{option.title}</span><span className="mt-1 block text-xs leading-5 text-muted-foreground">{option.description}</span></span></div>
+                <span className="mt-4 flex h-14 items-center justify-center rounded-md border border-border bg-white p-2" aria-hidden="true">{option.text ? <span className="w-2/3 space-y-1.5"><span className="block h-1 w-1/3 bg-muted-foreground/25" /><span className="block h-1.5 w-full bg-foreground/25" /><span className="block h-2 w-1/2 bg-foreground/70" /></span> : <span className="grid h-full w-full grid-cols-2 gap-2"><span className="bg-secondary" /><span className="flex flex-col justify-center gap-1"><span className="h-1 w-1/2 bg-muted-foreground/25" /><span className="h-1.5 w-full bg-foreground/25" /><span className="h-2 w-2/3 bg-foreground/70" /></span></span>}</span>
+              </button>
+            })}
           </div>
-        </div>
-        <div className="grid gap-4 md:grid-cols-2">
-          <div><label className="mb-2 block text-sm font-semibold text-foreground">Label</label><input value={form.label} onChange={(e) => setForm((prev) => ({ ...prev, label: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm" /></div>
-          <div><label className="mb-2 block text-sm font-semibold text-foreground">CTA Text</label><input value={form.cta_text} onChange={(e) => setForm((prev) => ({ ...prev, cta_text: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm" /></div>
-        </div>
-        {!form.image_only_mode ? (
-          <>
-            <div><label className="mb-2 block text-sm font-semibold text-foreground">Title</label><input value={form.title} onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm" /></div>
-            <div><label className="mb-2 block text-sm font-semibold text-foreground">Description</label><textarea value={form.description} onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))} rows={5} className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm" /></div>
-            <div><label className="mb-2 block text-sm font-semibold text-foreground">CTA Link</label><input value={form.cta_link} onChange={(e) => setForm((prev) => ({ ...prev, cta_link: e.target.value }))} placeholder="/shop" className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm" /></div>
-          </>
-        ) : null}
-        <div><label className="mb-2 block text-sm font-semibold text-foreground">CTA Link</label><input value={form.cta_link} onChange={(e) => setForm((prev) => ({ ...prev, cta_link: e.target.value }))} placeholder="/shop" className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm" /></div>
-        <div className="rounded-lg border border-border bg-secondary/10 p-4">
-          <label className="mb-2 block text-sm font-semibold text-foreground">Promotion Image</label>
-          <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900">
-            Designer handoff: mobile can use a separate image. If no mobile image is uploaded, storefront falls back to the desktop image. Keep key artwork centered. Recommended export sizes: desktop 760x420, mobile-safe 390x360. Storefront popup radius is 18px on mobile and 12px on desktop.
+        </section>
+
+        <section aria-labelledby="content-heading" className="border-t border-border pt-7">
+          <h2 id="content-heading" className="text-base font-semibold text-foreground">Content</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Write the message shoppers will see in the popup.</p>
+          <div className="mt-5 space-y-4">
+            <div><label htmlFor="promotion-eyebrow" className="mb-2 block text-sm font-semibold text-foreground">Eyebrow text</label><input id="promotion-eyebrow" value={form.label} onChange={(e) => setForm((prev) => ({ ...prev, label: e.target.value }))} placeholder="For a limited time" className={fieldClassName} /><p className="mt-1.5 text-xs text-muted-foreground">A short line displayed above the title.</p></div>
+            <div><label htmlFor="promotion-title" className="mb-2 block text-sm font-semibold text-foreground">Title</label><input id="promotion-title" value={form.title} onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))} className={fieldClassName} /></div>
+            <div><label htmlFor="promotion-description" className="mb-2 block text-sm font-semibold text-foreground">Description</label><textarea id="promotion-description" value={form.description} onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))} rows={4} className={fieldClassName} /></div>
           </div>
-          <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-border bg-white px-4 py-6 text-center hover:border-primary">
-            <Upload size={18} className="text-muted-foreground" />
-            <span className="mt-2 text-sm font-medium text-foreground">{uploadState === 'uploading' ? 'Uploading...' : 'Upload image'}</span>
-            <span className="mt-1 text-xs text-muted-foreground">Desktop image. Saved into promotion popup media folder</span>
-            <input type="file" accept="image/*,.svg" className="hidden" disabled={uploadState === 'uploading'} onChange={(e) => { const file = e.target.files?.[0]; if (file) void uploadAsset(file, 'image_path') }} />
-            <span className="mt-3 text-xs text-muted-foreground">{form.image_path || 'No image uploaded yet'}</span>
-          </label>
-          <label className="mt-3 flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-border bg-white px-4 py-6 text-center hover:border-primary">
-            <Upload size={18} className="text-muted-foreground" />
-            <span className="mt-2 text-sm font-medium text-foreground">{uploadState === 'uploading' ? 'Uploading...' : 'Upload mobile image'}</span>
-            <span className="mt-1 text-xs text-muted-foreground">Optional mobile image. Falls back to desktop if empty</span>
-            <input type="file" accept="image/*,.svg" className="hidden" disabled={uploadState === 'uploading'} onChange={(e) => { const file = e.target.files?.[0]; if (file) void uploadAsset(file, 'mobile_image_path') }} />
-            <span className="mt-3 text-xs text-muted-foreground">{form.mobile_image_path || 'No mobile image uploaded yet'}</span>
-          </label>
-        </div>
-        <div><label className="mb-2 block text-sm font-semibold text-foreground">Image Alt Text</label><input value={form.image_alt} onChange={(e) => setForm((prev) => ({ ...prev, image_alt: e.target.value }))} placeholder="Promotion image alt text" className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm" /></div>
-        <div className="flex flex-wrap gap-6">
-          <label className="inline-flex items-center gap-3 text-sm font-medium text-foreground"><input type="checkbox" checked={form.is_active} onChange={(e) => setForm((prev) => ({ ...prev, is_active: e.target.checked }))} />Active</label>
-          <label className="inline-flex items-center gap-3 text-sm font-medium text-foreground"><input type="checkbox" checked={form.show_once_per_session} onChange={(e) => setForm((prev) => ({ ...prev, show_once_per_session: e.target.checked }))} />Show once per session</label>
-        </div>
+        </section>
+
+        <section aria-labelledby="cta-heading" className="border-t border-border pt-7">
+          <h2 id="cta-heading" className="text-base font-semibold text-foreground">Email action</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Every promotion shows an email field with its own Submit button first. Choose the CTA shown after a successful submission.</p>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            {([
+              { value: 'redirect' as const, title: 'Redirect', description: 'Collect the email, then show a CTA linked to a destination.', icon: ExternalLink },
+              { value: 'reveal_coupon' as const, title: 'Reveal coupon', description: 'Collect the email, then display a selected coupon.', icon: Gift },
+            ]).map((action) => {
+              const selected = form.cta_action === action.value
+              const Icon = action.icon
+              return <button key={action.value} type="button" aria-pressed={selected} onClick={() => setForm((prev) => ({ ...prev, cta_action: action.value }))} className={`flex items-start gap-3 rounded-lg border p-4 text-left outline-none transition focus:ring-2 focus:ring-primary/25 ${selected ? 'border-primary bg-primary/5' : 'border-border hover:border-foreground/30'}`}><span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md border ${selected ? 'border-primary/30 bg-white text-primary' : 'border-border bg-secondary/30 text-muted-foreground'}`}><Icon size={17} /></span><span><span className="block text-sm font-semibold text-foreground">{action.title}</span><span className="mt-1 block text-xs leading-5 text-muted-foreground">{action.description}</span></span></button>
+            })}
+          </div>
+          <div className="mt-5 space-y-4">
+            <div><label htmlFor="promotion-cta-text" className="mb-2 block text-sm font-semibold text-foreground">CTA text</label><input id="promotion-cta-text" value={form.cta_text} onChange={(e) => setForm((prev) => ({ ...prev, cta_text: e.target.value }))} placeholder="Shop the collection" className={fieldClassName} /><p className="mt-1.5 text-xs text-muted-foreground">This CTA appears only after the shopper submits their email.</p></div>
+            {form.cta_action === 'redirect' ? (
+              <div><label htmlFor="promotion-cta-link" className="mb-2 block text-sm font-semibold text-foreground">Destination link</label><input id="promotion-cta-link" value={form.cta_link} onChange={(e) => setForm((prev) => ({ ...prev, cta_link: e.target.value }))} placeholder="/shop" className={fieldClassName} /><p className="mt-1.5 text-xs text-muted-foreground">The shopper is redirected only after their email is saved.</p></div>
+            ) : (
+              <div><label className="mb-2 block text-sm font-semibold text-foreground">Coupon to reveal</label><Select value={form.selected_coupon_id == null ? undefined : String(form.selected_coupon_id)} onValueChange={(value) => setForm((prev) => ({ ...prev, selected_coupon_id: Number(value) }))}><SelectTrigger className="h-11 w-full bg-white"><SelectValue placeholder="Select an active coupon" /></SelectTrigger><SelectContent>{initialData.coupons.map((coupon) => <SelectItem key={coupon.id} value={String(coupon.id)} disabled={coupon.usage_limit != null && coupon.usage_count >= coupon.usage_limit}>{coupon.code}{coupon.title ? ` — ${coupon.title}` : ''}</SelectItem>)}</SelectContent></Select>{initialData.coupons.length === 0 ? <p className="mt-1.5 text-xs text-destructive">Create and activate a coupon before enabling this action.</p> : <p className="mt-1.5 text-xs text-muted-foreground">The coupon code remains hidden until the email is submitted successfully.</p>}</div>
+            )}
+          </div>
+        </section>
+
+        {!form.image_only_mode ? <section aria-labelledby="media-heading" className="border-t border-border pt-7">
+          <h2 id="media-heading" className="text-base font-semibold text-foreground">Media</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Use a desktop image and, optionally, a mobile crop. Mobile falls back to desktop when empty.</p>
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
+            {([
+              { field: 'image_path' as const, title: 'Desktop image', note: 'Recommended 760 × 420', icon: Monitor },
+              { field: 'mobile_image_path' as const, title: 'Mobile image', note: 'Optional · Recommended 390 × 360', icon: Smartphone },
+            ]).map(({ field, title, note, icon: Icon }) => {
+              const value = form[field]
+              return <div key={field} className="overflow-hidden rounded-lg border border-border bg-secondary/10">
+                <div className="aspect-[16/9] bg-white">{value ? <img src={publicAssetUrl(value)} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full flex-col items-center justify-center text-muted-foreground"><Icon size={22} /><span className="mt-2 text-xs">No image selected</span></div>}</div>
+                <div className="p-4"><p className="text-sm font-semibold text-foreground">{title}</p><p className="mt-1 text-xs text-muted-foreground">{note}</p><label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-md border border-border bg-white px-3 py-2 text-xs font-semibold text-foreground transition hover:border-primary hover:text-primary focus-within:ring-2 focus-within:ring-primary/20"><Upload size={14} />{uploadingField === field ? 'Uploading…' : value ? 'Replace image' : 'Upload image'}<input type="file" accept="image/*,.svg" className="sr-only" disabled={uploadingField !== null} onChange={(e) => { const file = e.target.files?.[0]; if (file) void uploadAsset(file, field) }} /></label></div>
+              </div>
+            })}
+          </div>
+          <div className="mt-4"><label htmlFor="promotion-image-alt" className="mb-2 block text-sm font-semibold text-foreground">Image alt text</label><input id="promotion-image-alt" value={form.image_alt} onChange={(e) => setForm((prev) => ({ ...prev, image_alt: e.target.value }))} placeholder="Describe the promotion artwork" className={fieldClassName} /></div>
+        </section> : null}
+
+        <section aria-labelledby="visibility-heading" className="border-t border-border pt-7">
+          <h2 id="visibility-heading" className="text-base font-semibold text-foreground">Visibility</h2>
+          <div className="mt-4 divide-y divide-border rounded-lg border border-border">
+            <label className="flex cursor-pointer items-start justify-between gap-5 p-4"><span><span className="block text-sm font-semibold text-foreground">Active</span><span className="mt-1 block text-xs leading-5 text-muted-foreground">Display this promotion on the storefront.</span></span><input type="checkbox" checked={form.is_active} onChange={(e) => setForm((prev) => ({ ...prev, is_active: e.target.checked }))} className="mt-1 h-4 w-4 accent-primary" /></label>
+            <label className="flex cursor-pointer items-start justify-between gap-5 p-4"><span><span className="block text-sm font-semibold text-foreground">Show once per session</span><span className="mt-1 block text-xs leading-5 text-muted-foreground">After dismissal, do not show it again during the shopper’s current visit.</span></span><input type="checkbox" checked={form.show_once_per_session} onChange={(e) => setForm((prev) => ({ ...prev, show_once_per_session: e.target.checked }))} className="mt-1 h-4 w-4 accent-primary" /></label>
+          </div>
+        </section>
       </div>
       <ConfirmDialog isOpen={confirmOpen} title="Save promotion popup?" description="This will update the storefront promotional popup." confirmText="Save" cancelText="Cancel" type="confirm" isLoading={isSaving} onConfirm={() => void save()} onCancel={() => setConfirmOpen(false)} />
     </div>

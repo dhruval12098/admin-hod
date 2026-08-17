@@ -1,6 +1,6 @@
 import { createSupabaseAdminClient } from '@/lib/admin-supabase'
 
-export type EnquiryTab = 'all' | 'bespoke' | 'contact' | 'product' | 'newsletter'
+export type EnquiryTab = 'all' | 'bespoke' | 'contact' | 'product' | 'newsletter' | 'promotion'
 
 export type BespokeEnquiry = {
   id: string
@@ -44,12 +44,27 @@ export type NewsletterEnquiry = {
   href: string
 }
 
-export type AdminEnquiryItem = BespokeEnquiry | ContactEnquiry | NewsletterEnquiry
+export type PromotionEnquiry = {
+  id: string
+  source: 'promotion'
+  full_name: string
+  email: string
+  phone: null
+  title: string
+  summary: string
+  message: string
+  status: string
+  created_at: string
+  href: string
+}
+
+export type AdminEnquiryItem = BespokeEnquiry | ContactEnquiry | NewsletterEnquiry | PromotionEnquiry
 
 export type EnquiriesPageData = {
   items: AdminEnquiryItem[]
   counts: Record<EnquiryTab, number>
   newsletterEnabled: boolean
+  promotionLeadsEnabled: boolean
 }
 
 function isMissingRelationError(error: { code?: string; message?: string } | null) {
@@ -64,7 +79,7 @@ function toProductTitle(topic: string | null, fallback: string) {
 export async function getEnquiriesPageData(): Promise<EnquiriesPageData> {
   const adminClient = createSupabaseAdminClient()
 
-  const [bespokeResult, contactResult, newsletterResult] = await Promise.all([
+  const [bespokeResult, contactResult, newsletterResult, promotionResult] = await Promise.all([
     adminClient
       .from('bespoke_submissions')
       .select('id, full_name, email, phone, piece_type, country, message, status, created_at')
@@ -77,6 +92,10 @@ export async function getEnquiriesPageData(): Promise<EnquiriesPageData> {
       .from('newsletter_submissions')
       .select('id, email, source, status, created_at')
       .order('created_at', { ascending: false }),
+    adminClient
+      .from('promotion_popup_submissions')
+      .select('id, email, action_type, coupon_id, submitted_at, coupons(code, title)')
+      .order('submitted_at', { ascending: false }),
   ])
 
   const bespokeItems: BespokeEnquiry[] = (bespokeResult.error ? [] : bespokeResult.data ?? []).map((item) => ({
@@ -145,7 +164,33 @@ export async function getEnquiriesPageData(): Promise<EnquiriesPageData> {
           href: '/dashboard/enquiries?tab=newsletter',
         }))
 
-  const items = [...bespokeItems, ...contactItems, ...productItems, ...newsletterItems].sort(
+  const promotionLeadsEnabled = !isMissingRelationError(promotionResult.error)
+  const promotionItems: PromotionEnquiry[] =
+    promotionResult.error || !promotionLeadsEnabled
+      ? []
+      : (promotionResult.data ?? []).map((item) => {
+          const coupon = Array.isArray(item.coupons) ? item.coupons[0] : item.coupons
+          const revealsCoupon = item.action_type === 'reveal_coupon'
+          return {
+            id: `promotion-${item.id}`,
+            source: 'promotion',
+            full_name: 'Promotion Lead',
+            email: item.email,
+            phone: null,
+            title: revealsCoupon ? 'Promotion Coupon Reveal' : 'Promotion Redirect',
+            summary: revealsCoupon
+              ? `Coupon revealed${coupon?.code ? `: ${coupon.code}` : ''}`
+              : 'Email collected before redirect',
+            message: revealsCoupon
+              ? `The shopper submitted their email and revealed ${coupon?.title || coupon?.code || 'the selected coupon'}.`
+              : 'The shopper submitted their email and continued to the configured destination.',
+            status: 'new',
+            created_at: item.submitted_at,
+            href: '/dashboard/enquiries?tab=promotion',
+          }
+        })
+
+  const items = [...bespokeItems, ...contactItems, ...productItems, ...newsletterItems, ...promotionItems].sort(
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
   )
 
@@ -157,7 +202,9 @@ export async function getEnquiriesPageData(): Promise<EnquiriesPageData> {
       contact: contactItems.length,
       product: productItems.length,
       newsletter: newsletterItems.length,
+      promotion: promotionItems.length,
     },
     newsletterEnabled,
+    promotionLeadsEnabled,
   }
 }

@@ -66,6 +66,7 @@ type OrderItem = {
   selected_gemstone: string | null
   selected_carat: string | null
   image_url: string | null
+  selected_custom_dropdowns?: { dropdown_id: string; label: string; option_label: string }[]
 }
 
 type OrderLoveLetter = {
@@ -439,6 +440,7 @@ export default function OrderDetailPage({ params }: OrderDetailPageProps) {
                       {item.selected_gemstone ? <span>Stone: {item.selected_gemstone}</span> : null}
                       {item.selected_carat ? <span>Carat: {item.selected_carat}</span> : null}
                       {item.selected_size_or_fit ? <span>Size/Fit: {item.selected_size_or_fit}</span> : null}
+                      {item.selected_custom_dropdowns?.map((selection) => <span key={selection.dropdown_id}>{selection.label}: {selection.option_label}</span>)}
                     </div>
                   </div>
                   <div className="text-right">

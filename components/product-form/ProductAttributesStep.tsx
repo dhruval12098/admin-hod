@@ -16,6 +16,8 @@ import type {
   CatalogRingCategorySize,
   CatalogStoneShape,
 } from '@/lib/product-catalog'
+import type { ProductCustomDropdown } from '@/lib/product-custom-dropdowns'
+import { ProductCustomDropdownEditor } from './ProductCustomDropdownEditor'
 
 export function ProductAttributesStep({
   certificates,
@@ -52,6 +54,10 @@ export function ProductAttributesStep({
   setEngravingLabel,
   inputClassName,
   secondaryButtonClassName,
+  customDropdownsEnabled,
+  onCustomDropdownsEnabledChange,
+  customDropdowns,
+  onCustomDropdownsChange,
 }: {
   certificates: CatalogCertificate[]
   selectedCertificateIds: string[]
@@ -87,6 +93,10 @@ export function ProductAttributesStep({
   setEngravingLabel: Dispatch<SetStateAction<string>>
   inputClassName: string
   secondaryButtonClassName: string
+  customDropdownsEnabled: boolean
+  onCustomDropdownsEnabledChange: (value: boolean) => void
+  customDropdowns: ProductCustomDropdown[]
+  onCustomDropdownsChange: (groups: ProductCustomDropdown[]) => void
 }) {
   return (
     <section className="rounded-lg border border-border bg-card p-8 shadow-sm">
@@ -207,6 +217,8 @@ export function ProductAttributesStep({
             </div>
           ) : null}
         </div>
+
+        <ProductCustomDropdownEditor enabled={customDropdownsEnabled} onEnabledChange={onCustomDropdownsEnabledChange} groups={customDropdowns} onChange={onCustomDropdownsChange} />
 
         <div className="rounded-lg border border-border bg-secondary/10 p-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
