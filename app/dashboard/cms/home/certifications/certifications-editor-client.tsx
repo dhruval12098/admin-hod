@@ -15,6 +15,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { CmsSaveAction } from '@/components/cms-save-action'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
+import { uploadCmsAssetDirectWithFallback } from '@/lib/cms-direct-upload-client'
 
 type CertificationItem = {
   clientId: string
@@ -96,22 +97,18 @@ export function CertificationsEditorClient({ initialData }: { initialData: Certi
       return
     }
 
-    const formData = new FormData()
-    formData.append('file', file)
-
-    const response = await fetch('/api/cms/uploads/certifications', {
-      method: 'POST',
-      headers: { authorization: `Bearer ${accessToken}` },
-      body: formData,
-    })
-
-    const payload = (await response.json().catch(() => null)) as { path?: string; error?: string } | null
-    if (!response.ok || !payload?.path) {
-      setLoadStatus(payload?.error ?? 'Unable to upload icon.')
+    try {
+      const path = await uploadCmsAssetDirectWithFallback({
+        file, accessToken,
+        signEndpoint: '/api/cms/uploads/certifications/sign',
+        fallbackEndpoint: '/api/cms/uploads/certifications',
+        maxInputBytes: 5 * 1024 * 1024, rasterWidth: 800, webpQuality: 82,
+      })
+      setEditorItem((prev) => (prev ? { ...prev, icon_path: path } : prev))
+    } catch (error) {
+      setLoadStatus(error instanceof Error ? error.message : 'Unable to upload icon.')
       return
     }
-
-    setEditorItem((prev) => (prev ? { ...prev, icon_path: payload.path ?? '' } : prev))
     setLoadStatus('Icon uploaded')
     toast({ title: 'Uploaded', description: 'Why Choose icon uploaded successfully.' })
   }

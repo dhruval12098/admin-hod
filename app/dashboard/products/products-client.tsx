@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Search, Plus, Edit2, Trash2, CheckCircle2, Circle, Copy, MoreHorizontal } from 'lucide-react'
+import { Search, Plus, Edit2, Trash2, CheckCircle2, Circle, Copy, MoreHorizontal, EyeOff } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { TablePagination } from '@/components/table-pagination'
@@ -86,6 +86,8 @@ export function ProductsClient({
   const [duplicateTarget, setDuplicateTarget] = useState<ProductRow | null>(null)
   const [duplicateRequestId, setDuplicateRequestId] = useState<string | null>(null)
   const [duplicateLoading, setDuplicateLoading] = useState(false)
+  const [draftTarget, setDraftTarget] = useState<ProductRow | null>(null)
+  const [draftLoading, setDraftLoading] = useState(false)
   const [page, setPage] = useState(1)
   const [activatingDrafts, setActivatingDrafts] = useState(false)
   const [activateDialogOpen, setActivateDialogOpen] = useState(false)
@@ -98,7 +100,7 @@ export function ProductsClient({
     try {
       const accessToken = await getAccessToken()
       if (!accessToken) return
-      const response = await fetch('/api/products', {
+      const response = await fetch(`/api/products/list?lane=${encodeURIComponent(lane)}`, {
         headers: { authorization: `Bearer ${accessToken}` },
       })
       const payload = await response.json().catch(() => null)
@@ -236,6 +238,47 @@ export function ProductsClient({
       })
     } finally {
       setDuplicateLoading(false)
+    }
+  }
+
+  const markProductAsDraft = async () => {
+    if (!draftTarget || draftLoading) return
+
+    setDraftLoading(true)
+    try {
+      const accessToken = await getAccessToken()
+      if (!accessToken) {
+        toast({ title: 'Not signed in', description: 'Please sign in again before changing product status.', variant: 'destructive' })
+        return
+      }
+
+      const response = await fetch(`/api/products/${draftTarget.id}/status`, {
+        method: 'PATCH',
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ status: 'draft' }),
+      })
+      const payload = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        toast({ title: 'Status update failed', description: payload?.error ?? 'Unable to mark this product as draft.', variant: 'destructive' })
+        return
+      }
+
+      const productName = draftTarget.name
+      setProducts((current) => current.map((product) => product.id === draftTarget.id ? { ...product, status: 'draft' } : product))
+      setDraftTarget(null)
+      toast({ title: 'Product marked as draft', description: `“${productName}” is now hidden from the storefront.` })
+    } catch (error) {
+      toast({
+        title: 'Status update failed',
+        description: error instanceof Error ? error.message : 'Unable to mark this product as draft.',
+        variant: 'destructive',
+      })
+    } finally {
+      setDraftLoading(false)
     }
   }
 
@@ -445,6 +488,12 @@ export function ProductsClient({
                           </button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
+                          {product.status !== 'draft' ? (
+                            <DropdownMenuItem onClick={() => setDraftTarget(product)}>
+                              <EyeOff size={14} />
+                              Mark as Draft
+                            </DropdownMenuItem>
+                          ) : null}
                           <DropdownMenuItem onClick={() => openDuplicateDialog(product)}>
                             <Copy size={14} />
                             Duplicate Product
@@ -509,6 +558,20 @@ export function ProductsClient({
         onConfirm={() => void deleteSelectedProducts()}
         onCancel={() => {
           if (!bulkDeleteLoading) setBulkDeleteDialogOpen(false)
+        }}
+      />
+
+      <ConfirmDialog
+        isOpen={Boolean(draftTarget)}
+        title="Mark this product as draft?"
+        description={`This will hide${draftTarget?.name ? ` “${draftTarget.name}”` : ' this product'} from the storefront. You can activate it again from the product list.`}
+        confirmText="Mark as Draft"
+        cancelText="Cancel"
+        type="warning"
+        isLoading={draftLoading}
+        onConfirm={() => void markProductAsDraft()}
+        onCancel={() => {
+          if (!draftLoading) setDraftTarget(null)
         }}
       />
 

@@ -16,6 +16,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { CmsSaveAction } from '@/components/cms-save-action'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
+import { uploadCmsAssetDirectWithFallback } from '@/lib/cms-direct-upload-client'
 
 type ContactInfoItem = {
   clientId: string
@@ -142,18 +143,22 @@ export function ContactInfoEditorClient({ initialData }: { initialData: ContactI
       return
     }
     setUploading(true)
-    const formData = new FormData()
-    formData.append('file', file)
-    const response = await fetch('/api/cms/uploads/contact', { method: 'POST', headers: { authorization: `Bearer ${accessToken}` }, body: formData })
-    const payload = (await response.json().catch(() => null)) as { path?: string; error?: string } | null
-    setUploading(false)
-    if (!response.ok || !payload?.path) {
-      const message = payload?.error ?? 'Unable to upload contact icon.'
+    try {
+      const path = await uploadCmsAssetDirectWithFallback({
+        file, accessToken,
+        signEndpoint: '/api/cms/uploads/contact/sign',
+        fallbackEndpoint: '/api/cms/uploads/contact',
+        svgOnly: true,
+      })
+      setEditorItem((prev) => ({ ...prev, icon_path: path }))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to upload contact icon.'
       setStatus(message)
       toast({ title: 'Upload failed', description: message, variant: 'destructive' })
       return
+    } finally {
+      setUploading(false)
     }
-    setEditorItem((prev) => ({ ...prev, icon_path: payload.path ?? '' }))
     setStatus('Contact icon uploaded')
     toast({ title: 'Contact icon uploaded', description: 'Icon uploaded successfully.' })
   }

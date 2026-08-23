@@ -1,14 +1,30 @@
 import { createSupabaseAdminClient } from '@/lib/admin-supabase'
 import { formatCategoryPath } from '@/lib/product-catalog'
+import { getProductListReferenceData } from '@/lib/product-list-reference-cache'
 import type {
   CatalogCategory,
   CatalogOption,
   CatalogSubcategory,
-  ProductRecord,
 } from '@/lib/product-catalog'
 import type { ProductRow } from './products-client'
 
 export type ProductLane = 'standard' | 'hiphop' | 'collection'
+
+type ProductListRecord = {
+  id: string
+  slug: string | null
+  name: string
+  sku: string
+  product_lane: ProductLane | null
+  detail_template: 'standard' | 'hiphop' | null
+  main_category_id: string
+  subcategory_id: string | null
+  option_id: string | null
+  base_price: number | null
+  stock_quantity: number | null
+  featured: boolean
+  status: string
+}
 
 type RelatedNameRow = { name?: string | null } | Array<{ name?: string | null }> | null
 
@@ -32,7 +48,10 @@ function buildDisplayCategoryPath(args: {
 
 export async function getProductRows(lane?: ProductLane): Promise<ProductRow[]> {
   const adminClient = createSupabaseAdminClient()
-  let query = adminClient.from('products').select('*').order('created_at', { ascending: false })
+  let query = adminClient
+    .from('products')
+    .select('id, slug, name, sku, product_lane, detail_template, main_category_id, subcategory_id, option_id, base_price, stock_quantity, featured, status, created_at')
+    .order('created_at', { ascending: false })
 
   if (lane) {
     query = query.eq('product_lane', lane)
@@ -45,13 +64,11 @@ export async function getProductRows(lane?: ProductLane): Promise<ProductRow[]> 
   }
 
   const productIds = (products ?? []).map((product) => product.id)
-  const [metalSelections, categoriesResult, subcategoriesResult, optionsResult, subcategoryLinksResult, optionLinksResult] = await Promise.all([
+  const [metalSelections, referenceData, subcategoryLinksResult, optionLinksResult] = await Promise.all([
     productIds.length
       ? adminClient.from('product_metal_selections').select('product_id, metal:catalog_metals(name)').in('product_id', productIds)
       : Promise.resolve({ data: [], error: null }),
-    adminClient.from('catalog_categories').select('*'),
-    adminClient.from('catalog_subcategories').select('*'),
-    adminClient.from('catalog_options').select('*'),
+    getProductListReferenceData(),
     productIds.length
       ? adminClient.from('product_subcategory_links').select('product_id, subcategory_id, is_primary').in('product_id', productIds)
       : Promise.resolve({ data: [], error: null }),
@@ -60,9 +77,9 @@ export async function getProductRows(lane?: ProductLane): Promise<ProductRow[]> 
       : Promise.resolve({ data: [], error: null }),
   ])
 
-  const categories = (categoriesResult.data ?? []) as CatalogCategory[]
-  const subcategories = (subcategoriesResult.data ?? []) as CatalogSubcategory[]
-  const options = (optionsResult.data ?? []) as CatalogOption[]
+  const categories = referenceData.categories as CatalogCategory[]
+  const subcategories = referenceData.subcategories as CatalogSubcategory[]
+  const options = referenceData.options as CatalogOption[]
 
   const metalMap = new Map<string, string[]>()
   for (const row of metalSelections.data ?? []) {
@@ -87,7 +104,7 @@ export async function getProductRows(lane?: ProductLane): Promise<ProductRow[]> 
     linkedOptionMap.set(row.product_id, [...(linkedOptionMap.get(row.product_id) ?? []), optionName])
   }
 
-  return ((products ?? []) as ProductRecord[]).map((product) => {
+  return ((products ?? []) as ProductListRecord[]).map((product) => {
     const category = categories.find((item) => item.id === product.main_category_id)
     const subcategory = subcategories.find((item) => item.id === product.subcategory_id)
     const option = options.find((item) => item.id === product.option_id)

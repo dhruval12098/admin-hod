@@ -88,6 +88,7 @@ export default async function DiscoverRingsEditorPage() {
       sectionDescription="Manage the carousel items for the Discover Rings section. Section heading and intro stay static. Each item links from the exact category, subcategory, option, shape, or style you select."
       saveEndpoint="/api/cms/home/discover-rings"
       uploadEndpoint="/api/cms/uploads/discover-rings"
+      uploadSignEndpoint="/api/cms/uploads/discover-rings/sign"
       saveDescription="This will update the Discover Rings carousel on the homepage."
       initialData={{ items: initialData.items }}
       linkTargetGroups={initialData.linkTargetGroups}

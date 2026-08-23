@@ -8,6 +8,7 @@ import {
   productImportMaxArchiveBytes,
   productImportMaxCsvBytes,
   productImportMaxWorkbookBytes,
+  productImportStagingFolder,
 } from '@/lib/product-import-staging'
 
 function normalizeLane(value: FormDataEntryValue | null) {
@@ -96,8 +97,42 @@ export async function POST(request: Request) {
 
     const dataFile = ensureDataFile(formData.get('csv_file') as File | null)
     const archiveFile = ensureArchiveFile(formData.get('asset_archive') as File | null)
+    const directArchivePath = normalizeText(formData.get('asset_archive_path'))
+    const directArchiveName = normalizeText(formData.get('asset_archive_name'))
+    const directArchiveType = normalizeText(formData.get('asset_archive_type')) ?? 'application/zip'
+    const directArchiveSize = Number(normalizeText(formData.get('asset_archive_size')))
     const lane = normalizeLane(formData.get('lane'))
     const jobName = normalizeText(formData.get('job_name'))
+
+    if (archiveFile && directArchivePath) {
+      throw new Error('Provide the image ZIP through either direct upload or multipart upload, not both.')
+    }
+
+    if (directArchivePath) {
+      const expectedPrefix = `${productImportStagingFolder}/pending/${access.user.id}/`
+      if (!directArchivePath.startsWith(expectedPrefix) || !directArchiveName?.toLowerCase().endsWith('.zip')) {
+        throw new Error('Invalid direct ZIP staging reference.')
+      }
+      if (!Number.isFinite(directArchiveSize) || directArchiveSize <= 0 || directArchiveSize > productImportMaxArchiveBytes) {
+        throw new Error('Direct ZIP archive must be larger than 0 bytes and no more than 250 MB.')
+      }
+
+      const separatorIndex = directArchivePath.lastIndexOf('/')
+      const folder = directArchivePath.slice(0, separatorIndex)
+      const objectName = directArchivePath.slice(separatorIndex + 1)
+      const { data: objects, error: listError } = await access.adminClient.storage
+        .from(productImportBucket)
+        .list(folder, { limit: 10, search: objectName })
+      const uploadedObject = objects?.find((item) => item.name === objectName)
+      const storedSize = Number(uploadedObject?.metadata?.size)
+      if (listError || !uploadedObject || !Number.isFinite(storedSize) || storedSize !== directArchiveSize) {
+        throw new Error(listError?.message ?? 'Direct ZIP upload could not be verified. Please retry the upload.')
+      }
+    } else if (directArchiveName) {
+      throw new Error('Direct ZIP upload path is missing.')
+    }
+
+    const archiveFileName = archiveFile?.name ?? directArchiveName
 
     const lowerName = dataFile.name.toLowerCase()
     const dataBuffer = Buffer.from(await dataFile.arrayBuffer())
@@ -113,7 +148,7 @@ export async function POST(request: Request) {
         lane,
         status: 'uploaded',
         csv_file_name: dataFile.name,
-        zip_file_name: archiveFile?.name ?? null,
+        zip_file_name: archiveFileName ?? null,
         total_rows: parsed.rows.length,
         notes: 'Rows and uploaded files are staged. Validation and import execution have not run yet.',
       })
@@ -140,7 +175,7 @@ export async function POST(request: Request) {
     }
     uploadedPaths.push(csvStoragePath)
 
-    let archiveStoragePath: string | null = null
+    let archiveStoragePath: string | null = directArchivePath
     if (archiveFile) {
       archiveStoragePath = buildImportStoragePath(job.id, 'archive', archiveFile.name)
       const { error: archiveUploadError } = await access.adminClient.storage
@@ -231,15 +266,15 @@ export async function POST(request: Request) {
         file_role: 'unmatched',
         status: 'uploaded',
       },
-      ...(archiveFile && archiveStoragePath
+      ...(archiveStoragePath && archiveFileName
         ? [
             {
               import_job_id: job.id,
-              original_file_name: archiveFile.name,
-              normalized_file_name: archiveFile.name.toLowerCase(),
+              original_file_name: archiveFileName,
+              normalized_file_name: archiveFileName.toLowerCase(),
               storage_path: archiveStoragePath,
-              mime_type: archiveFile.type || 'application/zip',
-              file_size: archiveFile.size,
+              mime_type: archiveFile?.type || directArchiveType,
+              file_size: archiveFile?.size ?? directArchiveSize,
               matched_sku: null,
               matched_row_id: null,
               file_role: 'unmatched',
@@ -276,7 +311,7 @@ export async function POST(request: Request) {
         lane,
         totalRows: parsed.rows.length,
         csvFileName: dataFile.name,
-        archiveFileName: archiveFile?.name ?? null,
+        archiveFileName: archiveFileName ?? null,
       },
     })
   } catch (error) {

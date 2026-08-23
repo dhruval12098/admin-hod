@@ -48,6 +48,7 @@ export async function POST(request: Request) {
     const { data } = access.adminClient.storage.from(collectionBucket).getPublicUrl(filePath)
 
     return NextResponse.json({
+      provider: 'supabase',
       path: filePath,
       url: data.publicUrl,
     })
@@ -69,6 +70,7 @@ export async function POST(request: Request) {
     invalidateCentralVideoLibrary()
 
     return NextResponse.json({
+      provider: 'r2',
       path: uploadedVideo.url,
       url: uploadedVideo.url,
     })

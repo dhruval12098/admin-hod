@@ -14,6 +14,7 @@ import {
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { CmsSaveAction } from '@/components/cms-save-action'
 import { supabase } from '@/lib/supabase'
+import { uploadCmsAssetDirectWithFallback } from '@/lib/cms-direct-upload-client'
 
 type ValueItem = {
   clientId: string
@@ -222,14 +223,20 @@ export function ValuesEditorClient({ initialData }: { initialData: ValuesInitial
                     onChange={async (e) => {
                       const file = e.target.files?.[0]
                       if (!file) return
-                      const formData = new FormData()
-                      formData.append('file', file)
                       const { data: sessionData } = await supabase.auth.getSession()
                       const accessToken = sessionData.session?.access_token
                       if (!accessToken) return
-                      const response = await fetch('/api/cms/uploads/values', { method: 'POST', headers: { authorization: `Bearer ${accessToken}` }, body: formData })
-                      const payload = await response.json().catch(() => null) as { path?: string } | null
-                      if (response.ok && payload?.path) setEditorItem((prev) => ({ ...prev, icon_path: payload.path ?? '' }))
+                      try {
+                        const path = await uploadCmsAssetDirectWithFallback({
+                          file, accessToken,
+                          signEndpoint: '/api/cms/uploads/values/sign',
+                          fallbackEndpoint: '/api/cms/uploads/values',
+                          svgOnly: true,
+                        })
+                        setEditorItem((prev) => ({ ...prev, icon_path: path }))
+                      } catch (error) {
+                        setStatus(error instanceof Error ? error.message : 'Unable to upload value icon.')
+                      }
                     }}
                   />
                 </label>

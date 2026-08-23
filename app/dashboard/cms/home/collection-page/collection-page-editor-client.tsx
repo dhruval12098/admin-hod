@@ -34,19 +34,48 @@ export function CollectionPageEditorClient({ initialData }: { initialData: Colle
     const accessToken = sessionData.session?.access_token
     if (!accessToken) return
 
-    const body = new FormData()
-    body.append('file', file)
-    const response = await fetch('/api/cms/uploads/collection-page', {
-      method: 'POST',
-      headers: { authorization: `Bearer ${accessToken}` },
-      body,
-    })
-    const payload = (await response.json().catch(() => null)) as ApiPayload | null
-    if (!response.ok || !payload?.path) {
-      setStatus(payload?.error ?? 'Upload failed')
+    if (file.size > 5 * 1024 * 1024) {
+      setStatus('File too large. Max size is 5MB.')
       return
     }
-    setForm((prev) => ({ ...prev, [field]: payload.path ?? '' }))
+
+    let uploadedPath = ''
+    try {
+      const preparedFile = await prepareCollectionImage(file)
+      const signResponse = await fetch('/api/cms/uploads/collection-page/sign', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ contentType: preparedFile.type }),
+      })
+      const signed = (await signResponse.json().catch(() => null)) as { bucket?: string; path?: string; token?: string; error?: string } | null
+      if (!signResponse.ok || !signed?.bucket || !signed.path || !signed.token) {
+        throw new Error(signed?.error ?? 'Unable to prepare upload.')
+      }
+
+      const { error } = await supabase.storage.from(signed.bucket)
+        .uploadToSignedUrl(signed.path, signed.token, preparedFile, { contentType: preparedFile.type })
+      if (error) throw error
+      uploadedPath = signed.path
+    } catch {
+      const fallbackBody = new FormData()
+      fallbackBody.append('file', file)
+      const fallbackResponse = await fetch('/api/cms/uploads/collection-page', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${accessToken}` },
+        body: fallbackBody,
+      })
+      const fallbackPayload = (await fallbackResponse.json().catch(() => null)) as ApiPayload | null
+      if (!fallbackResponse.ok || !fallbackPayload?.path) {
+        setStatus(fallbackPayload?.error ?? 'Upload failed')
+        return
+      }
+      uploadedPath = fallbackPayload.path
+    }
+
+    setForm((prev) => ({ ...prev, [field]: uploadedPath }))
     setStatus(field === 'showcase_mobile_image_path' ? 'Mobile showcase image uploaded' : 'Showcase image uploaded')
     toast({ title: 'Uploaded', description: 'Collection showcase image uploaded successfully.' })
   }
@@ -183,4 +212,26 @@ export function CollectionPageEditorClient({ initialData }: { initialData: Colle
       />
     </div>
   )
+}
+
+async function prepareCollectionImage(file: File) {
+  if (file.type === 'image/svg+xml') return file
+  if (!['image/jpeg', 'image/png', 'image/webp', 'image/avif'].includes(file.type)) {
+    throw new Error('Invalid image type.')
+  }
+
+  const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' })
+  try {
+    const width = Math.min(bitmap.width, 1600)
+    const height = Math.max(1, Math.round(bitmap.height * (width / bitmap.width)))
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    canvas.getContext('2d')?.drawImage(bitmap, 0, 0, width, height)
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/webp', 0.82))
+    if (!blob) throw new Error('Unable to optimize image.')
+    return new File([blob], `${crypto.randomUUID()}.webp`, { type: 'image/webp' })
+  } finally {
+    bitmap.close()
+  }
 }

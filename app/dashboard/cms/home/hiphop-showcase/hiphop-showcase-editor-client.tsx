@@ -7,6 +7,7 @@ import { CmsSaveAction } from '@/components/cms-save-action'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
+import { uploadCmsAssetDirectWithFallback } from '@/lib/cms-direct-upload-client'
 
 export type HipHopShowcaseInitialData = {
   is_enabled: boolean
@@ -41,22 +42,20 @@ export function HipHopShowcaseEditorClient({ initialData }: { initialData: HipHo
       return
     }
 
-    const body = new FormData()
-    body.append('file', file)
-
-    const response = await fetch('/api/cms/uploads/hiphop-showcase', {
-      method: 'POST',
-      headers: { authorization: `Bearer ${accessToken}` },
-      body,
-    })
-
-    const payload = (await response.json().catch(() => null)) as ApiPayload | null
-    if (!response.ok || !payload?.path) {
-      setStatus(payload?.error ?? 'Upload failed')
+    let path = ''
+    try {
+      path = await uploadCmsAssetDirectWithFallback({
+        file, accessToken,
+        signEndpoint: '/api/cms/uploads/hiphop-showcase/sign',
+        fallbackEndpoint: '/api/cms/uploads/hiphop-showcase',
+        maxInputBytes: 5 * 1024 * 1024, rasterWidth: 2200, webpQuality: 84,
+      })
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Upload failed')
       return
     }
 
-    setForm((prev) => ({ ...prev, image_path: payload.path ?? '' }))
+    setForm((prev) => ({ ...prev, image_path: path }))
     setStatus('Hip Hop showcase image uploaded')
     toast({ title: 'Uploaded', description: 'Hip Hop showcase image uploaded successfully.' })
   }

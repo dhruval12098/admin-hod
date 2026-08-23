@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
+import { uploadCmsAssetDirectWithFallback } from '@/lib/cms-direct-upload-client'
 
 type DiamondInfoFeatureItem = {
   id?: string
@@ -38,12 +39,6 @@ type DiamondInfoConfig = {
 type ApiPayload = {
   features?: DiamondInfoFeatureItem[]
   config?: DiamondInfoConfig
-  error?: string
-}
-
-type UploadPayload = {
-  path?: string
-  url?: string
   error?: string
 }
 
@@ -180,10 +175,6 @@ export function DiamondInfoEditorClient({ initialData }: { initialData: DiamondI
     const accessToken = await withSessionToken()
     if (!accessToken) return
 
-    const formData = new FormData()
-    formData.append('file', file)
-    formData.append('kind', kind)
-
     if (kind === 'video') {
       setIsUploadingVideo(true)
       setLoadStatus('Uploading section video...')
@@ -195,32 +186,52 @@ export function DiamondInfoEditorClient({ initialData }: { initialData: DiamondI
       setLoadStatus('Uploading feature icon...')
     }
 
-    const response = await fetch('/api/cms/uploads/diamond-info', {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${accessToken}`,
-      },
-      body: formData,
-    })
+    let uploadedPath = ''
+    try {
+      const settings = kind === 'video'
+        ? {
+            maxInputBytes: 100 * 1024 * 1024,
+            allowedMimeTypes: ['video/mp4', 'video/webm', 'video/quicktime'],
+          }
+        : kind === 'poster'
+          ? {
+              maxInputBytes: 5 * 1024 * 1024,
+              rasterWidth: 2200,
+              webpQuality: 84,
+              rasterOnly: true,
+              allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/avif'],
+            }
+          : {
+              maxInputBytes: 512 * 1024,
+              svgOnly: true,
+              allowedMimeTypes: ['image/svg+xml'],
+            }
 
-    const payload = (await response.json().catch(() => null)) as UploadPayload | null
+      uploadedPath = await uploadCmsAssetDirectWithFallback({
+        file,
+        accessToken,
+        signEndpoint: '/api/cms/uploads/diamond-info/sign',
+        fallbackEndpoint: '/api/cms/uploads/diamond-info',
+        ...settings,
+        signFields: { kind, declaredSize: file.size },
+        fallbackFields: { kind },
+      })
+    } catch (error) {
+      if (kind === 'video') setIsUploadingVideo(false)
+      if (kind === 'poster') setIsUploadingPoster(false)
+      if (kind === 'icon') setIsUploadingIcon(false)
+      const message = error instanceof Error ? error.message : 'Upload failed.'
+      setLoadStatus(message)
+      toast({ title: 'Upload failed', description: message, variant: 'destructive' })
+      return
+    }
 
     if (kind === 'video') setIsUploadingVideo(false)
     if (kind === 'poster') setIsUploadingPoster(false)
     if (kind === 'icon') setIsUploadingIcon(false)
 
-    if (!response.ok || !payload?.path) {
-      setLoadStatus(payload?.error ?? 'Upload failed.')
-      toast({
-        title: 'Upload failed',
-        description: payload?.error ?? 'Upload failed.',
-        variant: 'destructive',
-      })
-      return
-    }
-
     if (kind === 'icon') {
-      setEditorItem((prev) => ({ ...prev, icon_svg: payload.path ?? '' }))
+      setEditorItem((prev) => ({ ...prev, icon_svg: uploadedPath }))
       setLoadStatus('Feature icon uploaded. Save the popup changes to keep it.')
       toast({
         title: 'Icon uploaded',
@@ -232,7 +243,7 @@ export function DiamondInfoEditorClient({ initialData }: { initialData: DiamondI
     const nextConfig = {
       ...config,
       video_enabled: true,
-      [kind === 'video' ? 'video_path' : 'video_poster_path']: payload.path,
+      [kind === 'video' ? 'video_path' : 'video_poster_path']: uploadedPath,
     }
     setConfig(nextConfig)
     await persist(

@@ -1,6 +1,7 @@
 import 'server-only'
 
 import { ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 
 type ProductMediaFolder = 'products' | 'hiphop' | 'bespoke'
 
@@ -18,6 +19,10 @@ function requireR2Config() {
   if (!r2AccountId || !r2AccessKeyId || !r2SecretAccessKey || !r2Bucket || !r2PublicBaseUrl) {
     throw new Error('Cloudflare R2 video upload is not configured completely.')
   }
+}
+
+export function isR2Configured() {
+  return Boolean(r2AccountId && r2AccessKeyId && r2SecretAccessKey && r2Bucket && r2PublicBaseUrl)
 }
 
 function getR2Client() {
@@ -57,6 +62,39 @@ function buildVideoObjectKey(folder: ProductMediaFolder, extension: string) {
   )
 
   return prefix ? `${prefix}/${crypto.randomUUID()}.${extension}` : `${crypto.randomUUID()}.${extension}`
+}
+
+function normalizeObjectSegment(value: string | null | undefined) {
+  return (value || 'draft')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'draft'
+}
+
+export async function createPresignedProductImageUpload({
+  folder,
+  productKey,
+  contentType,
+}: {
+  folder: 'products' | 'hiphop'
+  productKey?: string | null
+  contentType: 'image/webp' | 'image/svg+xml'
+}) {
+  const extension = contentType === 'image/svg+xml' ? 'svg' : 'webp'
+  const objectKey = `${folder}/${normalizeObjectSegment(productKey)}/images/${crypto.randomUUID()}.${extension}`
+  const command = new PutObjectCommand({
+    Bucket: r2Bucket,
+    Key: objectKey,
+    ContentType: contentType,
+  })
+  const uploadUrl = await getSignedUrl(getR2Client(), command, { expiresIn: 300 })
+
+  return {
+    key: objectKey,
+    uploadUrl,
+    url: joinPublicUrl(r2PublicBaseUrl, objectKey),
+  }
 }
 
 export function inferVideoContentType(extension: string, fallback?: string | null) {

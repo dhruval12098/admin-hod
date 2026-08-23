@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { assertAdmin } from '@/lib/cms-auth'
+import { invalidateProductListReferenceData } from '@/lib/product-list-reference-cache'
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const access = await assertAdmin(request)
@@ -71,6 +72,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  invalidateProductListReferenceData()
   return NextResponse.json({ item: data })
 }
 
@@ -96,5 +98,6 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
 
   const { error } = await access.adminClient.from('catalog_categories').delete().eq('id', id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  invalidateProductListReferenceData()
   return NextResponse.json({ ok: true })
 }

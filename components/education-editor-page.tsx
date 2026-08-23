@@ -20,6 +20,28 @@ type EducationProduct = {
   status?: string | null
   base_price?: number | null
 }
+
+async function prepareEducationImage(file: File) {
+  if (file.type === 'image/svg+xml') return file
+  if (!['image/jpeg', 'image/png', 'image/webp', 'image/avif'].includes(file.type)) {
+    throw new Error('Invalid image type.')
+  }
+
+  const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' })
+  try {
+    const width = Math.min(bitmap.width, 2200)
+    const height = Math.max(1, Math.round(bitmap.height * (width / bitmap.width)))
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    canvas.getContext('2d')?.drawImage(bitmap, 0, 0, width, height)
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/webp', 0.84))
+    if (!blob) throw new Error('Unable to optimize image.')
+    return new File([blob], `${crypto.randomUUID()}.webp`, { type: 'image/webp' })
+  } finally {
+    bitmap.close()
+  }
+}
 type EducationContentBlock = {
   clientId: string
   id?: number
@@ -252,6 +274,44 @@ export function EducationEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?
     load()
   }, [mode, id])
 
+  const uploadEducationMedia = async (file: File, accessToken: string) => {
+    if (file.size > 5 * 1024 * 1024) throw new Error('File too large. Max size is 5MB.')
+
+    try {
+      const preparedFile = await prepareEducationImage(file)
+      const signResponse = await fetch('/api/cms/uploads/education/sign', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ contentType: preparedFile.type }),
+      })
+      const signed = (await signResponse.json().catch(() => null)) as { bucket?: string; path?: string; token?: string; error?: string } | null
+      if (!signResponse.ok || !signed?.bucket || !signed.path || !signed.token) {
+        throw new Error(signed?.error ?? 'Unable to prepare upload.')
+      }
+
+      const { error } = await supabase.storage.from(signed.bucket)
+        .uploadToSignedUrl(signed.path, signed.token, preparedFile, { contentType: preparedFile.type })
+      if (error) throw error
+      return signed.path
+    } catch (directError) {
+      const formData = new FormData()
+      formData.append('file', file)
+      const response = await fetch('/api/cms/uploads/education', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${accessToken}` },
+        body: formData,
+      })
+      const payload = (await response.json().catch(() => null)) as { path?: string; error?: string } | null
+      if (!response.ok || !payload?.path) {
+        throw new Error(payload?.error ?? (directError instanceof Error ? directError.message : 'Unable to upload image.'))
+      }
+      return payload.path
+    }
+  }
+
   const uploadImage = async (file: File) => {
     const { data: sessionData } = await supabase.auth.getSession()
     const accessToken = sessionData.session?.access_token
@@ -259,21 +319,15 @@ export function EducationEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?
 
     setUploading(true)
     setStatus('Uploading education image...')
-    const formData = new FormData()
-    formData.append('file', file)
-
-    const response = await fetch('/api/cms/uploads/education', {
-      method: 'POST',
-      headers: { authorization: `Bearer ${accessToken}` },
-      body: formData,
-    })
-
-    const payload = (await response.json().catch(() => null)) as { path?: string; error?: string } | null
-    setUploading(false)
-    if (!response.ok || !payload?.path) return setStatus(payload?.error ?? 'Unable to upload image.')
-
-    setForm((prev) => ({ ...prev, hero_image_path: payload.path ?? '' }))
-    setStatus('Education image uploaded successfully')
+    try {
+      const path = await uploadEducationMedia(file, accessToken)
+      setForm((prev) => ({ ...prev, hero_image_path: path }))
+      setStatus('Education image uploaded successfully')
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Unable to upload image.')
+    } finally {
+      setUploading(false)
+    }
   }
 
   const uploadBlockImage = async (clientId: string, file: File) => {
@@ -283,23 +337,17 @@ export function EducationEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?
 
     setUploading(true)
     setStatus('Uploading block image...')
-    const formData = new FormData()
-    formData.append('file', file)
-
-    const response = await fetch('/api/cms/uploads/education', {
-      method: 'POST',
-      headers: { authorization: `Bearer ${accessToken}` },
-      body: formData,
-    })
-
-    const payload = (await response.json().catch(() => null)) as { path?: string; error?: string } | null
-    setUploading(false)
-    if (!response.ok || !payload?.path) return setStatus(payload?.error ?? 'Unable to upload image.')
-
-    setContentBlocks((prev) =>
-      prev.map((block) => (block.clientId === clientId ? { ...block, image_path: payload.path ?? '' } : block))
-    )
-    setStatus('Block image uploaded successfully')
+    try {
+      const path = await uploadEducationMedia(file, accessToken)
+      setContentBlocks((prev) =>
+        prev.map((block) => (block.clientId === clientId ? { ...block, image_path: path } : block))
+      )
+      setStatus('Block image uploaded successfully')
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Unable to upload image.')
+    } finally {
+      setUploading(false)
+    }
   }
 
   const save = async () => {

@@ -96,26 +96,59 @@ export function CollectionEditorClient({ initialData }: { initialData: Collectio
       return
     }
 
-    setUploadState('uploading')
-    setLoadStatus('Uploading image...')
-
-    const formData = new FormData()
-    formData.append('file', file)
-
-    const response = await fetch('/api/cms/uploads/collection', {
-      method: 'POST',
-      headers: { authorization: `Bearer ${accessToken}` },
-      body: formData,
-    })
-
-    const payload = (await response.json().catch(() => null)) as ApiPayload | null
-    if (!response.ok || !payload?.path) {
+    if (file.size > 5 * 1024 * 1024) {
       setUploadState('error')
-      setLoadStatus(payload?.error ?? 'Unable to upload image.')
+      setLoadStatus('File too large. Max size is 5MB.')
       return
     }
 
-    setEditorItem((prev) => (prev ? { ...prev, image_path: payload.path ?? '' } : prev))
+    setUploadState('uploading')
+    setLoadStatus('Uploading image...')
+
+    let uploadedPath = ''
+    try {
+      const preparedFile = await prepareCollectionCardImage(file)
+      const signResponse = await fetch('/api/cms/uploads/collection/sign', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ contentType: preparedFile.type }),
+      })
+      const signed = (await signResponse.json().catch(() => null)) as { bucket?: string; path?: string; token?: string; error?: string } | null
+      if (!signResponse.ok || !signed?.bucket || !signed.path || !signed.token) {
+        throw new Error(signed?.error ?? 'Unable to prepare upload.')
+      }
+
+      const { error } = await supabase.storage.from(signed.bucket)
+        .uploadToSignedUrl(signed.path, signed.token, preparedFile, { contentType: preparedFile.type })
+      if (error) throw error
+      uploadedPath = signed.path
+    } catch {
+      const fallbackFormData = new FormData()
+      fallbackFormData.append('file', file)
+      const fallbackResponse = await fetch('/api/cms/uploads/collection', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${accessToken}` },
+        body: fallbackFormData,
+      })
+      const fallbackPayload = (await fallbackResponse.json().catch(() => null)) as ApiPayload | null
+      if (!fallbackResponse.ok || !fallbackPayload?.path) {
+        setUploadState('error')
+        setLoadStatus(fallbackPayload?.error ?? 'Unable to upload image.')
+        return
+      }
+      uploadedPath = fallbackPayload.path
+    }
+
+    if (!uploadedPath) {
+      setUploadState('error')
+      setLoadStatus('Unable to upload image.')
+      return
+    }
+
+    setEditorItem((prev) => (prev ? { ...prev, image_path: uploadedPath } : prev))
     setUploadState('done')
     setLoadStatus('Image uploaded successfully')
     toast({
@@ -412,4 +445,26 @@ export function CollectionEditorClient({ initialData }: { initialData: Collectio
       </Dialog>
     </div>
   )
+}
+
+async function prepareCollectionCardImage(file: File) {
+  if (file.type === 'image/svg+xml') return file
+  if (!['image/jpeg', 'image/png', 'image/webp', 'image/avif'].includes(file.type)) {
+    throw new Error('Invalid image type.')
+  }
+
+  const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' })
+  try {
+    const width = Math.min(bitmap.width, 1600)
+    const height = Math.max(1, Math.round(bitmap.height * (width / bitmap.width)))
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    canvas.getContext('2d')?.drawImage(bitmap, 0, 0, width, height)
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/webp', 0.82))
+    if (!blob) throw new Error('Unable to optimize image.')
+    return new File([blob], `${crypto.randomUUID()}.webp`, { type: 'image/webp' })
+  } finally {
+    bitmap.close()
+  }
 }

@@ -16,6 +16,7 @@ import { CmsSaveAction } from '@/components/cms-save-action'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
+import { uploadCmsAssetDirectWithFallback } from '@/lib/cms-direct-upload-client'
 
 type DiscoverItem = {
   clientId: string
@@ -65,6 +66,7 @@ type DiscoverItemsEditorClientProps = {
   sectionDescription: string
   saveEndpoint: string
   uploadEndpoint: string
+  uploadSignEndpoint: string
   saveDescription: string
   initialData: DiscoverItemsInitialData
   shapeOptions?: ShapeOption[]
@@ -92,6 +94,7 @@ export function DiscoverItemsEditorClient({
   sectionDescription,
   saveEndpoint,
   uploadEndpoint,
+  uploadSignEndpoint,
   saveDescription,
   initialData,
   shapeOptions = [],
@@ -139,23 +142,17 @@ export function DiscoverItemsEditorClient({
     setUploadState('uploading')
     setLoadStatus('Uploading image...')
 
-    const formData = new FormData()
-    formData.append('file', file)
-
-    const response = await fetch(uploadEndpoint, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${accessToken}` },
-      body: formData,
-    })
-
-    const payload = (await response.json().catch(() => null)) as ApiPayload | null
-    if (!response.ok || !payload?.path) {
+    try {
+      const path = await uploadCmsAssetDirectWithFallback({
+        file, accessToken, signEndpoint: uploadSignEndpoint, fallbackEndpoint: uploadEndpoint,
+        maxInputBytes: 5 * 1024 * 1024, rasterWidth: 1600, webpQuality: 82, rasterOnly: true,
+      })
+      setEditorItem((prev) => (prev ? { ...prev, image_path: path } : prev))
+    } catch (error) {
       setUploadState('error')
-      setLoadStatus(payload?.error ?? 'Unable to upload image.')
+      setLoadStatus(error instanceof Error ? error.message : 'Unable to upload image.')
       return
     }
-
-    setEditorItem((prev) => (prev ? { ...prev, image_path: payload.path ?? '' } : prev))
     setUploadState('done')
     setLoadStatus('Image uploaded successfully')
     toast({

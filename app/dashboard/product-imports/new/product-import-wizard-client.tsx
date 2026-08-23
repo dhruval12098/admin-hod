@@ -116,7 +116,43 @@ export function ProductImportWizardClient({ columns }: { columns: ProductImportC
       const formData = new FormData()
       formData.append('csv_file', dataFile)
       if (archiveFile) {
-        formData.append('asset_archive', archiveFile)
+        try {
+          const signResponse = await fetch('/api/product-imports/uploads/sign', {
+            method: 'POST',
+            headers: {
+              authorization: `Bearer ${accessToken}`,
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify({
+              fileName: archiveFile.name,
+              contentType: archiveFile.type || 'application/zip',
+              fileSize: archiveFile.size,
+            }),
+          })
+          const signed = await signResponse.json().catch(() => null) as {
+            bucket?: string
+            path?: string
+            token?: string
+            error?: string
+          } | null
+          if (!signResponse.ok || !signed?.bucket || !signed.path || !signed.token) {
+            throw new Error(signed?.error ?? 'Unable to prepare direct ZIP upload.')
+          }
+
+          const { error: uploadError } = await supabase.storage
+            .from(signed.bucket)
+            .uploadToSignedUrl(signed.path, signed.token, archiveFile, {
+              contentType: archiveFile.type || 'application/zip',
+            })
+          if (uploadError) throw uploadError
+
+          formData.append('asset_archive_path', signed.path)
+          formData.append('asset_archive_name', archiveFile.name)
+          formData.append('asset_archive_type', archiveFile.type || 'application/zip')
+          formData.append('asset_archive_size', String(archiveFile.size))
+        } catch {
+          formData.append('asset_archive', archiveFile)
+        }
       }
       if (jobName.trim()) {
         formData.append('job_name', jobName.trim())

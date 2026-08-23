@@ -48,6 +48,7 @@ export default async function DiscoverShapesEditorPage() {
       sectionDescription="Manage the carousel items for the Discover Shapes section. Section heading and intro stay static. Each item links from the selected stone shape master."
       saveEndpoint="/api/cms/home/discover-shapes"
       uploadEndpoint="/api/cms/uploads/discover-shapes"
+      uploadSignEndpoint="/api/cms/uploads/discover-shapes/sign"
       saveDescription="This will update the Discover Shapes carousel on the homepage."
       initialData={{ items: initialData.items }}
       shapeOptions={initialData.shapes}

@@ -1,12 +1,10 @@
 'use client'
 
 import { useState, type FormEvent } from 'react'
-import { useRouter } from 'next/navigation'
 import { ArrowRight, LockKeyhole, ShieldCheck } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 
 export default function LoginPage() {
-  const router = useRouter()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [message, setMessage] = useState('')
@@ -17,16 +15,26 @@ export default function LoginPage() {
     setIsSubmitting(true)
     setMessage('')
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password })
 
-    if (error) {
-      setMessage(error.message)
+      if (error) {
+        setMessage(error.message)
+        setIsSubmitting(false)
+        return
+      }
+
+      if (!data.session) {
+        setMessage('Sign-in completed without a session. Please try again.')
+        setIsSubmitting(false)
+        return
+      }
+
+      window.location.replace('/dashboard')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Unable to sign in. Please try again.')
       setIsSubmitting(false)
-      return
     }
-
-    router.replace('/dashboard')
-    router.refresh()
   }
 
   return (

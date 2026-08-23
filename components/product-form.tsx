@@ -51,7 +51,7 @@ import { ProductFormStepActions, ProductFormStepBar } from '@/components/product
 import { ProductFormHeader, ProductFormRedirectOverlay } from '@/components/product-form/ProductFormChrome'
 import { ProductFormLoadingShell, ProductFormSkeleton } from '@/components/product-form/ProductFormLoadingStates'
 import { ConfirmDialog } from '@/components/confirm-dialog'
-import { deleteCachedQueryData, fetchCachedQuery, setCachedQueryData } from '@/lib/query-cache'
+import { deleteCachedQueryData, fetchCachedQuery, getCachedQueryData, setCachedQueryData } from '@/lib/query-cache'
 import type { ProductCustomDropdown } from '@/lib/product-custom-dropdowns'
 import { validateProductCustomDropdowns } from '@/lib/product-custom-dropdowns'
 
@@ -497,7 +497,17 @@ export function ProductForm({
 }) {
   const { toast } = useToast()
   const router = useRouter()
-  const [loading, setLoading] = useState(Boolean(productId || productSlug || !initialBasicsBootstrap))
+  const productLookupUrl = productSlug
+    ? `/api/products/by-slug/${encodeURIComponent(productSlug)}`
+    : productId
+      ? `/api/products/${productId}`
+      : null
+  const productCacheKey = productLookupUrl ? `product-edit:${productLookupUrl}` : null
+  const [loading, setLoading] = useState(() => {
+    if (!productCacheKey) return !initialBasicsBootstrap
+    return !getCachedQueryData<ProductResponse['item']>(productCacheKey, PRODUCT_EDIT_CACHE_TTL_MS)
+  })
+  const [productHydrated, setProductHydrated] = useState(() => !productLookupUrl)
   const [saving, setSaving] = useState(false)
   const [redirecting, setRedirecting] = useState(false)
   const [categories, setCategories] = useState<CatalogCategory[]>(initialBasicsBootstrap?.categories ?? [])
@@ -739,21 +749,33 @@ export function ProductForm({
 
   const loadData = async () => {
     try {
-      const productLookupUrl = productSlug ? `/api/products/by-slug/${encodeURIComponent(productSlug)}` : productId ? `/api/products/${productId}` : null
       if (!productLookupUrl && initialBasicsBootstrap) {
+        setProductHydrated(true)
         setLoading(false)
         return
       }
 
-      setLoading(true)
+      if (productLookupUrl) setProductHydrated(false)
+      const cachedProduct = productCacheKey
+        ? getCachedQueryData<ProductResponse['item']>(productCacheKey, PRODUCT_EDIT_CACHE_TTL_MS)
+        : null
+      setLoading(!cachedProduct)
       const loadStartedAt = performance.now()
       const bootstrapPromise = loadBootstrapScope('basics')
 
-      const productPromise = productLookupUrl
+      if (cachedProduct) {
+        applyProduct(cachedProduct)
+        setProductHydrated(true)
+        await bootstrapPromise
+        productFormDebug('total loadData', loadStartedAt)
+        return
+      }
+
+      const productPromise = productLookupUrl && productCacheKey
         ? (() => {
             const startedAt = performance.now()
             return fetchCachedQuery<ProductResponse['item']>({
-              key: `product-edit:${productLookupUrl}`,
+              key: productCacheKey,
               staleTimeMs: PRODUCT_EDIT_CACHE_TTL_MS,
               fetcher: async () => {
                 const response = await authedFetch(productLookupUrl)
@@ -768,6 +790,7 @@ export function ProductForm({
       const [, productItem] = await Promise.all([bootstrapPromise, productPromise])
 
       if (productItem) applyProduct(productItem)
+      setProductHydrated(true)
       productFormDebug('total loadData', loadStartedAt)
     } finally {
       setLoading(false)
@@ -789,7 +812,75 @@ export function ProductForm({
     void Promise.all(missingScopes.map((scope) => loadBootstrapScope(scope)))
   }, [activeStep, loadedBootstrapScopes])
 
-  const uploadMedia = async (file: File, kind: 'image' | 'video', folder: 'products' | 'hiphop') => {
+  const prepareDirectImageUpload = async (file: File) => {
+    if (file.type === 'image/svg+xml') return file
+    if (!['image/jpeg', 'image/png', 'image/webp', 'image/avif'].includes(file.type)) {
+      throw new Error('Unsupported image type.')
+    }
+
+    const bitmap = await createImageBitmap(file)
+    try {
+      const scale = Math.min(1, 2200 / bitmap.width)
+      const width = Math.max(1, Math.round(bitmap.width * scale))
+      const height = Math.max(1, Math.round(bitmap.height * scale))
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const context = canvas.getContext('2d')
+      if (!context) throw new Error('Image processing is unavailable.')
+      context.drawImage(bitmap, 0, 0, width, height)
+
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/webp', 0.84))
+      if (!blob) throw new Error('Unable to prepare image for upload.')
+      return new File([blob], `${crypto.randomUUID()}.webp`, { type: 'image/webp' })
+    } finally {
+      bitmap.close()
+    }
+  }
+
+  const uploadImageDirectly = async (file: File, folder: 'products' | 'hiphop') => {
+    const preparedFile = await prepareDirectImageUpload(file)
+    const signResponse = await authedFetch('/api/products/media/sign', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        folder,
+        contentType: preparedFile.type,
+        declaredSize: preparedFile.size,
+        productKey: productId || productSlug || 'draft',
+      }),
+    })
+    const signed = await signResponse.json().catch(() => null)
+    if (!signResponse.ok || !signed?.path) {
+      throw new Error(signed?.error ?? 'Unable to prepare direct image upload.')
+    }
+
+    if (signed.provider === 'r2') {
+      if (!signed.uploadUrl) throw new Error('Cloudflare upload URL was not returned.')
+      const uploadResponse = await fetch(signed.uploadUrl, {
+        method: 'PUT',
+        headers: { 'content-type': preparedFile.type },
+        body: preparedFile,
+      })
+      if (!uploadResponse.ok) throw new Error('Cloudflare image upload failed.')
+      return { path: signed.url as string, provider: 'r2' as const }
+    }
+
+    if (!signed.bucket || !signed.token) {
+      throw new Error('Supabase upload credentials were not returned.')
+    }
+
+    const { error } = await supabase.storage
+      .from(signed.bucket)
+      .uploadToSignedUrl(signed.path, signed.token, preparedFile, {
+        contentType: preparedFile.type,
+        upsert: false,
+      })
+    if (error) throw new Error(error.message)
+    return { path: signed.path as string, provider: 'supabase' as const }
+  }
+
+  const uploadMediaThroughServer = async (file: File, kind: 'image' | 'video', folder: 'products' | 'hiphop') => {
     const body = new FormData()
     body.append('file', file)
     body.append('kind', kind)
@@ -805,7 +896,22 @@ export function ProductForm({
       throw new Error(payload?.error ?? `Unable to upload ${kind}.`)
     }
 
-    return payload.path as string
+    return {
+      path: payload.path as string,
+      provider: payload.provider === 'r2' ? 'r2' as const : 'supabase' as const,
+    }
+  }
+
+  const uploadMedia = async (file: File, kind: 'image' | 'video', folder: 'products' | 'hiphop') => {
+    if (kind === 'image') {
+      try {
+        return await uploadImageDirectly(file, folder)
+      } catch {
+        return uploadMediaThroughServer(file, kind, folder)
+      }
+    }
+
+    return uploadMediaThroughServer(file, kind, folder)
   }
 
   const mainCategory = categories.find((item) => item.id === mainCategoryId)
@@ -1454,7 +1560,7 @@ export function ProductForm({
     }
   }
 
-  if (loading && initialBasicsBootstrap) {
+  if ((loading || !productHydrated) && initialBasicsBootstrap) {
     return (
       <ProductFormLoadingShell
         backHref={backHref}
@@ -1784,10 +1890,13 @@ export function ProductForm({
                         onUpload={async (file) => {
                           setUploadingSlots((prev) => ({ ...prev, [`base-image-${index}`]: true }))
                           try {
-                            const path = await uploadMedia(file, 'image', isHiphopProduct ? 'hiphop' : 'products')
+                            const { path, provider } = await uploadMedia(file, 'image', isHiphopProduct ? 'hiphop' : 'products')
                             setImageSlots((prev) => prev.map((entry, slotIndex) => (slotIndex === index ? path : entry)))
                             setImagePaths((prev) => prev.map((entry, slotIndex) => (slotIndex === index ? path : entry)))
-                            toast({ title: 'Uploaded', description: `${label} uploaded successfully.` })
+                            toast({
+                              title: 'Uploaded',
+                              description: `${label} uploaded successfully to ${provider === 'r2' ? 'Cloudflare R2' : 'Supabase Storage'}.`,
+                            })
                           } catch (error) {
                             toast({
                               title: 'Upload failed',
@@ -1956,7 +2065,7 @@ export function ProductForm({
                                   setActiveVariantMediaIndex(itemIndex)
                                   setUploadingSlots((prev) => ({ ...prev, [uploadKey]: true }))
                                   try {
-                                    const uploadedPath = await uploadMedia(
+                                    const { path: uploadedPath, provider } = await uploadMedia(
                                       file,
                                       item.media_type === 'video' ? 'video' : 'image',
                                       isHiphopProduct ? 'hiphop' : 'products'
@@ -1967,7 +2076,7 @@ export function ProductForm({
                                     }))
                                     toast({
                                       title: 'Uploaded',
-                                      description: `${sectionLabel} ${item.media_type} uploaded successfully.`,
+                                      description: `${sectionLabel} ${item.media_type} uploaded successfully to ${provider === 'r2' ? 'Cloudflare R2' : 'Supabase Storage'}.`,
                                     })
                                   } catch (error) {
                                     toast({
@@ -2143,7 +2252,7 @@ export function ProductForm({
                                           if (!file) return
                                           setUploadingSlots((prev) => ({ ...prev, [uploadKey]: true }))
                                           try {
-                                            const uploadedPath = await uploadMedia(
+                                            const { path: uploadedPath, provider } = await uploadMedia(
                                               file,
                                               activeItem.media_type === 'video' ? 'video' : 'image',
                                               isHiphopProduct ? 'hiphop' : 'products'
@@ -2154,7 +2263,7 @@ export function ProductForm({
                                             }))
                                             toast({
                                               title: 'Uploaded',
-                                              description: `${sectionLabel} ${activeItem.media_type} uploaded successfully.`,
+                                              description: `${sectionLabel} ${activeItem.media_type} uploaded successfully to ${provider === 'r2' ? 'Cloudflare R2' : 'Supabase Storage'}.`,
                                             })
                                           } catch (error) {
                                             toast({

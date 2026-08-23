@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { assertAdmin } from '@/lib/cms-auth'
+import { invalidateProductListReferenceData } from '@/lib/product-list-reference-cache'
 
 export async function POST(request: Request) {
   const access = await assertAdmin(request)
@@ -25,5 +26,6 @@ export async function POST(request: Request) {
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  invalidateProductListReferenceData()
   return NextResponse.json({ item: data })
 }
