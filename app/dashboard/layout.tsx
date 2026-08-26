@@ -22,11 +22,11 @@ export default async function DashboardLayout({
   ])
 
   return (
-    <div className="flex h-screen bg-background">
+    <div className="flex h-screen bg-secondary/50">
       <Sidebar customerCount={customers.length} />
-      <div className="flex flex-1 flex-col overflow-hidden bg-background">
+      <div className="flex flex-1 flex-col overflow-hidden bg-transparent">
         <Topbar notificationCount={notificationCount} />
-        <main className="flex-1 overflow-auto bg-background">
+        <main className="flex-1 overflow-auto rounded-tl-2xl bg-white">
           {children}
         </main>
       </div>

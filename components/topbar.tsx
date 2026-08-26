@@ -15,7 +15,7 @@ export function Topbar({ notificationCount = 0 }: { notificationCount?: number }
   }
 
   return (
-    <header className="flex h-14 items-center justify-between border-b border-border bg-white px-6 py-3">
+    <header className="flex h-14 items-center justify-between bg-transparent px-6 py-3">
       <form onSubmit={handleSubmit} className="flex-1 max-w-md">
         <div className="relative">
           <Search

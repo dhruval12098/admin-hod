@@ -29,22 +29,40 @@ import {
   Files,
 } from 'lucide-react'
 
-const NAVIGATION = [
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Products', href: '/dashboard/products', icon: Package },
-  { name: 'Bulk Imports', href: '/dashboard/product-imports', icon: Files },
-  { name: 'Hip Hop Products', href: '/dashboard/hiphop-products', icon: Gem },
-  { name: 'Collection Products', href: '/dashboard/collection-products', icon: Package },
-  { name: 'Bespoke Products', href: '/dashboard/bespoke', icon: Sparkles },
-  { name: 'Inventory', href: '/dashboard/inventory', icon: Package },
-  { name: 'CMS', href: '/dashboard/cms', icon: FileText },
-  { name: 'Docs', href: '/dashboard/cms/docs', icon: BookText },
-  { name: 'Customers', href: '/dashboard/customers', icon: Users },
-  { name: 'Orders', href: '/dashboard/orders', icon: ShoppingCart },
-  { name: 'Enquiries', href: '/dashboard/enquiries', icon: Inbox },
-  { name: 'Coupons', href: '/dashboard/coupons', icon: TicketPercent },
-  { name: 'Navbar Builder', href: '/dashboard/navbar-builder', icon: PanelsTopLeft },
-  { name: 'Promotion', href: '/dashboard/cms/promotion', icon: BadgeAlert },
+const NAVIGATION_GROUPS = [
+  {
+    label: 'Overview',
+    items: [{ name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard }],
+  },
+  {
+    label: 'Commerce',
+    items: [
+      { name: 'Orders', href: '/dashboard/orders', icon: ShoppingCart },
+      { name: 'Customers', href: '/dashboard/customers', icon: Users },
+      { name: 'Enquiries', href: '/dashboard/enquiries', icon: Inbox },
+      { name: 'Coupons', href: '/dashboard/coupons', icon: TicketPercent },
+    ],
+  },
+  {
+    label: 'Products',
+    items: [
+      { name: 'Products', href: '/dashboard/products', icon: Package },
+      { name: 'Bulk Imports', href: '/dashboard/product-imports', icon: Files },
+      { name: 'Inventory', href: '/dashboard/inventory', icon: Package },
+      { name: 'Hip Hop Products', href: '/dashboard/hiphop-products', icon: Gem },
+      { name: 'Collection Products', href: '/dashboard/collection-products', icon: Package },
+      { name: 'Bespoke Products', href: '/dashboard/bespoke', icon: Sparkles },
+    ],
+  },
+  {
+    label: 'Content & Merchandising',
+    items: [
+      { name: 'CMS', href: '/dashboard/cms', icon: FileText },
+      { name: 'Docs', href: '/dashboard/cms/docs', icon: BookText },
+      { name: 'Navbar Builder', href: '/dashboard/navbar-builder', icon: PanelsTopLeft },
+      { name: 'Promotion', href: '/dashboard/cms/promotion', icon: BadgeAlert },
+    ],
+  },
 ]
 
 const CATALOG_ITEMS = [
@@ -58,25 +76,64 @@ const CATALOG_ITEMS = [
   { name: 'GST', href: '/dashboard/catalog/gst', icon: Receipt },
 ]
 
+const SYSTEM_ITEMS = [
+  { name: 'Settings', href: '/dashboard/settings', icon: Settings },
+  { name: 'Media Trash', href: '/dashboard/media-trash', icon: Trash },
+]
+
 export function Sidebar({ customerCount }: { customerCount?: number }) {
   const [collapsed, setCollapsed] = useState(false)
   const [catalogOpen, setCatalogOpen] = useState(false)
   const pathname = usePathname()
+  const catalogIsActive = pathname.startsWith('/dashboard/catalog')
+  const catalogIsExpanded = catalogIsActive || catalogOpen
+
+  const isAtOrBelow = (basePath: string) =>
+    pathname === basePath || pathname.startsWith(`${basePath}/`)
+
+  const isNavigationItemActive = (href: string) => {
+    if (href === '/dashboard') return pathname === href
+
+    const isNestedCmsDestination =
+      href === '/dashboard/cms' &&
+      (isAtOrBelow('/dashboard/cms/docs') || isAtOrBelow('/dashboard/cms/promotion'))
+
+    return !isNestedCmsDestination && isAtOrBelow(href)
+  }
+
+  const isCatalogItemActive = (href: string) => {
+    if (href === '/dashboard/catalog#categories') {
+      return pathname === '/dashboard/catalog'
+    }
+
+    return isAtOrBelow(href)
+  }
+
+  const handleCatalogToggle = () => {
+    if (collapsed) {
+      setCollapsed(false)
+      setCatalogOpen(true)
+      return
+    }
+
+    setCatalogOpen((open) => !open)
+  }
 
   return (
     <aside
-      className={`flex flex-col border-r border-border bg-white transition-all duration-300 ${
+      className={`flex flex-col bg-transparent transition-all duration-300 ${
         collapsed ? 'w-16' : 'w-60'
       } overflow-hidden`}
     >
       {/* Logo / Brand */}
-      <div className="flex items-center justify-between border-b border-border px-4 py-4">
+      <div className="flex items-center justify-between px-4 py-4">
         {!collapsed && (
           <h2 className="font-jakarta font-semibold text-sm text-foreground tracking-tight">House of Diams</h2>
         )}
         <button
+          type="button"
           onClick={() => setCollapsed(!collapsed)}
-          className="rounded p-1.5 hover:bg-secondary transition-colors duration-150"
+          className="rounded p-1.5 transition-colors duration-150 hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
           aria-label="Toggle sidebar"
         >
           <ChevronLeft
@@ -87,119 +144,130 @@ export function Sidebar({ customerCount }: { customerCount?: number }) {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-4">
-        {NAVIGATION.map((item) => {
-          const Icon = item.icon
-          const isExactMatch = pathname === item.href
-          const isChildRoute = item.href !== '/dashboard' && pathname.startsWith(item.href + '/')
-          const isActive = isExactMatch || isChildRoute
-          const showBadge = item.name === 'Customers' && typeof customerCount === 'number'
-          
-          return (
-            <Link
-              key={item.name}
-              href={item.href}
-              className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-                isActive
-                  ? 'bg-secondary text-foreground border-l-2 border-primary pl-2.5'
+      <nav className="flex-1 overflow-y-auto px-3 py-3 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+        <div className="space-y-4">
+          {NAVIGATION_GROUPS.map((group) => (
+            <section key={group.label} aria-label={group.label}>
+              {!collapsed && (
+                <h3 className="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                  {group.label}
+                </h3>
+              )}
+              <div className="space-y-0.5">
+                {group.items.map((item) => {
+                  const Icon = item.icon
+                  const isActive = isNavigationItemActive(item.href)
+                  const showBadge = item.name === 'Customers' && typeof customerCount === 'number'
+
+                  return (
+                    <Link
+                      key={item.name}
+                      href={item.href}
+                      className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 ${
+                        isActive
+                          ? 'bg-foreground text-white'
+                          : 'text-foreground hover:bg-secondary'
+                      }`}
+                      title={collapsed ? item.name : undefined}
+                    >
+                      <Icon size={18} className="flex-shrink-0" />
+                      {!collapsed && (
+                        <>
+                          <span className="truncate">{item.name}</span>
+                          {showBadge ? (
+                            <span className="ml-auto inline-flex min-w-7 items-center justify-center rounded-full bg-secondary px-2 py-0.5 text-[11px] font-semibold text-foreground">
+                              {customerCount}
+                            </span>
+                          ) : null}
+                        </>
+                      )}
+                    </Link>
+                  )
+                })}
+              </div>
+            </section>
+          ))}
+
+          {/* Catalog Setup - the only collapsible navigation group */}
+          <section aria-label="Catalog Setup">
+            <button
+              type="button"
+              onClick={handleCatalogToggle}
+              className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 ${
+                catalogIsActive
+                  ? 'bg-foreground text-white'
                   : 'text-foreground hover:bg-secondary'
               }`}
-              title={collapsed ? item.name : undefined}
+              title={collapsed ? 'Catalog Setup' : undefined}
+              aria-label={collapsed ? 'Expand sidebar and open Catalog Setup' : 'Toggle Catalog Setup'}
+              aria-expanded={catalogIsExpanded}
+              aria-controls="sidebar-catalog-items"
             >
-              <Icon size={18} className="flex-shrink-0" />
+              <Settings size={18} className="flex-shrink-0" />
               {!collapsed && (
                 <>
-                  <span className="truncate">{item.name}</span>
-                  {showBadge ? (
-                    <span className="ml-auto inline-flex min-w-7 items-center justify-center rounded-full bg-secondary px-2 py-0.5 text-[11px] font-semibold text-foreground">
-                      {customerCount}
-                    </span>
-                  ) : null}
+                  <span className="flex-1 truncate text-left">Catalog Setup</span>
+                  <ChevronDown
+                    size={16}
+                    className={`flex-shrink-0 transition-transform ${catalogIsExpanded ? 'rotate-180' : ''}`}
+                  />
                 </>
               )}
-            </Link>
-          )
-        })}
+            </button>
 
-        {/* Catalog Setup - Collapsible */}
-        <div>
-          <button
-            onClick={() => setCatalogOpen(!catalogOpen)}
-            className={`w-full flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-              pathname.startsWith('/dashboard/catalog')
-                ? 'bg-secondary text-foreground border-l-2 border-primary pl-2.5'
-                : 'text-foreground hover:bg-secondary'
-            }`}
-            title={collapsed ? 'Catalog Setup' : undefined}
-          >
-            <Settings size={18} className="flex-shrink-0" />
-            {!collapsed && (
-              <>
-                <span className="truncate flex-1 text-left">Catalog Setup</span>
-                <ChevronDown
-                  size={16}
-                  className={`flex-shrink-0 transition-transform ${catalogOpen ? 'rotate-180' : ''}`}
-                />
-              </>
+            {/* Catalog sub-items */}
+            {catalogIsExpanded && !collapsed && (
+              <div id="sidebar-catalog-items" className="ml-3 mt-1 space-y-0.5 border-l-2 border-border">
+                {CATALOG_ITEMS.map((item) => {
+                  const Icon = item.icon
+                  const isActive = isCatalogItemActive(item.href)
+
+                  return (
+                    <Link
+                      key={item.name}
+                      href={item.href}
+                      className={`flex items-center gap-3 rounded-md px-3 py-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 ${
+                        isActive
+                          ? 'bg-foreground text-white'
+                          : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+                      }`}
+                    >
+                      <Icon size={14} className="flex-shrink-0" />
+                      <span className="truncate">{item.name}</span>
+                    </Link>
+                  )
+                })}
+              </div>
             )}
-          </button>
+          </section>
 
-          {/* Catalog Sub-items */}
-          {catalogOpen && !collapsed && (
-            <div className="mt-1 ml-3 space-y-0.5 border-l-2 border-border">
-              {CATALOG_ITEMS.map((item) => {
-                const Icon = item.icon
-                const itemId = item.href.split('#')[1]
-                const isActive = pathname === '/dashboard/catalog'
-                
-                return (
-                  <Link
-                    key={item.name}
-                    href={item.href}
-                    className={`flex items-center gap-3 rounded-md px-3 py-2 text-xs font-medium transition-colors ${
-                      isActive
-                        ? 'text-primary'
-                        : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    <Icon size={14} className="flex-shrink-0" />
-                    <span className="truncate">{item.name}</span>
-                  </Link>
-                )
-              })}
-            </div>
-          )}
+          <div className="space-y-0.5 border-t border-border pt-3">
+            {SYSTEM_ITEMS.map((item) => {
+              const Icon = item.icon
+              const isActive = isNavigationItemActive(item.href)
+
+              return (
+                <Link
+                  key={item.name}
+                  href={item.href}
+                  className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 ${
+                    isActive
+                      ? 'bg-foreground text-white'
+                      : 'text-foreground hover:bg-secondary'
+                  }`}
+                  title={collapsed ? item.name : undefined}
+                >
+                  <Icon size={18} className="flex-shrink-0" />
+                  {!collapsed && <span className="truncate">{item.name}</span>}
+                </Link>
+              )
+            })}
+          </div>
         </div>
-
-        <Link
-          href="/dashboard/settings"
-          className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-            pathname === '/dashboard/settings'
-              ? 'bg-secondary text-foreground border-l-2 border-primary pl-2.5'
-              : 'text-foreground hover:bg-secondary'
-          }`}
-          title={collapsed ? 'Settings' : undefined}
-        >
-          <Settings size={18} className="flex-shrink-0" />
-          {!collapsed && <span className="truncate">Settings</span>}
-        </Link>
-
-        <Link
-          href="/dashboard/media-trash"
-          className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-            pathname === '/dashboard/media-trash'
-              ? 'bg-secondary text-foreground border-l-2 border-primary pl-2.5'
-              : 'text-foreground hover:bg-secondary'
-          }`}
-          title={collapsed ? 'Media Trash' : undefined}
-        >
-          <Trash size={18} className="flex-shrink-0" />
-          {!collapsed && <span className="truncate">Media Trash</span>}
-        </Link>
       </nav>
 
       {/* Footer */}
-      <div className="border-t border-border px-4 py-3 text-xs text-muted-foreground">
+      <div className="px-4 py-3 text-xs text-muted-foreground">
         {!collapsed && <div>v1.0.0</div>}
       </div>
     </aside>
