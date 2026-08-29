@@ -6,7 +6,7 @@ async function getHeroInitialData(): Promise<HeroEditorInitialData> {
 
   const { data: section, error: sectionError } = await adminClient
     .from('homepage_hero')
-    .select('id, eyebrow, headline, subtitle, slider_enabled')
+    .select('id, eyebrow, headline, subtitle, slider_enabled, seo_title, seo_description')
     .eq('section_key', 'home_hero')
     .single()
 
@@ -30,6 +30,8 @@ async function getHeroInitialData(): Promise<HeroEditorInitialData> {
       headline: section.headline ?? '',
       subtitle: section.subtitle ?? '',
       slider_enabled: section.slider_enabled ?? false,
+      seo_title: section.seo_title ?? '',
+      seo_description: section.seo_description ?? '',
     },
     items: items ?? [],
   }

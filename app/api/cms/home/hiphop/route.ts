@@ -27,7 +27,7 @@ function buildFallbackPayload() {
     section: {
       eyebrow: 'Hip Hop',
       headline: 'Hip Hop Jewellery',
-      subtitle: 'Fully iced chains, grillz, pendants and statement rings - handcrafted with CVD diamonds in 14K and 18K gold.',
+      subtitle: 'Fully iced chains, grillz, pendants and statement rings - handcrafted with lab-grown diamonds in 14K and 18K gold.',
       slider_enabled: false,
     },
     items: [],
@@ -106,7 +106,7 @@ export async function GET(request: Request) {
       section: {
         eyebrow: legacySection.eyebrow ?? 'Hip Hop',
         headline: legacyHeadline || 'Hip Hop Jewellery',
-        subtitle: 'Fully iced chains, grillz, pendants and statement rings - handcrafted with CVD diamonds in 14K and 18K gold.',
+        subtitle: 'Fully iced chains, grillz, pendants and statement rings - handcrafted with lab-grown diamonds in 14K and 18K gold.',
         slider_enabled: Boolean(legacySection.image_path),
       },
       items: legacySection.image_path

@@ -2019,11 +2019,22 @@ export function ProductForm({
                                 isActive ? 'border-foreground ring-1 ring-foreground' : 'border-border hover:border-primary'
                               }`}
                             >
-                              <label
-                                htmlFor={inputId}
-                                onClick={() => setActiveVariantMediaIndex(itemIndex)}
-                                className="block h-full w-full cursor-pointer"
-                                title={`Upload ${item.media_type}`}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveVariantMediaIndex(itemIndex)
+                                  if (item.media_type === 'video') {
+                                    setVideoLibraryTarget({
+                                      metalId: isDefaultFallback ? null : activeVariantMediaKey,
+                                      itemIndex,
+                                    })
+                                    return
+                                  }
+                                  document.getElementById(inputId)?.click()
+                                }}
+                                disabled={isUploading}
+                                className="block h-full w-full cursor-pointer disabled:cursor-wait"
+                                title={item.media_type === 'video' ? 'Choose from Cloudflare video library' : 'Upload image'}
                               >
                                 {item.media_type === 'image' && previewPath ? (
                                   <img src={previewPath} alt={`${sectionLabel} item ${itemIndex + 1}`} className="h-full w-full object-cover" />
@@ -2048,11 +2059,13 @@ export function ProductForm({
                                       {item.media_type}
                                     </span>
                                     <span className="mt-1 text-[11px] text-foreground">
-                                      {item.media_path ? 'Change file' : 'Upload'}
+                                      {item.media_type === 'video'
+                                        ? item.media_path ? 'Change video' : 'Choose library'
+                                        : item.media_path ? 'Change file' : 'Upload'}
                                     </span>
                                   </div>
                                 )}
-                              </label>
+                              </button>
                               <input
                                 id={inputId}
                                 type="file"

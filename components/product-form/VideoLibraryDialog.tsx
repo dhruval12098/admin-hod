@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Check, Film, Loader2, RefreshCw, Search, X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 
@@ -24,28 +24,15 @@ function formatBytes(bytes: number) {
 }
 
 function LazyVideoThumbnail({ video }: { video: VideoAsset }) {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [visible, setVisible] = useState(false)
+  const [previewRequested, setPreviewRequested] = useState(false)
   const [failed, setFailed] = useState(false)
 
-  useEffect(() => {
-    const container = containerRef.current
-    if (!container) return
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (!entry.isIntersecting) return
-        setVisible(true)
-        observer.disconnect()
-      },
-      { rootMargin: '120px' },
-    )
-    observer.observe(container)
-    return () => observer.disconnect()
-  }, [])
-
   return (
-    <div ref={containerRef} className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-[#EEF7FF] via-[#F7FBFF] to-[#E7F2FC]">
-      {visible && !failed ? (
+    <div
+      className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-[#EEF7FF] via-[#F7FBFF] to-[#E7F2FC]"
+      onPointerEnter={() => setPreviewRequested(true)}
+    >
+      {previewRequested && !failed ? (
         <video
           src={video.url}
           muted

@@ -65,7 +65,7 @@ export async function GET(request: Request) {
   const { adminClient } = access
   const { data: section, error: sectionError } = await adminClient
     .from('homepage_hero')
-    .select('id, eyebrow, headline, subtitle, slider_enabled')
+    .select('id, eyebrow, headline, subtitle, slider_enabled, seo_title, seo_description')
     .eq('section_key', sectionKey)
     .single()
 
@@ -85,6 +85,8 @@ export async function GET(request: Request) {
       headline: section.headline,
       subtitle: section.subtitle,
       slider_enabled: section.slider_enabled ?? false,
+      seo_title: section.seo_title ?? '',
+      seo_description: section.seo_description ?? '',
     },
     items: items ?? [],
   })
@@ -101,6 +103,8 @@ export async function POST(request: Request) {
     typeof body.eyebrow !== 'string' ||
     typeof body.headline !== 'string' ||
     typeof body.subtitle !== 'string' ||
+    typeof body.seo_title !== 'string' ||
+    typeof body.seo_description !== 'string' ||
     typeof body.slider_enabled !== 'boolean' ||
     !Array.isArray(body.items)
   ) {
@@ -117,6 +121,8 @@ export async function POST(request: Request) {
         headline: body.headline,
         subtitle: body.subtitle,
         slider_enabled: body.slider_enabled,
+        seo_title: body.seo_title.trim() || null,
+        seo_description: body.seo_description.trim() || null,
         is_active: true,
       },
       { onConflict: 'section_key' }

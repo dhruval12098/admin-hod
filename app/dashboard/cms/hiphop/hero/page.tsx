@@ -5,7 +5,7 @@ const fallbackSection = {
   eyebrow: 'Hip Hop',
   headline: 'Hip Hop Jewellery',
   subtitle:
-    'Fully iced chains, grillz, pendants and statement rings - handcrafted with CVD diamonds in 14K and 18K gold.',
+    'Fully iced chains, grillz, pendants and statement rings - handcrafted with lab-grown diamonds in 14K and 18K gold.',
   slider_enabled: false,
 }
 

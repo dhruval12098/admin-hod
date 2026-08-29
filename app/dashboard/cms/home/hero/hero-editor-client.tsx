@@ -21,14 +21,23 @@ type SlideItem = {
 }
 
 type Payload = {
-  section?: { eyebrow: string; headline: string; subtitle: string; slider_enabled: boolean }
+  section?: HeroSectionData
   items?: Array<{ id: number; sort_order: number; image_path: string; mobile_image_path?: string; button_text: string; button_link: string }>
   error?: string
 }
 
 export type HeroEditorInitialData = {
-  section: { eyebrow: string; headline: string; subtitle: string; slider_enabled: boolean }
+  section: HeroSectionData
   items: Array<{ id: number; sort_order: number; image_path: string; mobile_image_path?: string; button_text: string; button_link: string }>
+}
+
+type HeroSectionData = {
+  eyebrow: string
+  headline: string
+  subtitle: string
+  slider_enabled: boolean
+  seo_title: string
+  seo_description: string
 }
 
 const emptySlide = (sortOrder: number): SlideItem => ({
@@ -292,6 +301,35 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
               className="h-5 w-5 rounded border-border"
             />
           </label>
+        </div>
+
+        <div className="mt-8 max-w-4xl space-y-6 rounded-lg border border-border bg-white p-8 shadow-xs">
+          <div>
+            <h2 className="text-xl font-semibold text-foreground">SEO &amp; Search Preview</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Optional homepage search and sharing content. Empty fields use the website defaults.</p>
+          </div>
+
+          <div>
+            <div className="mb-2 flex items-center justify-between gap-4">
+              <label className="text-sm font-semibold text-foreground" htmlFor="seo_title">SEO title</label>
+              <span className={`text-xs ${formData.seo_title.length > 60 ? 'text-amber-600' : 'text-muted-foreground'}`}>{formData.seo_title.length}/60</span>
+            </div>
+            <input id="seo_title" type="text" name="seo_title" maxLength={120} value={formData.seo_title} onChange={handleTextChange} placeholder="Luxury Diamond Jewellery" className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm" />
+          </div>
+
+          <div>
+            <div className="mb-2 flex items-center justify-between gap-4">
+              <label className="text-sm font-semibold text-foreground" htmlFor="seo_description">Meta description</label>
+              <span className={`text-xs ${formData.seo_description.length > 160 ? 'text-amber-600' : 'text-muted-foreground'}`}>{formData.seo_description.length}/160</span>
+            </div>
+            <textarea id="seo_description" name="seo_description" maxLength={320} value={formData.seo_description} onChange={handleTextChange} rows={3} placeholder="Describe the homepage for search results." className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm" />
+          </div>
+
+          <div className="rounded-lg border border-border bg-secondary/30 p-5">
+            <p className="truncate text-lg text-[#1a0dab]">{formData.seo_title.trim() || 'Luxury Diamond Jewellery'} | House of Diams</p>
+            <p className="mt-1 text-sm text-[#16833a]">https://houseofdiams.com/</p>
+            <p className="mt-1 text-sm leading-5 text-[#4d5156]">{formData.seo_description.trim() || 'House of Diams creates certified lab-grown diamond jewellery, including engagement rings, wedding bands, T-bar jewellery, and bespoke commissions.'}</p>
+          </div>
         </div>
 
         {formData.slider_enabled && (
