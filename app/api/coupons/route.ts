@@ -56,7 +56,7 @@ export async function GET(request: Request) {
   const { adminClient } = access
   const { data, error } = await adminClient
     .from('coupons')
-    .select('id, code, title, discount_type, discount_value, usage_limit, usage_count, is_active, created_at')
+    .select('id, code, title, discount_type, discount_value, reward_type, minimum_order_amount, gift_product_id, gift_variant_data, gift_banner_image_url, banner_enabled, banner_title, banner_description, starts_at, ends_at, featured_priority, usage_limit, usage_count, is_active, created_at')
     .order('created_at', { ascending: false })
 
   if (error) {
@@ -77,13 +77,41 @@ export async function POST(request: Request) {
 
   const code = body.code.trim().toUpperCase()
   const title = typeof body.title === 'string' ? body.title.trim() : ''
-  const discountType = body.discount_type === 'fixed' ? 'fixed' : 'percentage'
-  const discountValue = Number(body.discount_value)
+  const rewardType = body.reward_type === 'free_gift' ? 'free_gift' : body.reward_type === 'fixed' ? 'fixed' : 'percentage'
+  const discountType = rewardType === 'fixed' ? 'fixed' : 'percentage'
+  const discountValue = rewardType === 'free_gift' ? 0 : Number(body.discount_value)
+  const minimumOrderAmount = Number(body.minimum_order_amount ?? 0)
   const usageLimit = body.usage_limit == null || body.usage_limit === '' ? null : Number(body.usage_limit)
   const isActive = Boolean(body.is_active)
 
   if (!code || !Number.isFinite(discountValue) || discountValue < 0) {
     return NextResponse.json({ error: 'Coupon code and discount value are required.' }, { status: 400 })
+  }
+
+  if (!Number.isFinite(minimumOrderAmount) || minimumOrderAmount < 0) {
+    return NextResponse.json({ error: 'Minimum order amount must be zero or greater.' }, { status: 400 })
+  }
+  if (rewardType === 'percentage' && discountValue > 100) {
+    return NextResponse.json({ error: 'Percentage discount cannot exceed 100%.' }, { status: 400 })
+  }
+  const giftProductId = rewardType === 'free_gift' && typeof body.gift_product_id === 'string' ? body.gift_product_id : null
+  const giftVariantData = rewardType === 'free_gift' && body.gift_variant_data && typeof body.gift_variant_data === 'object' ? body.gift_variant_data : {}
+  if (rewardType === 'free_gift' && (!giftProductId || minimumOrderAmount <= 0)) {
+    return NextResponse.json({ error: 'Free-gift coupons require a product and a minimum order amount.' }, { status: 400 })
+  }
+  if (giftProductId) {
+    const { data: giftProduct } = await access.adminClient.from('products').select('id, status, stock_quantity').eq('id', giftProductId).maybeSingle()
+    if (!giftProduct || giftProduct.status !== 'active' || Number(giftProduct.stock_quantity ?? 0) < 1) {
+      return NextResponse.json({ error: 'The selected gift product must be active and in stock.' }, { status: 400 })
+    }
+    const variantId = typeof giftVariantData.variant_id === 'string' ? giftVariantData.variant_id : null
+    const { count: variantCount, error: variantCountError } = await access.adminClient.from('product_metal_variants').select('id', { count: 'exact', head: true }).eq('product_id', giftProductId)
+    if (variantCountError) return NextResponse.json({ error: variantCountError.message }, { status: 500 })
+    if ((variantCount ?? 0) > 0 && !variantId) return NextResponse.json({ error: 'Select the exact gift variant.' }, { status: 400 })
+    if (variantId) {
+      const { data: variant } = await access.adminClient.from('product_metal_variants').select('id').eq('id', variantId).eq('product_id', giftProductId).maybeSingle()
+      if (!variant) return NextResponse.json({ error: 'The selected gift variant does not belong to this product.' }, { status: 400 })
+    }
   }
 
   if (usageLimit != null && (!Number.isFinite(usageLimit) || usageLimit < 1)) {
@@ -96,6 +124,17 @@ export async function POST(request: Request) {
     title,
     discount_type: discountType,
     discount_value: discountValue,
+    reward_type: rewardType,
+    minimum_order_amount: minimumOrderAmount,
+    gift_product_id: giftProductId,
+    gift_variant_data: giftVariantData,
+    gift_banner_image_url: typeof body.gift_banner_image_url === 'string' ? body.gift_banner_image_url.trim() || null : null,
+    banner_enabled: Boolean(body.banner_enabled),
+    banner_title: typeof body.banner_title === 'string' ? body.banner_title.trim() || null : null,
+    banner_description: typeof body.banner_description === 'string' ? body.banner_description.trim() || null : null,
+    starts_at: typeof body.starts_at === 'string' && body.starts_at ? new Date(body.starts_at).toISOString() : null,
+    ends_at: typeof body.ends_at === 'string' && body.ends_at ? new Date(body.ends_at).toISOString() : null,
+    featured_priority: Math.max(0, Number(body.featured_priority ?? 0) || 0),
     usage_limit: usageLimit,
     is_active: isActive,
   }

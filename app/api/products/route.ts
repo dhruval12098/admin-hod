@@ -19,7 +19,8 @@ import type {
   ProductKeyValue,
   ProductRecord,
 } from '@/lib/product-catalog'
-import { formatCategoryPath, slugify } from '@/lib/product-catalog'
+import { formatCategoryPath } from '@/lib/product-catalog'
+import { allocateProductSlug } from '@/lib/product-slugs'
 import { replaceProductOptionLinks, replaceProductSubcategoryLinks } from '@/lib/product-catalog-links'
 import {
   type ProductMetalVariant,
@@ -563,8 +564,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Base price must be greater than 0. Add a price to the default metal option before saving.' }, { status: 400 })
   }
 
+  let productSlug: string
+  try {
+    productSlug = await allocateProductSlug(adminClient, body.name)
+  } catch (slugError) {
+    return NextResponse.json(
+      { error: slugError instanceof Error ? slugError.message : 'Unable to allocate a product URL.' },
+      { status: 500 }
+    )
+  }
+
   const baseInsert = {
-    slug: `${slugify(body.name)}-${Date.now()}`,
+    slug: productSlug,
     ...buildProductWritePayload({
       ...body,
       base_price: resolvedBasePrice,

@@ -10,7 +10,7 @@ import { buildCombinedMetalDisplayLabel, replaceProductMetalVariants, replacePro
 import { productImportBucket } from '@/lib/product-import-staging'
 import type { ImportJobIssueRecord, ImportJobRowRecord } from '@/lib/import-jobs'
 import { uploadProductVideoToR2 } from '@/lib/r2'
-import { slugify } from '@/lib/product-catalog'
+import { allocateProductSlug } from '@/lib/product-slugs'
 
 type LookupRow = { id: string; name: string }
 type RuleLookupRow = { id: string; name: string; kind: 'shipping' | 'care_warranty' }
@@ -435,10 +435,13 @@ async function saveProduct(adminClient: any, row: ImportJobRowRecord, mediaPaths
     throw new Error(existingProductError.message)
   }
 
+  const newProductSlug = existingProduct
+    ? null
+    : await allocateProductSlug(adminClient, row.product_name || row.sku || 'import-product')
   const writePayload = existingProduct
     ? payload
     : {
-        slug: `${slugify(row.product_name || row.sku || 'import-product')}-${Date.now()}`,
+        slug: newProductSlug,
         ...payload,
       }
 

@@ -67,6 +67,8 @@ type OrderItem = {
   selected_carat: string | null
   image_url: string | null
   selected_custom_dropdowns?: { dropdown_id: string; label: string; option_label: string }[]
+  item_type?: 'regular' | 'free_gift'
+  original_unit_price?: number | null
 }
 
 type OrderLoveLetter = {
@@ -430,7 +432,7 @@ export default function OrderDetailPage({ params }: OrderDetailPageProps) {
                     ) : null}
                   </div>
                   <div className="flex-1">
-                    <div className="font-semibold text-foreground">{item.product_name}</div>
+                    <div className="flex items-center gap-2"><div className="font-semibold text-foreground">{item.product_name}</div>{item.item_type === 'free_gift' ? <span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-800">Free gift</span> : null}</div>
                     <div className="mt-1 text-sm text-muted-foreground">Slug: {item.product_slug || '-'}</div>
                     <div className="mt-1 text-sm text-muted-foreground">SKU: {item.sku || '-'}</div>
                     <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
@@ -445,7 +447,7 @@ export default function OrderDetailPage({ params }: OrderDetailPageProps) {
                   </div>
                   <div className="text-right">
                     <div className="text-sm text-muted-foreground">Qty {item.quantity}</div>
-                    <div className="mt-1 text-sm font-bold text-foreground">${Number(item.line_total || 0).toLocaleString()}</div>
+                    <div className="mt-1 text-sm font-bold text-foreground">{item.item_type === 'free_gift' ? <><span className="mr-2 font-normal text-muted-foreground line-through">${Number(item.original_unit_price || 0).toLocaleString()}</span><span className="text-emerald-700">Free</span></> : `$${Number(item.line_total || 0).toLocaleString()}`}</div>
                   </div>
                 </div>
               ))}

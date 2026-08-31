@@ -9,6 +9,7 @@ next.user-config.*
 
 # Environment variables
 .env*
+.seo-backups/
 
 # Common ignores
 node_modules

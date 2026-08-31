@@ -436,6 +436,19 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
     })
   }
 
+  const moveContentBlock = (clientId: string, direction: -1 | 1) => {
+    setContentBlocks((prev) => {
+      const index = prev.findIndex((block) => block.clientId === clientId)
+      const nextIndex = index + direction
+      if (index < 0 || nextIndex < 0 || nextIndex >= prev.length) return prev
+
+      const next = [...prev]
+      const [block] = next.splice(index, 1)
+      next.splice(nextIndex, 0, block)
+      return next.map((entry, order) => ({ ...entry, sort_order: order + 1 }))
+    })
+  }
+
   return (
     <div className="min-h-screen bg-background p-8">
       <div className="mb-8 flex items-center justify-between gap-4">
@@ -635,6 +648,24 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
                   Block {index + 1} · {block.block_type}
                 </div>
                 <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    aria-label={`Move block ${index + 1} up`}
+                    onClick={() => moveContentBlock(block.clientId, -1)}
+                    disabled={index === 0}
+                    className="rounded-md border border-border px-2 py-1 text-sm font-semibold text-foreground hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <span aria-hidden="true">↑</span>
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Move block ${index + 1} down`}
+                    onClick={() => moveContentBlock(block.clientId, 1)}
+                    disabled={index === contentBlocks.length - 1}
+                    className="rounded-md border border-border px-2 py-1 text-sm font-semibold text-foreground hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <span aria-hidden="true">↓</span>
+                  </button>
                   <button
                     type="button"
                     onClick={() =>
