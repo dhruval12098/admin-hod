@@ -97,7 +97,7 @@ export async function POST(
         description: String(block.description ?? '').trim(),
         body: String(block.body ?? '').trim(),
       }))
-      .filter((block: { heading: string; description: string }) => block.heading && block.description)
+      .filter((block: { heading: string; description: string; body: string }) => block.heading || block.description || block.body)
 
     const { error: deleteError } = await supabase.from('docs_blocks').delete().eq('page_id', pageData.id)
     if (deleteError) return NextResponse.json({ error: deleteError.message }, { status: 500 })
