@@ -1,7 +1,9 @@
 'use client'
 
+import { useEffect } from 'react'
 import { CMSTabs } from '@/components/cms-tabs'
 import { CMSSectionTable } from '@/components/cms-section-table'
+import { loadDocsPage } from '@/lib/docs-admin-cache'
 
 const DOCS_SECTIONS = [
   { id: 'shipping', label: 'Shipping', description: 'Shipping timelines and delivery details' },
@@ -11,6 +13,12 @@ const DOCS_SECTIONS = [
 ]
 
 export default function DocsPageEditor() {
+  useEffect(() => {
+    DOCS_SECTIONS.forEach((section) => {
+      void loadDocsPage(section.id).catch(() => undefined)
+    })
+  }, [])
+
   return (
     <div>
       <CMSTabs />

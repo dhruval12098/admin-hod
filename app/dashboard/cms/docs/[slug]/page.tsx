@@ -3,12 +3,13 @@
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'next/navigation'
-import { ArrowLeft, Plus, Trash2, Edit2 } from 'lucide-react'
+import { AlertCircle, ArrowLeft, CheckCircle2, ExternalLink, Plus, Trash2, Edit2 } from 'lucide-react'
 import { CmsSaveAction } from '@/components/cms-save-action'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
+import { getCachedDocsPage, loadDocsPage, setCachedDocsPage, type DocsAdminPayload } from '@/lib/docs-admin-cache'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
@@ -32,11 +33,7 @@ type Block = {
   body: string
 }
 
-type Payload = {
-  page?: { eyebrow?: string; title?: string; subtitle?: string }
-  blocks?: Array<{ id: number; sort_order: number; heading: string; description: string; body: string }>
-  error?: string
-}
+type Payload = DocsAdminPayload
 
 const DOCS_META: Record<string, { label: string; description: string }> = {
   shipping: { label: 'Shipping', description: 'Manage shipping timelines and delivery details' },
@@ -166,37 +163,51 @@ export default function DocsEditorPage() {
   const params = useParams<{ slug: string }>()
   const slug = useMemo(() => (Array.isArray(params?.slug) ? params.slug[0] : params?.slug ?? ''), [params])
   const meta = DOCS_META[slug] ?? { label: 'Docs', description: 'Edit docs page content' }
-  const [pageData, setPageData] = useState({ eyebrow: '', title: '', subtitle: '' })
-  const [blocks, setBlocks] = useState<Block[]>([])
-  const [status, setStatus] = useState('Loading docs page...')
+  const initialCachedPayload = useMemo(() => getCachedDocsPage(slug), [slug])
+  const [pageData, setPageData] = useState(() => ({
+    eyebrow: initialCachedPayload?.page?.eyebrow ?? '',
+    title: initialCachedPayload?.page?.title ?? '',
+    subtitle: initialCachedPayload?.page?.subtitle ?? '',
+  }))
+  const [blocks, setBlocks] = useState<Block[]>(() =>
+    (initialCachedPayload?.blocks ?? []).map((block, index) => ({ clientId: block.id ? `id-${block.id}` : `cached-${index}`, ...block }))
+  )
+  const [status, setStatus] = useState(initialCachedPayload ? `${meta.label} ready` : 'Loading docs page...')
+  const [saveFeedback, setSaveFeedback] = useState<{ type: 'success' | 'error'; message: string; previewUrl?: string } | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
+  const [editorConfirmOpen, setEditorConfirmOpen] = useState(false)
   const [editorBlock, setEditorBlock] = useState<Block>(emptyBlock(1))
+  const [deleteTarget, setDeleteTarget] = useState<Block | null>(null)
 
   const sortedBlocks = useMemo(() => [...blocks].sort((a, b) => a.sort_order - b.sort_order || a.clientId.localeCompare(b.clientId)), [blocks])
   const nextOrder = Math.max(...blocks.map((block) => block.sort_order), 0) + 1
+  const isEditingExistingBlock = blocks.some((block) => block.clientId === editorBlock.clientId)
 
   useEffect(() => {
     const load = async () => {
       if (!slug) return
-      const response = await fetch(`/api/cms/docs/${slug}`)
-      const payload = (await response.json().catch(() => null)) as Payload | null
-      if (!response.ok) return setStatus(payload?.error ?? 'Unable to load docs page.')
+      try {
+        const payload = await loadDocsPage(slug)
 
-      setPageData({
-        eyebrow: payload?.page?.eyebrow ?? '',
-        title: payload?.page?.title ?? '',
-        subtitle: payload?.page?.subtitle ?? '',
-      })
-      setBlocks((payload?.blocks ?? []).map((block) => ({ clientId: `id-${block.id}`, ...block })))
-      setStatus(`${meta.label} loaded`)
+        setPageData({
+          eyebrow: payload?.page?.eyebrow ?? '',
+          title: payload?.page?.title ?? '',
+          subtitle: payload?.page?.subtitle ?? '',
+        })
+        setBlocks((payload?.blocks ?? []).map((block, index) => ({ clientId: block.id ? `id-${block.id}` : `loaded-${index}`, ...block })))
+        setStatus(`${meta.label} loaded`)
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : 'Unable to load docs page.')
+      }
     }
 
     load()
   }, [slug, meta.label])
 
   const saveEditor = () => {
+    const action = isEditingExistingBlock ? 'updated' : 'added'
     setBlocks((prev) => {
       const next = {
         ...editorBlock,
@@ -210,46 +221,73 @@ export default function DocsEditorPage() {
       }
       return [...prev, next]
     })
-    setStatus('Draft updated locally. Save changes to publish.')
+    setSaveFeedback(null)
+    setStatus(`Block ${action} to the draft. Save changes to publish.`)
     setEditorOpen(false)
+    toast({
+      title: `Block ${action}`,
+      description: 'This is a draft change. Click Save Changes to publish it on the storefront.',
+    })
+  }
+
+  const deleteBlock = () => {
+    if (!deleteTarget) return
+    setBlocks((prev) => prev.filter((block) => block.clientId !== deleteTarget.clientId))
+    setSaveFeedback(null)
+    setStatus('Block removed from the draft. Save changes to publish.')
+    setDeleteTarget(null)
+    toast({
+      title: 'Block removed',
+      description: 'This is a draft change. Click Save Changes to remove it from the storefront.',
+    })
   }
 
   const saveAll = async () => {
     setIsSaving(true)
-    const { data: sessionData } = await supabase.auth.getSession()
-    const accessToken = sessionData.session?.access_token
-    if (!accessToken) {
+    setSaveFeedback(null)
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const accessToken = sessionData.session?.access_token
+      if (!accessToken) throw new Error('You are not signed in. Please sign in again and retry.')
+
+      const response = await fetch(`/api/cms/docs/${slug}`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          ...pageData,
+          blocks: sortedBlocks.map(({ sort_order, heading, description, body }) => ({
+            sort_order,
+            heading,
+            description,
+            body,
+          })),
+        }),
+      })
+      const payload = (await response.json().catch(() => null)) as Payload | null
+      if (!response.ok) throw new Error(payload?.error ?? 'Unable to save docs page.')
+
+      const message = `${meta.label} saved successfully and is available on the storefront.`
+      setStatus(`${meta.label} saved`)
+      const storefrontUrl = process.env.NEXT_PUBLIC_STOREFRONT_URL || 'https://www.houseofdiams.com'
+      setCachedDocsPage(slug, {
+        page: pageData,
+        blocks: sortedBlocks.map(({ id, sort_order, heading, description, body }) => ({ id, sort_order, heading, description, body })),
+      })
+      setSaveFeedback({ type: 'success', message, previewUrl: `${storefrontUrl}/${slug}?preview=${Date.now()}` })
+      setConfirmOpen(false)
+      toast({ title: 'Changes saved successfully', description: message })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to save docs page.'
+      setStatus(message)
+      setSaveFeedback({ type: 'error', message })
+      toast({ title: 'Save failed', description: message, variant: 'destructive' })
+    } finally {
       setIsSaving(false)
-      setStatus('You are not signed in.')
-      return
     }
-
-    const response = await fetch(`/api/cms/docs/${slug}`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({
-        ...pageData,
-        blocks: sortedBlocks.map(({ sort_order, heading, description, body }) => ({
-          sort_order,
-          heading,
-          description,
-          body,
-        })),
-      }),
-    })
-    const payload = (await response.json().catch(() => null)) as Payload | null
-    setIsSaving(false)
-    if (!response.ok) {
-      setStatus(payload?.error ?? 'Unable to save docs page.')
-      return
-    }
-
-    setStatus(`${meta.label} saved`)
-    setConfirmOpen(false)
-    toast({ title: 'Saved', description: `${meta.label} updated successfully.` })
   }
 
   return (
@@ -267,6 +305,36 @@ export default function DocsEditorPage() {
         <p className="mt-1 text-sm text-muted-foreground">{meta.description}</p>
         <p className="mt-2 text-xs text-muted-foreground">{status}</p>
       </div>
+
+      {saveFeedback ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`mb-6 flex max-w-5xl items-start justify-between gap-4 rounded-lg border p-4 ${
+            saveFeedback.type === 'success'
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+              : 'border-red-200 bg-red-50 text-red-900'
+          }`}
+        >
+          <div className="flex items-start gap-3">
+            {saveFeedback.type === 'success' ? <CheckCircle2 className="mt-0.5 shrink-0" size={19} /> : <AlertCircle className="mt-0.5 shrink-0" size={19} />}
+            <div>
+              <p className="text-sm font-semibold">{saveFeedback.type === 'success' ? 'Saved successfully' : 'Changes were not saved'}</p>
+              <p className="mt-1 text-xs leading-5 opacity-80">{saveFeedback.message}</p>
+            </div>
+          </div>
+          {saveFeedback.type === 'success' && saveFeedback.previewUrl ? (
+            <a
+              href={saveFeedback.previewUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex shrink-0 items-center gap-1.5 text-xs font-semibold underline underline-offset-4"
+            >
+              View live page <ExternalLink size={13} />
+            </a>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="max-w-5xl space-y-6 rounded-lg border border-border bg-white p-8 shadow-xs">
         <div>
@@ -322,7 +390,7 @@ export default function DocsEditorPage() {
                       Edit
                     </button>
                     <button
-                      onClick={() => setBlocks((prev) => prev.filter((x) => x.clientId !== block.clientId))}
+                      onClick={() => setDeleteTarget(block)}
                       className="inline-flex items-center gap-2 rounded-md border border-red-200 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
                     >
                       <Trash2 size={14} />
@@ -354,6 +422,31 @@ export default function DocsEditorPage() {
         isLoading={isSaving}
         onConfirm={saveAll}
         onCancel={() => setConfirmOpen(false)}
+      />
+
+      <ConfirmDialog
+        isOpen={Boolean(deleteTarget)}
+        title="Delete this block?"
+        description="The block will be removed from the draft. Use Save Changes afterward to publish the deletion on the storefront."
+        confirmText="Delete Block"
+        cancelText="Cancel"
+        type="delete"
+        onConfirm={deleteBlock}
+        onCancel={() => setDeleteTarget(null)}
+      />
+
+      <ConfirmDialog
+        isOpen={editorConfirmOpen}
+        title={isEditingExistingBlock ? 'Update this block?' : 'Add this block?'}
+        description="This updates the local draft. Use Save Changes afterward to publish it on the storefront."
+        confirmText={isEditingExistingBlock ? 'Update Block' : 'Add Block'}
+        cancelText="Cancel"
+        type="confirm"
+        onConfirm={() => {
+          setEditorConfirmOpen(false)
+          saveEditor()
+        }}
+        onCancel={() => setEditorConfirmOpen(false)}
       />
 
       <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
@@ -391,8 +484,8 @@ export default function DocsEditorPage() {
             <button onClick={() => setEditorOpen(false)} className="rounded-lg border border-border px-4 py-2.5 text-sm font-semibold text-foreground hover:bg-secondary">
               Cancel
             </button>
-            <button onClick={saveEditor} className="rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary/90">
-              Update Item
+            <button onClick={() => setEditorConfirmOpen(true)} className="rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary/90">
+              {isEditingExistingBlock ? 'Update Block' : 'Add Block'}
             </button>
           </DialogFooter>
         </DialogContent>
