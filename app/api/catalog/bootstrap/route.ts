@@ -21,8 +21,8 @@ export async function GET(request: Request) {
 
   const [categoriesResult, subcategoriesResult, optionsResult, metalsResult, materialValues, stoneShapesResult, ringSizes, ringCategories, ringCategorySizes, certificates, styles, productContentRules, gstSlabs, navbarItemsResult] = await Promise.all([
     includeBasics ? adminClient.from('catalog_categories').select('id, code, name, slug, category_lane, display_order, status').order('display_order', { ascending: true }) : Promise.resolve({ data: [], error: null }),
-    includeBasics ? adminClient.from('catalog_subcategories').select('id, category_id, name, slug, sub_type, display_order, status').order('display_order', { ascending: true }) : Promise.resolve({ data: [], error: null }),
-    includeBasics ? adminClient.from('catalog_options').select('id, subcategory_id, name, slug, display_order, status').order('display_order', { ascending: true }) : Promise.resolve({ data: [], error: null }),
+    includeBasics ? adminClient.from('catalog_subcategories').select('id, category_id, name, slug, sub_type, icon_svg_path, image_path, image_alt, display_order, status').order('display_order', { ascending: true }) : Promise.resolve({ data: [], error: null }),
+    includeBasics ? adminClient.from('catalog_options').select('id, subcategory_id, name, slug, icon_svg_path, image_path, image_alt, display_order, status').order('display_order', { ascending: true }) : Promise.resolve({ data: [], error: null }),
     (includePricing || includeAttributes) ? adminClient.from('catalog_metals').select('id, name, slug, purity_label, base_metal_name, display_label, is_combined_option, color_hex, display_order, status').order('display_order', { ascending: true }) : Promise.resolve({ data: [], error: null }),
     includeAttributes ? loadOptionalTable(adminClient, 'catalog_material_values', 'id, name, slug, display_order, status') : Promise.resolve([]),
     includeAttributes ? adminClient.from('catalog_stone_shapes').select('id, name, slug, svg_asset_url, display_order, status').order('display_order', { ascending: true }) : Promise.resolve({ data: [], error: null }),

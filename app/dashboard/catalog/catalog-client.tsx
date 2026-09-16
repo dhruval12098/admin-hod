@@ -9,6 +9,7 @@ import { TablePagination } from '@/components/table-pagination'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useToast } from '@/hooks/use-toast'
+import { CatalogImagePreview } from '@/components/catalog-image-preview'
 import type { CatalogCategory, CatalogNavbarItem, CatalogOption, CatalogSubcategory, ProductContentRule } from '@/lib/product-catalog'
 import { slugify } from '@/lib/product-catalog'
 
@@ -312,12 +313,17 @@ function CategoriesPanel({ categories, navbarItems, onChange }: { categories: Ca
       <SectionHeader title="Categories" description="Manage main catalog categories." actionLabel="Add New Category" onAction={openNew} />
 
       <DataTable
-        headers={['Name', 'Slug', 'Nav Type', 'Display Order', 'Status', 'View', 'Edit', 'Delete']}
+        headers={['Image', 'Name', 'Slug', 'Nav Type', 'Display Order', 'Status', 'View', 'Edit', 'Delete']}
         rows={categories.map((item) => {
           const navStatus = getCategoryNavStatus(item, navbarItems)
           return {
           id: item.id,
           cells: [
+            <CatalogImagePreview
+              key="image"
+              path={item.banner_desktop_image_path || item.banner_mobile_image_path}
+              alt={item.banner_desktop_image_alt || item.banner_mobile_image_alt || `${item.name} category banner`}
+            />,
             <div key="name" className="flex items-center gap-2">
               <span>{item.name}</span>
               {item.is_system_locked ? <Badge className="bg-amber-100 text-amber-700">System Locked</Badge> : null}

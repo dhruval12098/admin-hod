@@ -37,6 +37,8 @@ export type CatalogCategory = {
   direct_link_url: string | null
   banner_desktop_image_path?: string | null
   banner_mobile_image_path?: string | null
+  banner_desktop_image_alt?: string | null
+  banner_mobile_image_alt?: string | null
   banner_title?: string | null
   banner_subtitle?: string | null
   banner_cta_label?: string | null
@@ -80,6 +82,8 @@ export type CatalogSubcategory = {
   sub_type: 'standard' | 'auto_shape' | 'manual_style' | 'auto_metal' | 'gender_split'
   show_on_category_page?: boolean
   icon_svg_path?: string | null
+  image_path?: string | null
+  image_alt?: string | null
   display_order: number
   status: CatalogStatus
 }
@@ -91,6 +95,8 @@ export type CatalogOption = {
   slug: string
   show_on_category_page?: boolean
   icon_svg_path?: string | null
+  image_path?: string | null
+  image_alt?: string | null
   display_order: number
   status: CatalogStatus
 }

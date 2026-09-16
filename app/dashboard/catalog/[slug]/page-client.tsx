@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/hooks/use-toast'
+import { CatalogImagePreview } from '@/components/catalog-image-preview'
 import type { CatalogCategory, CatalogGridPoster, CatalogNavbarItem, CatalogOption, CatalogSubcategory } from '@/lib/product-catalog'
 import { slugify } from '@/lib/product-catalog'
 
@@ -19,7 +20,8 @@ type SubcategoryFormState = {
   name: string
   slug: string
   parentCategoryId: string
-  iconSvgPath: string
+  imagePath: string
+  imageAlt: string
   displayOrder: number
   status: 'Active' | 'Hidden'
 }
@@ -28,7 +30,8 @@ type OptionFormState = {
   name: string
   slug: string
   parentSubcategoryId: string
-  iconSvgPath: string
+  imagePath: string
+  imageAlt: string
   displayOrder: number
   status: 'Active' | 'Hidden'
 }
@@ -37,6 +40,8 @@ type CategoryBannerFormState = {
   bannerEnabled: boolean
   desktopImagePath: string
   mobileImagePath: string
+  desktopImageAlt: string
+  mobileImageAlt: string
   title: string
   subtitle: string
   ctaLabel: string
@@ -85,7 +90,8 @@ function emptySubcategoryForm(categoryId: string, nextOrder: number): Subcategor
     name: '',
     slug: '',
     parentCategoryId: categoryId,
-    iconSvgPath: '',
+    imagePath: '',
+    imageAlt: '',
     displayOrder: nextOrder,
     status: 'Active',
   }
@@ -96,7 +102,8 @@ function emptyOptionForm(subcategoryId: string, nextOrder: number): OptionFormSt
     name: '',
     slug: '',
     parentSubcategoryId: subcategoryId,
-    iconSvgPath: '',
+    imagePath: '',
+    imageAlt: '',
     displayOrder: nextOrder,
     status: 'Active',
   }
@@ -127,10 +134,10 @@ async function authedFetch(url: string, options: RequestInit = {}) {
   return fetch(url, { ...options, headers })
 }
 
-async function uploadCatalogSvg(kind: 'subcategories' | 'options', file: File) {
+async function uploadCatalogImage(kind: 'subcategories' | 'options', file: File) {
   const accessToken = await getAccessToken()
   if (!accessToken) {
-    throw new Error('You must be signed in to upload SVG files.')
+    throw new Error('You must be signed in to upload images.')
   }
 
   const payload = new FormData()
@@ -144,7 +151,7 @@ async function uploadCatalogSvg(kind: 'subcategories' | 'options', file: File) {
 
   const data = await response.json().catch(() => null)
   if (!response.ok || !data?.path) {
-    throw new Error(data?.error ?? 'Unable to upload SVG.')
+    throw new Error(data?.error ?? 'Unable to upload image.')
   }
 
   return data.path as string
@@ -346,6 +353,8 @@ function CategoryBannerPanel({
     bannerEnabled: Boolean(category.banner_enabled),
     desktopImagePath: category.banner_desktop_image_path ?? '',
     mobileImagePath: category.banner_mobile_image_path ?? '',
+    desktopImageAlt: category.banner_desktop_image_alt ?? '',
+    mobileImageAlt: category.banner_mobile_image_alt ?? '',
     title: category.banner_title ?? category.name,
     subtitle: category.banner_subtitle ?? `Browse ${category.name} from the live catalog.`,
     ctaLabel: category.banner_cta_label ?? 'Explore Collection',
@@ -360,6 +369,8 @@ function CategoryBannerPanel({
       bannerEnabled: Boolean(category.banner_enabled),
       desktopImagePath: category.banner_desktop_image_path ?? '',
       mobileImagePath: category.banner_mobile_image_path ?? '',
+      desktopImageAlt: category.banner_desktop_image_alt ?? '',
+      mobileImageAlt: category.banner_mobile_image_alt ?? '',
       title: category.banner_title ?? category.name,
       subtitle: category.banner_subtitle ?? `Browse ${category.name} from the live catalog.`,
       ctaLabel: category.banner_cta_label ?? 'Explore Collection',
@@ -374,6 +385,8 @@ function CategoryBannerPanel({
         banner_enabled: formData.bannerEnabled,
         banner_desktop_image_path: formData.desktopImagePath || null,
         banner_mobile_image_path: formData.mobileImagePath || null,
+        banner_desktop_image_alt: formData.desktopImageAlt || null,
+        banner_mobile_image_alt: formData.mobileImageAlt || null,
         banner_title: formData.title || null,
         banner_subtitle: formData.subtitle || null,
         banner_cta_label: formData.ctaLabel || null,
@@ -460,11 +473,16 @@ function CategoryBannerPanel({
             </Field>
             <Field label="Desktop Banner Image">
               <div className="space-y-3">
+                <CatalogImagePreview
+                  path={formData.desktopImagePath}
+                  alt={formData.desktopImageAlt || `${category.name} desktop banner`}
+                  size="banner"
+                />
                 <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary">
                   Upload Desktop Image
                   <input
                     type="file"
-                    accept="image/jpeg,image/png,image/webp,image/avif"
+                    accept=".svg,image/svg+xml,image/jpeg,image/png,image/webp,image/avif"
                     className="hidden"
                     disabled={uploadingDesktop}
                     onChange={(event) => {
@@ -481,13 +499,22 @@ function CategoryBannerPanel({
                 <p className="text-xs text-muted-foreground">{uploadingDesktop ? 'Uploading desktop image...' : formData.desktopImagePath || 'No desktop image uploaded yet'}</p>
               </div>
             </Field>
+            <Field label="Desktop Image Alt Text">
+              <input value={formData.desktopImageAlt} onChange={(e) => setFormData((prev) => ({ ...prev, desktopImageAlt: e.target.value }))} placeholder="Describe the desktop banner" className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm" />
+            </Field>
             <Field label="Mobile Banner Image">
               <div className="space-y-3">
+                <CatalogImagePreview
+                  path={formData.mobileImagePath}
+                  alt={formData.mobileImageAlt || `${category.name} mobile banner`}
+                  size="banner"
+                  className="max-w-[220px]"
+                />
                 <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary">
                   Upload Mobile Image
                   <input
                     type="file"
-                    accept="image/jpeg,image/png,image/webp,image/avif"
+                    accept=".svg,image/svg+xml,image/jpeg,image/png,image/webp,image/avif"
                     className="hidden"
                     disabled={uploadingMobile}
                     onChange={(event) => {
@@ -503,6 +530,9 @@ function CategoryBannerPanel({
                 ) : null}
                 <p className="text-xs text-muted-foreground">{uploadingMobile ? 'Uploading mobile image...' : formData.mobileImagePath || 'No mobile image uploaded yet'}</p>
               </div>
+            </Field>
+            <Field label="Mobile Image Alt Text">
+              <input value={formData.mobileImageAlt} onChange={(e) => setFormData((prev) => ({ ...prev, mobileImageAlt: e.target.value }))} placeholder="Describe the mobile banner" className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm" />
             </Field>
           </div>
 
@@ -733,7 +763,8 @@ function CategorySubcategoriesPanel({
       name: item.name,
       slug: item.slug,
       parentCategoryId: item.category_id,
-      iconSvgPath: item.icon_svg_path ?? '',
+      imagePath: item.image_path ?? item.icon_svg_path ?? '',
+      imageAlt: item.image_alt ?? '',
       displayOrder: item.display_order,
       status: item.status === 'hidden' ? 'Hidden' : 'Active',
     })
@@ -748,7 +779,8 @@ function CategorySubcategoriesPanel({
         name: formData.name,
         slug: formData.slug,
         sub_type: 'standard',
-        icon_svg_path: formData.iconSvgPath || null,
+        image_path: formData.imagePath || null,
+        image_alt: formData.imageAlt || null,
         display_order: formData.displayOrder,
         status: formData.status === 'Hidden' ? 'hidden' : 'active',
       }),
@@ -781,22 +813,22 @@ function CategorySubcategoriesPanel({
   const handleUpload = async (file: File) => {
     setUploading(true)
     try {
-      const path = await uploadCatalogSvg('subcategories', file)
+      const path = await uploadCatalogImage('subcategories', file)
       if (selectedId) {
         const response = await authedFetch(`/api/catalog/subcategories/${selectedId}`, {
           method: 'PATCH',
-          body: JSON.stringify({ icon_svg_path: path }),
+          body: JSON.stringify({ image_path: path }),
         })
         if (!response.ok) {
           const payload = await response.json().catch(() => null)
-          throw new Error(payload?.error ?? 'SVG uploaded, but the subcategory could not be updated.')
+          throw new Error(payload?.error ?? 'Image uploaded, but the subcategory could not be updated.')
         }
         await onChange()
       }
-      setFormData((current) => ({ ...current, iconSvgPath: path }))
-      toast({ title: 'SVG uploaded', description: 'Subcategory icon uploaded successfully.' })
+      setFormData((current) => ({ ...current, imagePath: path }))
+      toast({ title: 'Image uploaded', description: 'Subcategory image uploaded successfully.' })
     } catch (error) {
-      toast({ title: 'Upload failed', description: error instanceof Error ? error.message : 'Unable to upload SVG.' })
+      toast({ title: 'Upload failed', description: error instanceof Error ? error.message : 'Unable to upload image.' })
     } finally {
       setUploading(false)
     }
@@ -807,13 +839,17 @@ function CategorySubcategoriesPanel({
       <SectionHeader title="Subcategories" description={`Manage the subcategories linked to ${category.name}.`} actionLabel="Add New Subcategory" onAction={openNew} />
 
       <DataTable
-        headers={['Name', 'Slug', 'Icon', 'Display Order', 'Status', 'Edit', 'Delete']}
+        headers={['Name', 'Slug', 'Image', 'Display Order', 'Status', 'Edit', 'Delete']}
         rows={subcategories.map((item) => ({
           id: item.id,
           cells: [
             item.name,
             item.slug,
-            item.icon_svg_path || 'No SVG',
+            <CatalogImagePreview
+              key="image"
+              path={item.image_path || item.icon_svg_path}
+              alt={item.image_alt || item.name}
+            />,
             item.display_order,
             item.status === 'active' ? 'Active' : 'Hidden',
             <IconButton key="edit" onClick={() => openEdit(item)}><Edit2 size={14} className="text-muted-foreground" /></IconButton>,
@@ -841,13 +877,23 @@ function CategorySubcategoriesPanel({
         <Field label="Slug">
           <input value={formData.slug} onChange={(e) => setFormData((prev) => ({ ...prev, slug: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm" />
         </Field>
-        <Field label="Icon SVG">
+        <Field label="Image">
           <div className="space-y-3">
+            <div className="flex items-end gap-4">
+              <CatalogImagePreview
+                path={formData.imagePath}
+                alt={formData.imageAlt || formData.name || 'Subcategory image'}
+                size="editor"
+              />
+              <p className="min-w-0 pb-1 text-xs text-muted-foreground">
+                {formData.imageAlt.trim() || 'Add alt text below to describe this image.'}
+              </p>
+            </div>
             <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary">
-              Upload SVG
+              Upload image
               <input
                 type="file"
-                accept=".svg,image/svg+xml"
+                accept=".svg,image/svg+xml,image/jpeg,image/png,image/webp,image/avif"
                 className="hidden"
                 disabled={uploading}
                 onChange={(event) => {
@@ -856,19 +902,22 @@ function CategorySubcategoriesPanel({
                 }}
               />
             </label>
-            {formData.iconSvgPath ? (
+            {formData.imagePath ? (
               <button
                 type="button"
-                onClick={() => setFormData((current) => ({ ...current, iconSvgPath: '' }))}
+                onClick={() => setFormData((current) => ({ ...current, imagePath: '' }))}
                 className="rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
               >
-                Remove SVG
+                Remove image
               </button>
             ) : null}
             <p className="text-xs text-muted-foreground">
-              {uploading ? 'Uploading SVG...' : formData.iconSvgPath || 'No SVG uploaded yet'}
+              {uploading ? 'Uploading image...' : formData.imagePath || 'No image uploaded yet'}
             </p>
           </div>
+        </Field>
+        <Field label="Image Alt Text">
+          <input value={formData.imageAlt} onChange={(e) => setFormData((prev) => ({ ...prev, imageAlt: e.target.value }))} placeholder="Describe the subcategory image" className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm" />
         </Field>
         <Field label="Display Order">
           <input type="number" value={formData.displayOrder} onChange={(e) => setFormData((prev) => ({ ...prev, displayOrder: Number(e.target.value) || 0 }))} className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm" />
@@ -922,7 +971,8 @@ function CategoryOptionsPanel({
       name: item.name,
       slug: item.slug,
       parentSubcategoryId: item.subcategory_id,
-      iconSvgPath: item.icon_svg_path ?? '',
+      imagePath: item.image_path ?? item.icon_svg_path ?? '',
+      imageAlt: item.image_alt ?? '',
       displayOrder: item.display_order,
       status: item.status === 'hidden' ? 'Hidden' : 'Active',
     })
@@ -941,7 +991,8 @@ function CategoryOptionsPanel({
         subcategory_id: formData.parentSubcategoryId,
         name: formData.name,
         slug: formData.slug,
-        icon_svg_path: formData.iconSvgPath || null,
+        image_path: formData.imagePath || null,
+        image_alt: formData.imageAlt || null,
         display_order: formData.displayOrder,
         status: formData.status === 'Hidden' ? 'hidden' : 'active',
       }),
@@ -974,22 +1025,22 @@ function CategoryOptionsPanel({
   const handleUpload = async (file: File) => {
     setUploading(true)
     try {
-      const path = await uploadCatalogSvg('options', file)
+      const path = await uploadCatalogImage('options', file)
       if (selectedId) {
         const response = await authedFetch(`/api/catalog/options/${selectedId}`, {
           method: 'PATCH',
-          body: JSON.stringify({ icon_svg_path: path }),
+          body: JSON.stringify({ image_path: path }),
         })
         if (!response.ok) {
           const payload = await response.json().catch(() => null)
-          throw new Error(payload?.error ?? 'SVG uploaded, but the option could not be updated.')
+          throw new Error(payload?.error ?? 'Image uploaded, but the option could not be updated.')
         }
         await onChange()
       }
-      setFormData((current) => ({ ...current, iconSvgPath: path }))
-      toast({ title: 'SVG uploaded', description: 'Option icon uploaded successfully.' })
+      setFormData((current) => ({ ...current, imagePath: path }))
+      toast({ title: 'Image uploaded', description: 'Option image uploaded successfully.' })
     } catch (error) {
-      toast({ title: 'Upload failed', description: error instanceof Error ? error.message : 'Unable to upload SVG.' })
+      toast({ title: 'Upload failed', description: error instanceof Error ? error.message : 'Unable to upload image.' })
     } finally {
       setUploading(false)
     }
@@ -1015,13 +1066,17 @@ function CategoryOptionsPanel({
       </div>
 
       <DataTable
-        headers={['Name', 'Slug', 'Icon', 'Parent Subcategory', 'Display Order', 'Status', 'Edit', 'Delete']}
+        headers={['Name', 'Slug', 'Image', 'Parent Subcategory', 'Display Order', 'Status', 'Edit', 'Delete']}
         rows={filteredOptions.map((item) => ({
           id: item.id,
           cells: [
             item.name,
             item.slug,
-            item.icon_svg_path || 'No SVG',
+            <CatalogImagePreview
+              key="image"
+              path={item.image_path || item.icon_svg_path}
+              alt={item.image_alt || item.name}
+            />,
             subcategories.find((subcategory) => subcategory.id === item.subcategory_id)?.name ?? '',
             item.display_order,
             item.status === 'active' ? 'Active' : 'Hidden',
@@ -1047,13 +1102,23 @@ function CategoryOptionsPanel({
         <Field label="Slug">
           <input value={formData.slug} onChange={(e) => setFormData((prev) => ({ ...prev, slug: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm" />
         </Field>
-        <Field label="Icon SVG">
+        <Field label="Image">
           <div className="space-y-3">
+            <div className="flex items-end gap-4">
+              <CatalogImagePreview
+                path={formData.imagePath}
+                alt={formData.imageAlt || formData.name || 'Option image'}
+                size="editor"
+              />
+              <p className="min-w-0 pb-1 text-xs text-muted-foreground">
+                {formData.imageAlt.trim() || 'Add alt text below to describe this image.'}
+              </p>
+            </div>
             <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary">
-              Upload SVG
+              Upload image
               <input
                 type="file"
-                accept=".svg,image/svg+xml"
+                accept=".svg,image/svg+xml,image/jpeg,image/png,image/webp,image/avif"
                 className="hidden"
                 disabled={uploading}
                 onChange={(event) => {
@@ -1062,19 +1127,22 @@ function CategoryOptionsPanel({
                 }}
               />
             </label>
-            {formData.iconSvgPath ? (
+            {formData.imagePath ? (
               <button
                 type="button"
-                onClick={() => setFormData((current) => ({ ...current, iconSvgPath: '' }))}
+                onClick={() => setFormData((current) => ({ ...current, imagePath: '' }))}
                 className="rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
               >
-                Remove SVG
+                Remove image
               </button>
             ) : null}
             <p className="text-xs text-muted-foreground">
-              {uploading ? 'Uploading SVG...' : formData.iconSvgPath || 'No SVG uploaded yet'}
+              {uploading ? 'Uploading image...' : formData.imagePath || 'No image uploaded yet'}
             </p>
           </div>
+        </Field>
+        <Field label="Image Alt Text">
+          <input value={formData.imageAlt} onChange={(e) => setFormData((prev) => ({ ...prev, imageAlt: e.target.value }))} placeholder="Describe the option image" className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm" />
         </Field>
         <Field label="Parent Subcategory">
           <Select value={formData.parentSubcategoryId || undefined} onValueChange={(value) => setFormData((prev) => ({ ...prev, parentSubcategoryId: value }))}>

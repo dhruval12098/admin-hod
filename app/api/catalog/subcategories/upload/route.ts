@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server'
 import { assertAdmin } from '@/lib/cms-auth'
+import sharp from 'sharp'
 
 const collectionBucket = process.env.SUPABASE_COLLECTION_BUCKET ?? 'hod'
+const allowedMimeTypes = new Set(['image/svg+xml', 'image/jpeg', 'image/png', 'image/webp', 'image/avif'])
+const maxFileSizeBytes = 6 * 1024 * 1024
 
 export async function POST(request: Request) {
   const access = await assertAdmin(request)
@@ -14,17 +17,23 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Missing file.' }, { status: 400 })
   }
 
-  if (file.type !== 'image/svg+xml') {
-    return NextResponse.json({ error: 'Only SVG files are allowed.' }, { status: 400 })
+  if (!allowedMimeTypes.has(file.type)) {
+    return NextResponse.json({ error: 'Invalid file type. Use SVG, JPG, PNG, WebP, or AVIF.' }, { status: 400 })
   }
+  if (file.size > maxFileSizeBytes) return NextResponse.json({ error: 'File too large. Max size is 6MB.' }, { status: 400 })
 
   const buffer = Buffer.from(await file.arrayBuffer())
-  const fileName = `catalog/subcategories/${crypto.randomUUID()}.svg`
+  const isSvg = file.type === 'image/svg+xml'
+  const fileName = `catalog/subcategories/${crypto.randomUUID()}.${isSvg ? 'svg' : 'webp'}`
+  const uploadBuffer = isSvg
+    ? buffer
+    : await sharp(buffer).rotate().resize({ width: 1200, withoutEnlargement: true }).webp({ quality: 84 }).toBuffer()
+  const contentType = isSvg ? 'image/svg+xml' : 'image/webp'
 
   const { error: uploadError } = await access.adminClient.storage
     .from(collectionBucket)
-    .upload(fileName, buffer, {
-      contentType: 'image/svg+xml',
+    .upload(fileName, uploadBuffer, {
+      contentType,
       upsert: false,
     })
 

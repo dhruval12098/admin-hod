@@ -1,12 +1,13 @@
 'use client'
 
 import { useState, type FormEvent } from 'react'
-import { ArrowRight, LockKeyhole, ShieldCheck } from 'lucide-react'
+import { ArrowRight, Eye, EyeOff, LockKeyhole, ShieldCheck } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [message, setMessage] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -126,14 +127,25 @@ export default function LoginPage() {
                   <label className="mb-2.5 block text-[12px] font-semibold uppercase tracking-[0.16em] text-[#5d584f]">
                     Password
                   </label>
-                  <input
-                    className="w-full rounded-2xl border border-black/10 bg-[#fbfaf7] px-4 py-3.5 text-[15px] text-[#111111] outline-none transition-all placeholder:text-[#9d978d] focus:border-black/30 focus:bg-white focus:ring-4 focus:ring-black/5"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    type="password"
-                    placeholder="Enter your password"
-                    autoComplete="current-password"
-                  />
+                  <div className="relative">
+                    <input
+                      className="w-full rounded-2xl border border-black/10 bg-[#fbfaf7] px-4 py-3.5 pr-12 text-[15px] text-[#111111] outline-none transition-all placeholder:text-[#9d978d] focus:border-black/30 focus:bg-white focus:ring-4 focus:ring-black/5"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder="Enter your password"
+                      autoComplete="current-password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((value) => !value)}
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      aria-pressed={showPassword}
+                      className="absolute right-3 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full text-[#6c665e] transition-colors hover:bg-black/5 hover:text-[#111111] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black/40"
+                    >
+                      {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+                    </button>
+                  </div>
                 </div>
 
                 {message ? (

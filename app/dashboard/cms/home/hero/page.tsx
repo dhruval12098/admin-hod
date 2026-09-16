@@ -16,7 +16,7 @@ async function getHeroInitialData(): Promise<HeroEditorInitialData> {
 
   const { data: items, error: itemsError } = await adminClient
     .from('homepage_hero_slider_items')
-    .select('id, sort_order, image_path, mobile_image_path, button_text, button_link')
+    .select('id, sort_order, image_path, mobile_image_path, headline, subtitle, button_text, button_link')
     .eq('hero_id', section.id)
     .order('sort_order', { ascending: true })
 
@@ -33,7 +33,7 @@ async function getHeroInitialData(): Promise<HeroEditorInitialData> {
       seo_title: section.seo_title ?? '',
       seo_description: section.seo_description ?? '',
     },
-    items: items ?? [],
+    items: (items ?? []).map((item) => ({ ...item, headline: item.headline ?? '', subtitle: item.subtitle ?? '' })),
   }
 }
 

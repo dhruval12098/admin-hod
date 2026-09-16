@@ -15,6 +15,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if ('name' in body) updates.name = body.name
   if ('slug' in body) updates.slug = body.slug
   if ('icon_svg_path' in body) updates.icon_svg_path = body.icon_svg_path ?? null
+  if ('image_path' in body) updates.image_path = body.image_path ?? null
+  if ('image_alt' in body) updates.image_alt = body.image_alt ?? null
   if ('display_order' in body) updates.display_order = body.display_order ?? 0
   if ('status' in body) updates.status = body.status ?? 'active'
 

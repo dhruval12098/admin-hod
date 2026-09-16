@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { KeyRound, MessageCircle, Save, ShieldAlert } from 'lucide-react'
+import { Eye, EyeOff, KeyRound, MessageCircle, Save, ShieldAlert } from 'lucide-react'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
@@ -98,6 +98,11 @@ export function SettingsClient({ initialData }: { initialData: SettingsPageData 
   )
   const [whatsappForm, setWhatsappForm] = useState<WhatsappForm>(splitWhatsappNumber(initialData.settings.whatsapp_number ?? ''))
   const [passwordForm, setPasswordForm] = useState<PasswordForm>(emptyPasswordForm)
+  const [visiblePasswordFields, setVisiblePasswordFields] = useState<Record<keyof PasswordForm, boolean>>({
+    currentPassword: false,
+    newPassword: false,
+    confirmPassword: false,
+  })
   const [settingsConfirmOpen, setSettingsConfirmOpen] = useState(false)
   const [passwordConfirmOpen, setPasswordConfirmOpen] = useState(false)
 
@@ -108,6 +113,28 @@ export function SettingsClient({ initialData }: { initialData: SettingsPageData 
       : ''
   }, [whatsappForm])
 
+  const renderPasswordField = (field: keyof PasswordForm) => {
+    const isVisible = visiblePasswordFields[field]
+    return (
+      <div className="relative">
+        <input
+          type={isVisible ? 'text' : 'password'}
+          value={passwordForm[field]}
+          onChange={(e) => setPasswordForm((prev) => ({ ...prev, [field]: e.target.value }))}
+          className="w-full rounded-lg border border-border bg-white px-4 py-2.5 pr-11 text-sm transition-colors hover:border-input focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+        />
+        <button
+          type="button"
+          onClick={() => setVisiblePasswordFields((prev) => ({ ...prev, [field]: !prev[field] }))}
+          aria-label={isVisible ? 'Hide password' : 'Show password'}
+          aria-pressed={isVisible}
+          className="absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+        >
+          {isVisible ? <EyeOff size={16} /> : <Eye size={16} />}
+        </button>
+      </div>
+    )
+  }
   const saveSettings = async () => {
     setSavingSettings(true)
     try {
@@ -362,32 +389,20 @@ export function SettingsClient({ initialData }: { initialData: SettingsPageData 
             <div className="space-y-4">
               <div>
                 <label className="mb-2 block text-sm font-semibold text-foreground">Current Password</label>
-                <input
-                  type="password"
-                  value={passwordForm.currentPassword}
-                  onChange={(e) => setPasswordForm((prev) => ({ ...prev, currentPassword: e.target.value }))}
-                  className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm transition-colors hover:border-input focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
-                />
+                {renderPasswordField('currentPassword')}
+
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
                   <label className="mb-2 block text-sm font-semibold text-foreground">New Password</label>
-                  <input
-                    type="password"
-                    value={passwordForm.newPassword}
-                    onChange={(e) => setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value }))}
-                    className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm transition-colors hover:border-input focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
-                  />
+                  {renderPasswordField('newPassword')}
+
                 </div>
                 <div>
                   <label className="mb-2 block text-sm font-semibold text-foreground">Confirm Password</label>
-                  <input
-                    type="password"
-                    value={passwordForm.confirmPassword}
-                    onChange={(e) => setPasswordForm((prev) => ({ ...prev, confirmPassword: e.target.value }))}
-                    className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm transition-colors hover:border-input focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
-                  />
+                  {renderPasswordField('confirmPassword')}
+
                 </div>
               </div>
 

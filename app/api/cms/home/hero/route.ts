@@ -10,6 +10,8 @@ type HeroSlide = {
   sort_order: number
   image_path: string
   mobile_image_path?: string
+  headline: string
+  subtitle: string
   button_text: string
   button_link: string
 }
@@ -73,7 +75,7 @@ export async function GET(request: Request) {
 
   const { data: items, error: itemsError } = await adminClient
     .from('homepage_hero_slider_items')
-    .select('id, sort_order, image_path, mobile_image_path, button_text, button_link')
+    .select('id, sort_order, image_path, mobile_image_path, headline, subtitle, button_text, button_link')
     .eq('hero_id', section.id)
     .order('sort_order', { ascending: true })
 
@@ -88,7 +90,7 @@ export async function GET(request: Request) {
       seo_title: section.seo_title ?? '',
       seo_description: section.seo_description ?? '',
     },
-    items: items ?? [],
+    items: (items ?? []).map((item) => ({ ...item, headline: item.headline ?? '', subtitle: item.subtitle ?? '' })),
   })
 }
 
@@ -100,9 +102,6 @@ export async function POST(request: Request) {
 
   if (
     !body ||
-    typeof body.eyebrow !== 'string' ||
-    typeof body.headline !== 'string' ||
-    typeof body.subtitle !== 'string' ||
     typeof body.seo_title !== 'string' ||
     typeof body.seo_description !== 'string' ||
     typeof body.slider_enabled !== 'boolean' ||
@@ -111,15 +110,29 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid payload.' }, { status: 400 })
   }
 
+  const hasInvalidSlide = body.items.some((item: unknown) => {
+    if (!item || typeof item !== 'object') return true
+    const slide = item as Partial<HeroSlide>
+    return (
+      typeof slide.image_path !== 'string' ||
+      (typeof slide.mobile_image_path !== 'string' && typeof slide.mobile_image_path !== 'undefined') ||
+      typeof slide.headline !== 'string' ||
+      typeof slide.subtitle !== 'string' ||
+      typeof slide.button_text !== 'string' ||
+      typeof slide.button_link !== 'string'
+    )
+  })
+
+  if (hasInvalidSlide) {
+    return NextResponse.json({ error: 'Invalid hero slide payload.' }, { status: 400 })
+  }
+
   const { adminClient } = access
   const { data: hero, error: upsertError } = await adminClient
     .from('homepage_hero')
     .upsert(
       {
         section_key: sectionKey,
-        eyebrow: body.eyebrow,
-        headline: body.headline,
-        subtitle: body.subtitle,
         slider_enabled: body.slider_enabled,
         seo_title: body.seo_title.trim() || null,
         seo_description: body.seo_description.trim() || null,
@@ -144,16 +157,12 @@ export async function POST(request: Request) {
   }
 
   const items: HeroSlide[] = body.items
-      .filter((item: HeroSlide) =>
-        typeof item.image_path === 'string' &&
-        (typeof item.mobile_image_path === 'string' || typeof item.mobile_image_path === 'undefined') &&
-        typeof item.button_text === 'string' &&
-        typeof item.button_link === 'string'
-      )
       .map((item: HeroSlide, index: number) => ({
         sort_order: Number.isFinite(Number(item.sort_order)) ? Number(item.sort_order) : index + 1,
         image_path: item.image_path,
         mobile_image_path: item.mobile_image_path ?? '',
+        headline: item.headline,
+        subtitle: item.subtitle,
         button_text: item.button_text,
         button_link: item.button_link,
       }))
@@ -164,6 +173,8 @@ export async function POST(request: Request) {
         sort_order: item.sort_order,
         image_path: item.image_path,
         mobile_image_path: item.mobile_image_path ?? '',
+        headline: item.headline,
+        subtitle: item.subtitle,
         button_text: item.button_text,
         button_link: item.button_link,
       }))

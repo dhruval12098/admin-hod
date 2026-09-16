@@ -3,17 +3,15 @@ import { CMSSectionTable } from '@/components/cms-section-table'
 
 const HOME_SECTIONS = [
   { id: 'hero', label: 'Hero Section', description: 'Main headline, eyebrow, and CTAs' },
+  { id: 'shop-by-category', label: 'Shop By Category', description: 'Choose and order category, subcategory, and option cards shown below the hero' },
   { id: 'diamond-info', label: 'Video Highlights', description: 'Split video, heading, CTA, and feature points' },
   { id: 'discover-shapes', label: 'Discover Shapes', description: 'Homepage shape carousel images, titles, and descriptions' },
-  { id: 'discover-rings', label: 'Discover Rings', description: 'Homepage ring carousel images, titles, and descriptions' },
-  { id: 'collection', label: 'Home Collection Cards', description: 'Homepage collection cards, images, and links' },
   { id: 'bestsellers', label: 'Best Sellers', description: 'Selected existing products shown in the best sellers grid' },
   { id: 'material-strip', label: 'Material Strip', description: 'Materials title, descriptions, and icons' },
   { id: 'testimonials', label: 'Testimonials Marquee', description: 'Scrolling quote strip on the homepage' },
-  { id: 'testimonials-cards', label: 'Testimonials Cards', description: 'Three testimonial cards on the homepage' },
-  { id: 'couples', label: 'Couples', description: 'Love stories cards and popup content' },
   { id: 'trusted-partners', label: 'Trusted Partners', description: 'Scrolling partner logo strip near the bottom of the homepage' },
   { id: 'hiphop-showcase', label: 'Hip Hop Home Showcase', description: 'Homepage Hip Hop showcase copy, CTA, and image' },
+  { id: 'reels', label: 'Instagram Reels', description: 'Public Instagram posts shown in the homepage marquee' },
 ]
 
 export default function HomePageEditor() {

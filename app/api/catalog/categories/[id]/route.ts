@@ -23,6 +23,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       typeof body.banner_enabled === 'boolean' ||
       'banner_desktop_image_path' in body ||
       'banner_mobile_image_path' in body ||
+      'banner_desktop_image_alt' in body ||
+      'banner_mobile_image_alt' in body ||
       'banner_title' in body ||
       'banner_subtitle' in body ||
       'banner_cta_label' in body ||
@@ -40,6 +42,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     ? {
         banner_desktop_image_path: body.banner_desktop_image_path ?? null,
         banner_mobile_image_path: body.banner_mobile_image_path ?? null,
+        banner_desktop_image_alt: body.banner_desktop_image_alt ?? null,
+        banner_mobile_image_alt: body.banner_mobile_image_alt ?? null,
         banner_title: body.banner_title ?? null,
         banner_subtitle: body.banner_subtitle ?? null,
         banner_cta_label: body.banner_cta_label ?? null,
@@ -55,6 +59,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         direct_link_url: body.direct_link_url ?? null,
         banner_desktop_image_path: body.banner_desktop_image_path ?? null,
         banner_mobile_image_path: body.banner_mobile_image_path ?? null,
+        banner_desktop_image_alt: body.banner_desktop_image_alt ?? null,
+        banner_mobile_image_alt: body.banner_mobile_image_alt ?? null,
         banner_title: body.banner_title ?? null,
         banner_subtitle: body.banner_subtitle ?? null,
         banner_cta_label: body.banner_cta_label ?? null,

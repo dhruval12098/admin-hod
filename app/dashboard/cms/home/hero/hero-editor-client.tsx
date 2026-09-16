@@ -8,6 +8,7 @@ import { CmsSaveAction } from '@/components/cms-save-action'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
+import { prepareHeroImage } from '@/lib/prepare-hero-image'
 
 type SlideItem = {
   clientId: string
@@ -16,19 +17,21 @@ type SlideItem = {
   image_path: string
   mobile_image_path: string
   mobile_image_alt?: string
+  headline: string
+  subtitle: string
   button_text: string
   button_link: string
 }
 
 type Payload = {
   section?: HeroSectionData
-  items?: Array<{ id: number; sort_order: number; image_path: string; mobile_image_path?: string; button_text: string; button_link: string }>
+  items?: Array<{ id: number; sort_order: number; image_path: string; mobile_image_path?: string; headline: string; subtitle: string; button_text: string; button_link: string }>
   error?: string
 }
 
 export type HeroEditorInitialData = {
   section: HeroSectionData
-  items: Array<{ id: number; sort_order: number; image_path: string; mobile_image_path?: string; button_text: string; button_link: string }>
+  items: Array<{ id: number; sort_order: number; image_path: string; mobile_image_path?: string; headline: string; subtitle: string; button_text: string; button_link: string }>
 }
 
 type HeroSectionData = {
@@ -45,6 +48,8 @@ const emptySlide = (sortOrder: number): SlideItem => ({
   sort_order: sortOrder,
   image_path: '',
   mobile_image_path: '',
+  headline: '',
+  subtitle: '',
   button_text: '',
   button_link: '',
 })
@@ -57,6 +62,8 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
       clientId: `id-${item.id}`,
       ...item,
       mobile_image_path: item.mobile_image_path ?? '',
+      headline: item.headline ?? '',
+      subtitle: item.subtitle ?? '',
     }))
   )
   const [status, setStatus] = useState('Hero content loaded')
@@ -65,6 +72,7 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
   const [editorOpen, setEditorOpen] = useState(false)
   const [editorItem, setEditorItem] = useState<SlideItem>(emptySlide(1))
   const [uploadState, setUploadState] = useState<'idle' | 'uploading' | 'done' | 'error'>('idle')
+  const [slidesDirty, setSlidesDirty] = useState(false)
 
   const sortedSlides = useMemo(
     () => [...slides].sort((a, b) => a.sort_order - b.sort_order || a.clientId.localeCompare(b.clientId)),
@@ -157,6 +165,7 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
     })
 
     setEditorOpen(false)
+    setSlidesDirty(true)
     setUploadState('idle')
     setStatus('Hero slide updated')
     toast({
@@ -185,10 +194,12 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
       },
       body: JSON.stringify({
         ...formData,
-        items: sortedSlides.map(({ image_path, mobile_image_path, button_text, button_link }, index) => ({
+        items: sortedSlides.map(({ image_path, mobile_image_path, headline, subtitle, button_text, button_link }, index) => ({
           sort_order: index + 1,
           image_path,
           mobile_image_path,
+          headline,
+          subtitle,
           button_text,
           button_link,
         })),
@@ -208,6 +219,7 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
       title: 'Saved',
       description: 'Hero content was updated successfully.',
     })
+    window.location.reload()
   }
 
   const nextSortOrder = Math.max(...slides.map((item) => item.sort_order), 0) + 1
@@ -227,11 +239,13 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
       ;[nextSlides[currentIndex], nextSlides[targetIndex]] = [nextSlides[targetIndex], nextSlides[currentIndex]]
       return resequenceSlides(nextSlides)
     })
+    setSlidesDirty(true)
     setStatus('Hero slide order updated. Save changes to publish.')
   }
 
   const removeSlide = (clientId: string) => {
     setSlides((prev) => resequenceSlides([...prev].sort((a, b) => a.sort_order - b.sort_order || a.clientId.localeCompare(b.clientId)).filter((item) => item.clientId !== clientId)))
+    setSlidesDirty(true)
     setStatus('Hero slide removed. Save changes to publish.')
   }
 
@@ -251,44 +265,11 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
 
         <div className="mb-10">
           <h1 className="font-jakarta text-3xl font-semibold text-foreground">Hero Section</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Edit hero text or switch to the image slider.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Manage the image slider and edit each slide's content individually.</p>
           <p className="mt-2 text-xs text-muted-foreground">{status}</p>
         </div>
 
         <div className="max-w-4xl space-y-6 rounded-lg border border-border bg-white p-8 shadow-xs">
-          <div>
-            <label className="mb-2 block text-sm font-semibold text-foreground">Eyebrow</label>
-            <input
-              type="text"
-              name="eyebrow"
-              value={formData.eyebrow}
-              onChange={handleTextChange}
-              className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm"
-            />
-          </div>
-
-          <div>
-            <label className="mb-2 block text-sm font-semibold text-foreground">Headline</label>
-            <input
-              type="text"
-              name="headline"
-              value={formData.headline}
-              onChange={handleTextChange}
-              className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm"
-            />
-          </div>
-
-          <div>
-            <label className="mb-2 block text-sm font-semibold text-foreground">Subtitle</label>
-            <textarea
-              name="subtitle"
-              value={formData.subtitle}
-              onChange={handleTextChange}
-              rows={4}
-              className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm"
-            />
-          </div>
-
           <label className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
             <div>
               <p className="text-sm font-semibold text-foreground">Enable image slider</p>
@@ -337,7 +318,7 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
             <div className="mb-4 flex items-center justify-between gap-4">
               <div>
                 <h2 className="text-xl font-semibold text-foreground">Hero Slides</h2>
-                <p className="text-sm text-muted-foreground">Each slide needs an image, button text, and destination link.</p>
+                <p className="text-sm text-muted-foreground">Edit each slide's image, heading, paragraph, button, and destination.</p>
               </div>
               <button
                 type="button"
@@ -353,28 +334,39 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
               </button>
             </div>
 
-            <div className="overflow-hidden rounded-lg border border-border bg-white shadow-xs">
-              <table className="w-full">
+            <div className="relative overflow-x-auto rounded-lg border border-border bg-white shadow-xs">
+              <table className="w-full min-w-[940px] table-fixed">
+                <colgroup>
+                  <col className="w-[7%]" />
+                  <col className="w-[14%]" />
+                  <col className="w-[14%]" />
+                  <col className="w-[14%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[14%]" />
+                  <col className="w-[27%]" />
+                </colgroup>
                 <thead>
                   <tr className="border-b border-border bg-secondary/40">
-                    <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground">Order</th>
-                    <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground">Desktop Image</th>
-                    <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground">Mobile Image</th>
-                    <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground">Button Text</th>
-                    <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground">Link</th>
-                    <th className="px-5 py-3 text-right text-xs font-semibold uppercase tracking-wider text-foreground">Actions</th>
+                    <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground">Order</th>
+                    <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground">Desktop Image</th>
+                    <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground">Mobile Image</th>
+                    <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground">Heading</th>
+                    <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground">Button Text</th>
+                    <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground">Link</th>
+                    <th className="sticky right-0 z-20 border-l border-border bg-secondary px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-foreground shadow-[-10px_0_16px_-16px_rgba(15,23,42,0.8)]">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {sortedSlides.map((item, index) => (
                     <tr key={item.clientId} className="border-b border-border last:border-b-0">
-                      <td className="px-5 py-4 text-sm">{item.sort_order}</td>
-                      <td className="px-5 py-4 text-sm">{item.image_path}</td>
-                      <td className="px-5 py-4 text-sm">{item.mobile_image_path || '—'}</td>
-                      <td className="px-5 py-4 text-sm">{item.button_text}</td>
-                      <td className="px-5 py-4 text-sm">{item.button_link}</td>
-                      <td className="px-5 py-4 text-right">
-                        <div className="inline-flex items-center justify-end gap-2">
+                      <td className="px-3 py-4 text-sm">{item.sort_order}</td>
+                      <td className="truncate px-3 py-4 text-sm" title={item.image_path}>{item.image_path}</td>
+                      <td className="truncate px-3 py-4 text-sm" title={item.mobile_image_path || undefined}>{item.mobile_image_path || '—'}</td>
+                      <td className="truncate px-3 py-4 text-sm" title={item.headline}>{item.headline || '—'}</td>
+                      <td className="truncate px-3 py-4 text-sm" title={item.button_text}>{item.button_text}</td>
+                      <td className="truncate px-3 py-4 text-sm" title={item.button_link}>{item.button_link}</td>
+                      <td className="sticky right-0 z-10 border-l border-border bg-white px-3 py-4 text-right shadow-[-10px_0_16px_-16px_rgba(15,23,42,0.8)]">
+                        <div className="inline-flex whitespace-nowrap items-center justify-end gap-2">
                           <button
                             type="button"
                             onClick={() => moveSlide(item.clientId, -1)}
@@ -393,18 +385,23 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
                           >
                             <ArrowDown size={14} />
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditorItem(item)
-                              setUploadState('idle')
-                              setEditorOpen(true)
-                            }}
-                            className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-secondary"
-                          >
-                            <Edit2 size={14} />
-                            Edit
-                          </button>
+                          {item.id && !slidesDirty ? (
+                            <Link
+                              href={`/dashboard/cms/home/hero/slides/${item.id}`}
+                              className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-secondary"
+                            >
+                              <Edit2 size={14} />
+                              Edit
+                            </Link>
+                          ) : (
+                            <span
+                              title="Save the hero list before opening this slide"
+                              className="inline-flex cursor-not-allowed items-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium text-muted-foreground opacity-60"
+                            >
+                              <Edit2 size={14} />
+                              Save list first
+                            </span>
+                          )}
                           <button
                             type="button"
                             onClick={() => removeSlide(item.clientId)}
@@ -419,7 +416,7 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
                   ))}
                   {sortedSlides.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="px-5 py-8 text-center text-sm text-muted-foreground">
+                      <td colSpan={7} className="px-5 py-8 text-center text-sm text-muted-foreground">
                         No slides added yet.
                       </td>
                     </tr>
@@ -445,11 +442,21 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
         <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
           <DialogContent className="sm:max-w-2xl">
             <DialogHeader>
-              <DialogTitle>Edit Hero Slide</DialogTitle>
-              <DialogDescription>Upload a desktop image, add an optional mobile image, and define the button label and link.</DialogDescription>
+              <DialogTitle>Add Hero Slide</DialogTitle>
+              <DialogDescription>Add the slide's images, heading, paragraph, and call to action. Save the hero list to publish it.</DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4">
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-foreground">Heading</label>
+                <input type="text" value={editorItem.headline} onChange={(e) => setEditorItem((prev) => ({ ...prev, headline: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-foreground">Paragraph</label>
+                <textarea value={editorItem.subtitle} onChange={(e) => setEditorItem((prev) => ({ ...prev, subtitle: e.target.value }))} rows={4} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" />
+              </div>
+
               <div>
                 <label className="mb-2 block text-sm font-semibold text-foreground">Order</label>
                 <input
@@ -540,7 +547,7 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
                 onClick={saveEditor}
                 className="rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary/90"
               >
-                Update Slide
+                Add Slide
               </button>
             </DialogFooter>
           </DialogContent>
@@ -548,26 +555,4 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
       </div>
     </div>
   )
-}
-
-async function prepareHeroImage(file: File) {
-  if (file.type === 'image/svg+xml') return file
-  if (!['image/jpeg', 'image/png', 'image/webp', 'image/avif'].includes(file.type)) {
-    throw new Error('Invalid image type.')
-  }
-
-  const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' })
-  try {
-    const width = Math.min(bitmap.width, 2200)
-    const height = Math.max(1, Math.round(bitmap.height * (width / bitmap.width)))
-    const canvas = document.createElement('canvas')
-    canvas.width = width
-    canvas.height = height
-    canvas.getContext('2d')?.drawImage(bitmap, 0, 0, width, height)
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/webp', 0.84))
-    if (!blob) throw new Error('Unable to optimize image.')
-    return new File([blob], `${crypto.randomUUID()}.webp`, { type: 'image/webp' })
-  } finally {
-    bitmap.close()
-  }
 }
