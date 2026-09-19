@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
-import { ArrowLeft, Edit2, Plus, Upload } from 'lucide-react'
+import { ArrowLeft, Edit2, Plus, Trash2, Upload } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -219,10 +219,16 @@ export function FoundersEditorClient({ initialData }: { initialData: FoundersIni
                 <td className="px-5 py-4 text-sm">{item.designation}</td>
                 <td className="px-5 py-4 text-sm">{item.image_path}</td>
                 <td className="px-5 py-4 text-right">
-                  <button onClick={() => { setEditorItem(item); setEditorOpen(true) }} className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-secondary">
-                    <Edit2 size={14} />
-                    Edit
-                  </button>
+                  <div className="flex items-center justify-end gap-2">
+                    <button type="button" onClick={() => { setEditorItem(item); setEditorOpen(true) }} className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-secondary">
+                      <Edit2 size={14} />
+                      Edit
+                    </button>
+                    <button type="button" onClick={() => { setItems((current) => current.filter((founder) => founder.clientId !== item.clientId)); setStatus('Founder removed locally. Save changes to publish the deletion.') }} className="inline-flex items-center gap-2 rounded-md border border-red-200 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50">
+                      <Trash2 size={14} />
+                      Delete
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -322,3 +328,4 @@ async function prepareFounderImage(file: File) {
     bitmap.close()
   }
 }
+

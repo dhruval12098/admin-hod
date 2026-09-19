@@ -58,22 +58,6 @@ export type CatalogNavbarItem = {
   status: CatalogStatus
 }
 
-export type CatalogGridPoster = {
-  id: string
-  category_id: string
-  title: string | null
-  image_path: string
-  image_alt: string | null
-  link_url: string | null
-  insert_after: number
-  display_order: number
-  status: 'active' | 'draft' | 'archived'
-  starts_at?: string | null
-  ends_at?: string | null
-  created_at?: string
-  updated_at?: string
-}
-
 export type CatalogSubcategory = {
   id: string
   category_id: string

@@ -55,6 +55,7 @@ type EditorCopy = {
   savedStatus?: string
   confirmTitle?: string
   confirmDescription?: string
+  hideMetaFields?: boolean
 }
 
 const empty = (sortOrder: number): EditorItem => ({
@@ -222,7 +223,7 @@ export function BespokeManufacturingEditorClient({
           <thead>
             <tr className="border-b bg-secondary/40">
               <th className="px-5 py-3 text-left text-xs font-semibold uppercase">Order</th>
-              <th className="px-5 py-3 text-left text-xs font-semibold uppercase">Step</th>
+              {!resolvedCopy.hideMetaFields ? <th className="px-5 py-3 text-left text-xs font-semibold uppercase">Step</th> : null}
               <th className="px-5 py-3 text-left text-xs font-semibold uppercase">Title</th>
               <th className="px-5 py-3 text-right text-xs font-semibold uppercase">Actions</th>
             </tr>
@@ -231,7 +232,7 @@ export function BespokeManufacturingEditorClient({
             {sorted.map((item) => (
               <tr key={item.clientId} className="border-b">
                 <td className="px-5 py-4 text-sm">{item.sort_order}</td>
-                <td className="px-5 py-4 text-sm">{item.step}</td>
+                {!resolvedCopy.hideMetaFields ? <td className="px-5 py-4 text-sm">{item.step}</td> : null}
                 <td className="px-5 py-4 text-sm">{item.title}</td>
                 <td className="px-5 py-4 text-right">
                   <div className="inline-flex gap-2">
@@ -242,7 +243,7 @@ export function BespokeManufacturingEditorClient({
               </tr>
             ))}
             {sorted.length === 0 ? (
-              <tr><td colSpan={4} className="px-5 py-8 text-sm text-muted-foreground">No workshop cards found yet.</td></tr>
+              <tr><td colSpan={resolvedCopy.hideMetaFields ? 3 : 4} className="px-5 py-8 text-sm text-muted-foreground">No workshop cards found yet.</td></tr>
             ) : null}
           </tbody>
         </table>
@@ -262,10 +263,12 @@ export function BespokeManufacturingEditorClient({
             <DialogDescription>Update step number, title, description, and media.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <input value={editorItem.step} onChange={(e) => setEditorItem((p) => ({ ...p, step: e.target.value }))} placeholder="Step 01" className="w-full rounded-lg border px-3 py-2" />
-              <input value={editorItem.eyebrow} onChange={(e) => setEditorItem((p) => ({ ...p, eyebrow: e.target.value }))} placeholder="Eyebrow" className="w-full rounded-lg border px-3 py-2" />
-            </div>
+            {!resolvedCopy.hideMetaFields ? (
+              <div className="grid grid-cols-2 gap-4">
+                <input value={editorItem.step} onChange={(e) => setEditorItem((p) => ({ ...p, step: e.target.value }))} placeholder="Step 01" className="w-full rounded-lg border px-3 py-2" />
+                <input value={editorItem.eyebrow} onChange={(e) => setEditorItem((p) => ({ ...p, eyebrow: e.target.value }))} placeholder="Eyebrow" className="w-full rounded-lg border px-3 py-2" />
+              </div>
+            ) : null}
             <input value={editorItem.title} onChange={(e) => setEditorItem((p) => ({ ...p, title: e.target.value }))} placeholder="Title" className="w-full rounded-lg border px-3 py-2" />
             <textarea value={editorItem.description} onChange={(e) => setEditorItem((p) => ({ ...p, description: e.target.value }))} rows={4} placeholder="Description" className="w-full rounded-lg border px-3 py-2" />
             <div>
@@ -329,3 +332,5 @@ async function prepareManufacturingImage(file: File) {
     bitmap.close()
   }
 }
+
+

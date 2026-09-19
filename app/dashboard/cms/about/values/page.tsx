@@ -5,7 +5,7 @@ async function getValuesInitialData(): Promise<ValuesInitialData> {
   const adminClient = createSupabaseAdminClient()
   const { data, error } = await adminClient
     .from('about_values')
-    .select('id, sort_order, icon_path, title, description')
+    .select('id, sort_order, icon_path, image_path, image_alt, title, description')
     .order('sort_order', { ascending: true })
 
   if (error) {
@@ -21,3 +21,4 @@ export default async function ValuesEditorPage() {
   const initialData = await getValuesInitialData()
   return <ValuesEditorClient initialData={initialData} />
 }
+

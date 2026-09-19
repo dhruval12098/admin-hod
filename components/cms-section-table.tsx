@@ -1,5 +1,3 @@
-'use client'
-
 import Link from 'next/link'
 import { Edit2 } from 'lucide-react'
 
@@ -11,7 +9,7 @@ type CMSSectionRow = {
 
 type CMSSectionTableProps = {
   basePath: string
-  sections: CMSSectionRow[]
+  sections: readonly CMSSectionRow[]
 }
 
 export function CMSSectionTable({ basePath, sections }: CMSSectionTableProps) {
@@ -53,3 +51,4 @@ export function CMSSectionTable({ basePath, sections }: CMSSectionTableProps) {
     </div>
   )
 }
+

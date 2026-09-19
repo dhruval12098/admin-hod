@@ -19,7 +19,7 @@ async function getBestSellersInitialData(): Promise<HomeBestSellersInitialData> 
       .maybeSingle(),
     adminClient
       .from('cms_home_bestseller_products')
-      .select('section_id, product_id, display_order')
+      .select('section_id, product_id, display_order, display_title, display_image_path')
       .order('display_order', { ascending: true }),
     adminClient.from('products').select('*').order('created_at', { ascending: false }),
     adminClient.from('catalog_categories').select('*'),
@@ -58,6 +58,11 @@ async function getBestSellersInitialData(): Promise<HomeBestSellersInitialData> 
       cta_label: section?.cta_label ?? 'View All Collection',
       cta_href: section?.cta_href ?? '/shop',
       selected_product_ids: sectionLinks.map((item) => item.product_id),
+      selected_products: sectionLinks.map((item) => ({
+        product_id: item.product_id,
+        display_title: item.display_title ?? '',
+        display_image_path: item.display_image_path ?? '',
+      })),
     },
     products: productRows,
   }

@@ -6,14 +6,17 @@ type BlogPayload = {
   slug?: string
   title?: string
   title_html?: string
+  card_title?: string
   subtitle?: string
   category?: string
+  catalog_category_id?: string | null
   author?: string
   date_label?: string
   read_time?: string
   bg_key?: string
   bg_color?: string
   hero_image_path?: string
+  card_image_path?: string
   hero_image_alt?: string
   body_html?: string
   is_published?: boolean
@@ -40,7 +43,7 @@ export async function GET(request: Request) {
   const { adminClient } = access
   const { data, error } = await adminClient
     .from('blog_posts')
-    .select('id, slug, title, category, author, date_label, read_time, is_published, sort_order, updated_at')
+    .select('id, slug, title, category, catalog_category_id, author, date_label, read_time, is_published, sort_order, updated_at')
     .order('sort_order', { ascending: true })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -69,14 +72,17 @@ export async function POST(request: Request) {
     slug,
     title,
     title_html: titleHtml,
+    card_title: String(body.card_title ?? '').trim() || null,
     subtitle: String(body.subtitle ?? '').trim(),
     category: String(body.category ?? '').trim(),
+    catalog_category_id: typeof body.catalog_category_id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.catalog_category_id) ? body.catalog_category_id : null,
     author: String(body.author ?? '').trim(),
     date_label: String(body.date_label ?? '').trim(),
     read_time: String(body.read_time ?? '').trim(),
     bg_key: String(body.bg_key ?? '').trim(),
     bg_color: String(body.bg_color ?? '').trim(),
     hero_image_path: String(body.hero_image_path ?? '').trim(),
+    card_image_path: String(body.card_image_path ?? '').trim() || null,
     hero_image_alt: String(body.hero_image_alt ?? '').trim() || null,
     body_html: String(body.body_html ?? '').trim(),
     is_published: Boolean(body.is_published),

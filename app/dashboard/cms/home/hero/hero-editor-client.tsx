@@ -186,7 +186,8 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
     }
 
     setIsSaving(true)
-    const response = await fetch('/api/cms/home/hero', {
+    try {
+      const response = await fetch('/api/cms/home/hero', {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -203,23 +204,27 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
           button_text,
           button_link,
         })),
-      }),
-    })
+        }),
+      })
 
-    setIsSaving(false)
-    if (!response.ok) {
-      const payload = (await response.json().catch(() => null)) as { error?: string } | null
-      setStatus(payload?.error ?? 'Unable to save hero content.')
-      return
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null
+        setStatus(payload?.error ?? 'Unable to save hero content.')
+        return
+      }
+
+      setStatus('Hero content saved')
+      setConfirmOpen(false)
+      toast({
+        title: 'Saved',
+        description: 'Hero content was updated successfully.',
+      })
+      window.location.reload()
+    } catch {
+      setStatus('Unable to reach the server. Please try saving again.')
+    } finally {
+      setIsSaving(false)
     }
-
-    setStatus('Hero content saved')
-    setConfirmOpen(false)
-    toast({
-      title: 'Saved',
-      description: 'Hero content was updated successfully.',
-    })
-    window.location.reload()
   }
 
   const nextSortOrder = Math.max(...slides.map((item) => item.sort_order), 0) + 1

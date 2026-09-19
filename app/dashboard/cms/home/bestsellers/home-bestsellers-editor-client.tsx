@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ChangeEvent } from 'react'
 import { ArrowLeft } from 'lucide-react'
 import { CmsSaveAction } from '@/components/cms-save-action'
 import { ConfirmDialog } from '@/components/confirm-dialog'
@@ -23,6 +23,7 @@ type EditorState = {
   cta_label: string
   cta_href: string
   selected_product_ids: string[]
+  selected_products: Array<{ product_id: string; display_title: string; display_image_path: string }>
 }
 
 export type HomeBestSellersInitialData = {
@@ -38,6 +39,7 @@ export function HomeBestSellersEditorClient({ initialData }: { initialData: Home
   const [status, setStatus] = useState('Best sellers loaded')
   const [isSaving, setIsSaving] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [uploadingProductId, setUploadingProductId] = useState<string | null>(null)
 
   const filteredProducts = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -63,6 +65,9 @@ export function HomeBestSellersEditorClient({ initialData }: { initialData: Home
       selected_product_ids: current.selected_product_ids.includes(id)
         ? current.selected_product_ids.filter((value) => value !== id)
         : [...current.selected_product_ids, id],
+      selected_products: current.selected_product_ids.includes(id)
+        ? current.selected_products.filter((item) => item.product_id !== id)
+        : [...current.selected_products, { product_id: id, display_title: '', display_image_path: '' }],
     }))
   }
 
@@ -77,6 +82,36 @@ export function HomeBestSellersEditorClient({ initialData }: { initialData: Home
       nextIds.splice(nextIndex, 0, item)
       return { ...current, selected_product_ids: nextIds }
     })
+  }
+
+  const updateCardOverride = (productId: string, patch: Partial<{ display_title: string; display_image_path: string }>) => {
+    setForm((current) => ({
+      ...current,
+      selected_products: current.selected_products.map((item) => item.product_id === productId ? { ...item, ...patch } : item),
+    }))
+  }
+
+  const uploadCardImage = async (productId: string, file: File) => {
+    if (file.size > 5 * 1024 * 1024) return setStatus('File too large. Max size is 5MB.')
+    const { data: sessionData } = await supabase.auth.getSession()
+    const accessToken = sessionData.session?.access_token
+    if (!accessToken) return setStatus('You are not signed in.')
+
+    setUploadingProductId(productId)
+    setStatus('Uploading Best Seller card image...')
+    try {
+      const upload = new FormData()
+      upload.append('file', file)
+      const response = await fetch('/api/cms/uploads/home-bestsellers', { method: 'POST', headers: { authorization: `Bearer ${accessToken}` }, body: upload })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || !payload?.path) throw new Error(payload?.error ?? 'Unable to upload image.')
+      updateCardOverride(productId, { display_image_path: payload.path })
+      setStatus('Best Seller card image uploaded')
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Unable to upload image.')
+    } finally {
+      setUploadingProductId(null)
+    }
   }
 
   const handleSave = async () => {
@@ -169,6 +204,21 @@ export function HomeBestSellersEditorClient({ initialData }: { initialData: Home
                       >
                         Remove
                       </button>
+                    </div>
+                    <div className="mt-4 space-y-3 border-t border-border pt-3">
+                      <div>
+                        <label className="mb-1 block text-xs font-semibold text-foreground">Card title</label>
+                        <input value={form.selected_products.find((item) => item.product_id === product.id)?.display_title ?? ''} onChange={(event) => updateCardOverride(product.id, { display_title: event.target.value })} maxLength={160} placeholder={product.name} className="w-full rounded-md border border-border px-3 py-2 text-sm" />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-semibold text-foreground">Card image</label>
+                        <label className="inline-flex cursor-pointer rounded-md border border-border px-3 py-2 text-xs font-semibold hover:bg-secondary">
+                          {uploadingProductId === product.id ? 'Uploading...' : 'Upload image'}
+                          <input type="file" accept="image/*" className="hidden" disabled={uploadingProductId !== null} onChange={(event: ChangeEvent<HTMLInputElement>) => { const file = event.target.files?.[0]; if (file) void uploadCardImage(product.id, file); event.target.value = '' }} />
+                        </label>
+                        <p className="mt-1 break-all text-xs text-muted-foreground">{form.selected_products.find((item) => item.product_id === product.id)?.display_image_path || 'Uses product image'}</p>
+                        {form.selected_products.find((item) => item.product_id === product.id)?.display_image_path ? <button type="button" onClick={() => updateCardOverride(product.id, { display_image_path: '' })} className="mt-1 text-xs font-semibold text-red-600">Use product image instead</button> : null}
+                      </div>
                     </div>
                     <div className="mt-3 flex gap-2">
                       <button type="button" onClick={() => moveSelected(product.id, -1)} className="rounded-md border border-border px-2 py-1 text-xs font-medium text-foreground hover:bg-secondary">

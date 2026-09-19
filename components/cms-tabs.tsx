@@ -14,6 +14,8 @@ const CMS_TABS = [
   { label: 'Education', href: '/dashboard/cms/education', key: 'education' },
   { label: 'Docs', href: '/dashboard/cms/docs', key: 'docs' },
   { label: 'Support', href: '/dashboard/cms/support', key: 'support' },
+  { label: 'Service Banner', href: '/dashboard/cms/service-banner', key: 'service-banner' },
+  { label: 'Checkout Result', href: '/dashboard/cms/checkout-result', key: 'checkout-result' },
   { label: 'Promotion', href: '/dashboard/cms/promotion', key: 'promotion' },
 ]
 
@@ -22,14 +24,14 @@ export function CMSTabs() {
 
   return (
     <div className="border-b border-border">
-      <div className="flex gap-0">
+      <div className="flex gap-0 overflow-x-auto [scrollbar-width:thin]">
         {CMS_TABS.map((tab) => {
           const isActive = pathname === tab.href || pathname.startsWith(`${tab.href}/`)
           return (
             <Link
               key={tab.key}
               href={tab.href}
-              className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+              className={`shrink-0 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
                 isActive
                   ? 'border-primary text-foreground'
                   : 'border-transparent text-muted-foreground hover:text-foreground'

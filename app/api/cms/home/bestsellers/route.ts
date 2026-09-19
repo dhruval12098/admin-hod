@@ -7,6 +7,7 @@ type BestsellerSectionPayload = {
   cta_label: string
   cta_href: string
   selected_product_ids: string[]
+  selected_products?: Array<{ product_id: string; display_title?: string; display_image_path?: string }>
 }
 
 export async function GET(request: Request) {
@@ -23,7 +24,7 @@ export async function GET(request: Request) {
       .maybeSingle(),
     adminClient
       .from('cms_home_bestseller_products')
-      .select('section_id, product_id, display_order')
+      .select('section_id, product_id, display_order, display_title, display_image_path')
       .order('display_order', { ascending: true }),
   ])
 
@@ -48,6 +49,8 @@ export async function GET(request: Request) {
     selected_products: sectionLinks.map((item) => ({
       product_id: item.product_id,
       display_order: item.display_order,
+      display_title: item.display_title ?? '',
+      display_image_path: item.display_image_path ?? '',
     })),
   })
 }
@@ -107,12 +110,18 @@ export async function POST(request: Request) {
   }
 
   if (body.selected_product_ids.length > 0) {
+    const overrideByProduct = new Map((body.selected_products ?? []).map((item) => [item.product_id, item]));
     const { error: insertError } = await adminClient.from('cms_home_bestseller_products').insert(
-      body.selected_product_ids.map((productId, index) => ({
-        section_id: section.id,
-        product_id: productId,
-        display_order: index + 1,
-      }))
+      body.selected_product_ids.map((productId, index) => {
+        const override = overrideByProduct.get(productId);
+        return {
+          section_id: section.id,
+          product_id: productId,
+          display_order: index + 1,
+          display_title: String(override?.display_title ?? '').trim() || null,
+          display_image_path: String(override?.display_image_path ?? '').trim() || null,
+        };
+      })
     )
 
     if (insertError) {

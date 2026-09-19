@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
-import { Plus, Edit2, Trash2 } from 'lucide-react'
+import { Plus, Edit2, Trash2, ImageIcon } from 'lucide-react'
 import { CMSTabs } from '@/components/cms-tabs'
 import { supabase } from '@/lib/supabase'
 import { TablePagination } from '@/components/table-pagination'
@@ -79,10 +79,16 @@ export function BlogListClient({ initialItems }: { initialItems: BlogListItem[] 
             <p className="mt-1 text-sm text-muted-foreground">Manage all blog posts and create new articles.</p>
             <p className="mt-2 text-xs text-muted-foreground">{status}</p>
           </div>
-          <Link href="/dashboard/cms/blog/new" className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary/90">
-            <Plus size={16} />
-            Create Blog
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link href="/dashboard/cms/blog/hero" className="inline-flex items-center gap-2 rounded-lg border border-border bg-white px-4 py-2.5 text-sm font-semibold text-foreground hover:bg-secondary">
+              <ImageIcon size={16} />
+              Blog Hero
+            </Link>
+            <Link href="/dashboard/cms/blog/new" className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary/90">
+              <Plus size={16} />
+              Create Blog
+            </Link>
+          </div>
         </div>
 
         <div className="overflow-hidden rounded-lg border border-border bg-white shadow-xs">

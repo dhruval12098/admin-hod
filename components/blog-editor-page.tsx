@@ -12,6 +12,8 @@ import { useEditor, useEditorState, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 
+export type BlogCatalogCategory = { id: string; name: string; slug: string }
+
 type BlogTag = { clientId: string; value: string }
 type BlogProduct = {
   id: string
@@ -59,14 +61,17 @@ type BlogForm = {
   slug: string
   title: string
   title_html: string
+  card_title: string
   subtitle: string
   category: string
+  catalog_category_id: string
   author: string
   date_label: string
   read_time: string
   bg_key: string
   bg_color: string
   hero_image_path: string
+  card_image_path: string
   hero_image_alt: string
   body_html: string
   is_published: boolean
@@ -177,21 +182,24 @@ const emptyForm: BlogForm = {
   slug: '',
   title: '',
   title_html: '',
+  card_title: '',
   subtitle: '',
   category: '',
+  catalog_category_id: '',
   author: '',
   date_label: '',
   read_time: '',
   bg_key: 'bg-0',
   bg_color: '#EEF1F8',
   hero_image_path: '',
+  card_image_path: '',
   hero_image_alt: '',
   body_html: '<p></p>',
   is_published: true,
   sort_order: 1,
 }
 
-export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: string }) {
+export function BlogEditorPage({ mode, id, categories }: { mode: 'create' | 'edit'; id?: string; categories: BlogCatalogCategory[] }) {
   const { toast } = useToast()
   const router = useRouter()
   const [form, setForm] = useState<BlogForm>(emptyForm)
@@ -247,7 +255,7 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
       const payload = (await response.json().catch(() => null)) as Payload | null
       if (!response.ok || !payload?.post) return setStatus(payload?.error ?? 'Unable to load blog post.')
 
-      setForm({ ...payload.post, hero_image_alt: payload.post.hero_image_alt ?? '' })
+      setForm({ ...payload.post, catalog_category_id: payload.post.catalog_category_id ?? '', card_title: payload.post.card_title ?? '', card_image_path: payload.post.card_image_path ?? '', hero_image_alt: payload.post.hero_image_alt ?? '' })
       setTags((payload.tags ?? []).map((tag) => ({ clientId: `tag-${tag.id}`, value: tag.tag })))
       setSelectedProducts(
         (payload.products ?? [])
@@ -325,6 +333,24 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
       setStatus('Blog image uploaded successfully')
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Unable to upload image.')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const uploadCardImage = async (file: File) => {
+    const { data: sessionData } = await supabase.auth.getSession()
+    const accessToken = sessionData.session?.access_token
+    if (!accessToken) return setStatus('You are not signed in.')
+
+    setUploading(true)
+    setStatus('Uploading blog card image...')
+    try {
+      const path = await uploadBlogMedia(file, accessToken)
+      setForm((prev) => ({ ...prev, card_image_path: path }))
+      setStatus('Blog card image uploaded successfully')
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Unable to upload card image.')
     } finally {
       setUploading(false)
     }
@@ -498,11 +524,28 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
             <p className="mt-1 text-xs text-muted-foreground">Optional styled title for the website cards and article hero.</p>
           </div>
           <div>
+            <label className="mb-2 block text-sm font-semibold text-foreground">Blog Card Title</label>
+            <input placeholder="Optional. Falls back to Article Title" value={form.card_title} onChange={(e) => setForm((prev) => ({ ...prev, card_title: e.target.value }))} maxLength={160} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" />
+            <p className="mt-1 text-xs text-muted-foreground">Shown only on blog listing and homepage cards.</p>
+          </div>
+          <div>
             <label className="mb-2 block text-sm font-semibold text-foreground">Short Intro</label>
             <textarea placeholder="Brief summary shown near the top of the article" value={form.subtitle} onChange={(e) => setForm((prev) => ({ ...prev, subtitle: e.target.value }))} rows={4} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" />
           </div>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div><label className="mb-2 block text-sm font-semibold text-foreground">Topic</label><input placeholder="example: Buying Guide" value={form.category} onChange={(e) => setForm((prev) => ({ ...prev, category: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" /></div>
+            <div>
+              <label className="mb-2 block text-sm font-semibold text-foreground">Editorial Topic</label>
+              <input placeholder="example: Buying Guide" value={form.category} onChange={(e) => setForm((prev) => ({ ...prev, category: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" />
+              <p className="mt-1 text-xs text-muted-foreground">Optional editorial label shown on article cards.</p>
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-semibold text-foreground">Master Catalog Category</label>
+              <select value={form.catalog_category_id} onChange={(e) => setForm((prev) => ({ ...prev, catalog_category_id: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm">
+                <option value="">Not associated</option>
+                {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+              </select>
+              <p className="mt-1 text-xs text-muted-foreground">Controls the category filter on the public blog page.</p>
+            </div>
             <div><label className="mb-2 block text-sm font-semibold text-foreground">Written By</label><input placeholder="Author name" value={form.author} onChange={(e) => setForm((prev) => ({ ...prev, author: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" /></div>
             <div><label className="mb-2 block text-sm font-semibold text-foreground">Publish Date Text</label><input placeholder="example: Apr 22, 2026" value={form.date_label} onChange={(e) => setForm((prev) => ({ ...prev, date_label: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" /></div>
             <div><label className="mb-2 block text-sm font-semibold text-foreground">Reading Time</label><input placeholder="example: 5 min read" value={form.read_time} onChange={(e) => setForm((prev) => ({ ...prev, read_time: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" /></div>
@@ -524,6 +567,18 @@ export function BlogEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?: str
               </label>
               <span className="text-xs text-muted-foreground">{form.hero_image_path || 'No image uploaded yet'}</span>
             </div>
+          </div>
+          <div>
+            <label className="mb-2 block text-sm font-semibold text-foreground">Blog Card Image</label>
+            <div className="flex items-center gap-3">
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary">
+                <Upload size={14} />
+                {uploading ? 'Uploading...' : 'Upload Card Image'}
+                <input type="file" accept="image/*" className="hidden" disabled={uploading} onChange={(e: ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (file) void uploadCardImage(file) }} />
+              </label>
+              <span className="text-xs text-muted-foreground">{form.card_image_path || 'Uses main blog image'}</span>
+            </div>
+            {form.card_image_path ? <button type="button" onClick={() => setForm((prev) => ({ ...prev, card_image_path: '' }))} className="mt-2 text-xs font-semibold text-red-600 hover:text-red-700">Use main image instead</button> : null}
           </div>
           <div>
             <label htmlFor="hero-image-alt" className="mb-2 block text-sm font-semibold text-foreground">Main Image Alt Text</label>

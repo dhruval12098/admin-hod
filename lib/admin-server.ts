@@ -1,5 +1,6 @@
 import { cache } from 'react'
 import { createSupabaseServerSessionClient } from '@/lib/server-supabase'
+import { createSupabaseAdminClient } from '@/lib/admin-supabase'
 
 export type AdminServerSession = {
   userId: string
@@ -19,7 +20,7 @@ export const getAdminServerSession = cache(async (): Promise<AdminServerSession 
     return null
   }
 
-  const { data: profile, error: profileError } = await supabase
+  const { data: profile, error: profileError } = await createSupabaseAdminClient()
     .from('profiles')
     .select('role')
     .eq('id', user.id)

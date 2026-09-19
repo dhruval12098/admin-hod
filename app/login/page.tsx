@@ -4,6 +4,22 @@ import { useState, type FormEvent } from 'react'
 import { ArrowRight, Eye, EyeOff, LockKeyhole, ShieldCheck } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 
+const TRANSIENT_AUTH_PATTERN = /(?:504|gateway|fetch failed|failed to fetch|network|timeout|timed out)/i
+
+function getLoginErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? '')
+
+  if (TRANSIENT_AUTH_PATTERN.test(message)) {
+    return 'The authentication service is temporarily unavailable. Please wait a moment and try again.'
+  }
+
+  return message || 'Unable to sign in. Please try again.'
+}
+
+function wait(milliseconds: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds))
+}
+
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -17,23 +33,29 @@ export default function LoginPage() {
     setMessage('')
 
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+      let result = await supabase.auth.signInWithPassword({ email: email.trim(), password })
+
+      if (result.error && TRANSIENT_AUTH_PATTERN.test(result.error.message)) {
+        await wait(700)
+        result = await supabase.auth.signInWithPassword({ email: email.trim(), password })
+      }
+
+      const { data, error } = result
 
       if (error) {
-        setMessage(error.message)
-        setIsSubmitting(false)
+        setMessage(getLoginErrorMessage(error))
         return
       }
 
       if (!data.session) {
         setMessage('Sign-in completed without a session. Please try again.')
-        setIsSubmitting(false)
         return
       }
 
       window.location.replace('/dashboard')
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Unable to sign in. Please try again.')
+      setMessage(getLoginErrorMessage(error))
+    } finally {
       setIsSubmitting(false)
     }
   }
@@ -180,3 +202,4 @@ export default function LoginPage() {
     </div>
   )
 }
+

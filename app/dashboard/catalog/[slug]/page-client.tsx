@@ -11,7 +11,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/hooks/use-toast'
 import { CatalogImagePreview } from '@/components/catalog-image-preview'
-import type { CatalogCategory, CatalogGridPoster, CatalogNavbarItem, CatalogOption, CatalogSubcategory } from '@/lib/product-catalog'
+import type { CatalogCategory, CatalogNavbarItem, CatalogOption, CatalogSubcategory } from '@/lib/product-catalog'
 import { slugify } from '@/lib/product-catalog'
 
 type CatalogDetailTab = 'subcategories' | 'options'
@@ -48,16 +48,6 @@ type CategoryBannerFormState = {
   ctaLink: string
 }
 
-type GridPosterFormState = {
-  title: string
-  imagePath: string
-  imageAlt: string
-  linkUrl: string
-  insertAfter: number
-  displayOrder: number
-  status: 'Active' | 'Draft' | 'Archived'
-}
-
 type CategoryDetailClientProps = {
   categorySlug: string
   initialData: {
@@ -65,7 +55,6 @@ type CategoryDetailClientProps = {
     navbarItems: CatalogNavbarItem[]
     subcategories: CatalogSubcategory[]
     options: CatalogOption[]
-    posters: CatalogGridPoster[]
   }
 }
 
@@ -104,18 +93,6 @@ function emptyOptionForm(subcategoryId: string, nextOrder: number): OptionFormSt
     parentSubcategoryId: subcategoryId,
     imagePath: '',
     imageAlt: '',
-    displayOrder: nextOrder,
-    status: 'Active',
-  }
-}
-
-function emptyGridPosterForm(nextOrder: number): GridPosterFormState {
-  return {
-    title: '',
-    imagePath: '',
-    imageAlt: '',
-    linkUrl: '',
-    insertAfter: 6,
     displayOrder: nextOrder,
     status: 'Active',
   }
@@ -182,28 +159,26 @@ async function uploadCategoryBanner(file: File, slug: string, variant: 'desktop'
   return data.path as string
 }
 
-async function uploadCategoryGridPoster(file: File, slug: string) {
-  const accessToken = await getAccessToken()
-  if (!accessToken) {
-    throw new Error('You must be signed in to upload poster images.')
+async function prepareCategoryBannerFile(file: File, variant: 'desktop' | 'mobile') {
+  if (file.type === 'image/svg+xml' || !file.type.startsWith('image/')) return file
+
+  try {
+    const bitmap = await createImageBitmap(file)
+    const maxWidth = variant === 'desktop' ? 2400 : 1400
+    const scale = Math.min(1, maxWidth / bitmap.width)
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale))
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale))
+    const context = canvas.getContext('2d')
+    if (!context) return file
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+    bitmap.close()
+
+    const compressed = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/webp', 0.84))
+    return compressed ? new File([compressed], `${file.name.replace(/\.[^.]+$/, '')}.webp`, { type: 'image/webp' }) : file
+  } catch {
+    return file
   }
-
-  const payload = new FormData()
-  payload.append('file', file)
-  payload.append('slug', slug)
-
-  const response = await fetch('/api/catalog/category-grid-posters/upload', {
-    method: 'POST',
-    headers: { authorization: `Bearer ${accessToken}` },
-    body: payload,
-  })
-
-  const data = await response.json().catch(() => null)
-  if (!response.ok || !data?.path) {
-    throw new Error(data?.error ?? 'Unable to upload category grid poster image.')
-  }
-
-  return data.path as string
 }
 
 export function CategoryDetailClient({ categorySlug, initialData }: CategoryDetailClientProps) {
@@ -214,7 +189,6 @@ export function CategoryDetailClient({ categorySlug, initialData }: CategoryDeta
   const [navbarItems, setNavbarItems] = useState<CatalogNavbarItem[]>(initialData.navbarItems)
   const [subcategories, setSubcategories] = useState<CatalogSubcategory[]>(initialData.subcategories)
   const [options, setOptions] = useState<CatalogOption[]>(initialData.options)
-  const [posters, setPosters] = useState<CatalogGridPoster[]>(initialData.posters)
 
   const loadData = async () => {
     setLoading(true)
@@ -241,13 +215,6 @@ export function CategoryDetailClient({ categorySlug, initialData }: CategoryDeta
       const allOptions = (payload.options ?? []) as CatalogOption[]
       setOptions(allOptions.filter((item) => nextSubcategoryIds.has(item.subcategory_id)))
 
-      if (nextCategory) {
-        const postersResponse = await authedFetch(`/api/catalog/category-grid-posters?categoryId=${nextCategory.id}`)
-        const postersPayload = await postersResponse.json().catch(() => null)
-        if (postersResponse.ok) setPosters(postersPayload?.items ?? [])
-      } else {
-        setPosters([])
-      }
     } finally {
       setLoading(false)
     }
@@ -316,7 +283,6 @@ export function CategoryDetailClient({ categorySlug, initialData }: CategoryDeta
       </div>
 
       <CategoryBannerPanel category={category} onChange={loadData} />
-      <CategoryGridPostersPanel category={category} posters={posters} onChange={loadData} />
 
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as CatalogDetailTab)} className="w-full">
         <TabsList className="grid w-full max-w-md grid-cols-2">
@@ -363,6 +329,7 @@ function CategoryBannerPanel({
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [uploadingDesktop, setUploadingDesktop] = useState(false)
   const [uploadingMobile, setUploadingMobile] = useState(false)
+  const [savingBanner, setSavingBanner] = useState(false)
 
   useEffect(() => {
     setFormData({
@@ -379,29 +346,37 @@ function CategoryBannerPanel({
   }, [category])
 
   const saveBanner = async () => {
-    const response = await authedFetch(`/api/catalog/categories/${category.id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({
-        banner_enabled: formData.bannerEnabled,
-        banner_desktop_image_path: formData.desktopImagePath || null,
-        banner_mobile_image_path: formData.mobileImagePath || null,
-        banner_desktop_image_alt: formData.desktopImageAlt || null,
-        banner_mobile_image_alt: formData.mobileImageAlt || null,
-        banner_title: formData.title || null,
-        banner_subtitle: formData.subtitle || null,
-        banner_cta_label: formData.ctaLabel || null,
-        banner_cta_link: formData.ctaLink || null,
-      }),
-    })
+    setSavingBanner(true)
+    try {
+      const response = await authedFetch(`/api/catalog/categories/${category.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          banner_enabled: formData.bannerEnabled,
+          banner_desktop_image_path: formData.desktopImagePath || null,
+          banner_mobile_image_path: formData.mobileImagePath || null,
+          banner_desktop_image_alt: formData.desktopImageAlt || null,
+          banner_mobile_image_alt: formData.mobileImageAlt || null,
+          banner_title: formData.title || null,
+          banner_subtitle: formData.subtitle || null,
+          banner_cta_label: formData.ctaLabel || null,
+          banner_cta_link: formData.ctaLink || null,
+        }),
+      })
 
-    if (response.ok) {
-      await onChange()
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null)
+        toast({ title: 'Save failed', description: payload?.error ?? 'Unable to save category banner.' })
+        return
+      }
+
       setConfirmOpen(false)
       setIsPanelOpen(false)
       toast({ title: 'Banner saved', description: `${category.name} banner updated successfully.` })
-    } else {
-      const payload = await response.json().catch(() => null)
-      toast({ title: 'Save failed', description: payload?.error ?? 'Unable to save category banner.' })
+      await onChange()
+    } catch (error) {
+      toast({ title: 'Save failed', description: error instanceof Error ? error.message : 'Unable to save category banner.' })
+    } finally {
+      setSavingBanner(false)
     }
   }
 
@@ -410,7 +385,8 @@ function CategoryBannerPanel({
     else setUploadingMobile(true)
 
     try {
-      const path = await uploadCategoryBanner(file, category.slug, variant)
+      const preparedFile = await prepareCategoryBannerFile(file, variant)
+      const path = await uploadCategoryBanner(preparedFile, category.slug, variant)
       setFormData((current) => ({
         ...current,
         desktopImagePath: variant === 'desktop' ? path : current.desktopImagePath,
@@ -550,187 +526,9 @@ function CategoryBannerPanel({
         confirmText="Save"
         onConfirm={() => void saveBanner()}
         onCancel={() => setConfirmOpen(false)}
+        isLoading={savingBanner}
       />
     </>
-  )
-}
-
-function CategoryGridPostersPanel({
-  category,
-  posters,
-  onChange,
-}: {
-  category: CatalogCategory
-  posters: CatalogGridPoster[]
-  onChange: () => Promise<void>
-}) {
-  const { toast } = useToast()
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [isPanelOpen, setIsPanelOpen] = useState(false)
-  const [formData, setFormData] = useState<GridPosterFormState>(emptyGridPosterForm(posters.length + 1))
-  const [saveConfirmOpen, setSaveConfirmOpen] = useState(false)
-  const [deleteTarget, setDeleteTarget] = useState<CatalogGridPoster | null>(null)
-  const [uploading, setUploading] = useState(false)
-
-  const openNew = () => {
-    setSelectedId(null)
-    setFormData(emptyGridPosterForm(posters.length + 1))
-    setIsPanelOpen(true)
-  }
-
-  const openEdit = (item: CatalogGridPoster) => {
-    setSelectedId(item.id)
-    setFormData({
-      title: item.title ?? '',
-      imagePath: item.image_path ?? '',
-      imageAlt: item.image_alt ?? '',
-      linkUrl: item.link_url ?? '',
-      insertAfter: item.insert_after ?? 6,
-      displayOrder: item.display_order ?? 0,
-      status: item.status === 'archived' ? 'Archived' : item.status === 'draft' ? 'Draft' : 'Active',
-    })
-    setIsPanelOpen(true)
-  }
-
-  const saveItem = async () => {
-    if (!formData.imagePath.trim()) {
-      toast({ title: 'Poster image required', description: 'Upload an image or paste an image URL/path before saving.' })
-      return
-    }
-
-    const response = await authedFetch(selectedId ? `/api/catalog/category-grid-posters/${selectedId}` : '/api/catalog/category-grid-posters', {
-      method: selectedId ? 'PATCH' : 'POST',
-      body: JSON.stringify({
-        category_id: category.id,
-        title: formData.title || null,
-        image_path: formData.imagePath,
-        image_alt: formData.imageAlt || null,
-        link_url: formData.linkUrl || null,
-        insert_after: formData.insertAfter,
-        display_order: formData.displayOrder,
-        status: formData.status === 'Archived' ? 'archived' : formData.status === 'Draft' ? 'draft' : 'active',
-      }),
-    })
-
-    if (response.ok) {
-      await onChange()
-      setIsPanelOpen(false)
-      setSelectedId(null)
-      setSaveConfirmOpen(false)
-      toast({ title: 'Poster saved', description: 'Category grid poster updated successfully.' })
-    } else {
-      const payload = await response.json().catch(() => null)
-      toast({ title: 'Save failed', description: payload?.error ?? 'Unable to save category grid poster.' })
-    }
-  }
-
-  const deleteItem = async (id: string) => {
-    const response = await authedFetch(`/api/catalog/category-grid-posters/${id}`, { method: 'DELETE' })
-    if (response.ok) {
-      await onChange()
-      setDeleteTarget(null)
-      toast({ title: 'Poster deleted', description: 'The category grid poster was removed successfully.' })
-    } else {
-      const payload = await response.json().catch(() => null)
-      toast({ title: 'Delete failed', description: payload?.error ?? 'Unable to delete category grid poster.' })
-    }
-  }
-
-  const handleUpload = async (file: File) => {
-    setUploading(true)
-    try {
-      const path = await uploadCategoryGridPoster(file, category.slug)
-      setFormData((current) => ({ ...current, imagePath: path }))
-      toast({ title: 'Poster uploaded', description: 'Category grid poster image uploaded successfully.' })
-    } catch (error) {
-      toast({ title: 'Upload failed', description: error instanceof Error ? error.message : 'Unable to upload poster image.' })
-    } finally {
-      setUploading(false)
-    }
-  }
-
-  return (
-    <div className="mb-8 space-y-6 rounded-xl border border-border bg-white p-6 shadow-xs">
-      <SectionHeader title="Grid Posters" description="Add poster cards that appear inside this category product grid at product-card size." actionLabel="Add Poster" onAction={openNew} />
-
-      <DataTable
-        headers={['Title', 'Image', 'Link', 'Insert After', 'Order', 'Status', 'Edit', 'Delete']}
-        rows={posters.map((item) => ({
-          id: item.id,
-          cells: [
-            item.title || 'Untitled poster',
-            item.image_path,
-            item.link_url || 'No link',
-            item.insert_after,
-            item.display_order,
-            item.status === 'active' ? 'Active' : item.status === 'draft' ? 'Draft' : 'Archived',
-            <IconButton key="edit" onClick={() => openEdit(item)}><Edit2 size={14} className="text-muted-foreground" /></IconButton>,
-            <IconButton key="delete" onClick={() => setDeleteTarget(item)} destructive><Trash2 size={14} className="text-red-600" /></IconButton>,
-          ],
-        }))}
-      />
-
-      <FormDialog
-        open={isPanelOpen}
-        onOpenChange={setIsPanelOpen}
-        title={selectedId ? 'Edit Grid Poster' : 'Add Grid Poster'}
-        description={`Manage product-grid poster cards for ${category.name}.`}
-      >
-        <Field label="Title">
-          <input value={formData.title} onChange={(e) => setFormData((prev) => ({ ...prev, title: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm" />
-        </Field>
-        <Field label="Poster Image">
-          <div className="space-y-3">
-            <input
-              value={formData.imagePath}
-              onChange={(e) => setFormData((prev) => ({ ...prev, imagePath: e.target.value }))}
-              placeholder="Upload image or paste full URL/storage path"
-              className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm"
-            />
-            <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary">
-              Upload Poster Image
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp,image/avif"
-                className="hidden"
-                disabled={uploading}
-                onChange={(event) => {
-                  const file = event.target.files?.[0]
-                  if (file) void handleUpload(file)
-                }}
-              />
-            </label>
-            {formData.imagePath ? (
-              <button type="button" onClick={() => setFormData((prev) => ({ ...prev, imagePath: '' }))} className="rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50">
-                Remove Image
-              </button>
-            ) : null}
-            <p className="text-xs text-muted-foreground">{uploading ? 'Uploading poster image...' : 'Recommended: square or 4:5 image with center-safe subject.'}</p>
-          </div>
-        </Field>
-        <Field label="Image Alt Text">
-          <input value={formData.imageAlt} onChange={(e) => setFormData((prev) => ({ ...prev, imageAlt: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm" />
-        </Field>
-        <Field label="Click Link">
-          <input value={formData.linkUrl} onChange={(e) => setFormData((prev) => ({ ...prev, linkUrl: e.target.value }))} placeholder="/rings or https://..." className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm" />
-        </Field>
-        <div className="grid gap-5 md:grid-cols-2">
-          <Field label="Insert After Product Number">
-            <input type="number" min={0} value={formData.insertAfter} onChange={(e) => setFormData((prev) => ({ ...prev, insertAfter: Math.max(0, Number(e.target.value) || 0) }))} className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm" />
-          </Field>
-          <Field label="Display Order">
-            <input type="number" value={formData.displayOrder} onChange={(e) => setFormData((prev) => ({ ...prev, displayOrder: Number(e.target.value) || 0 }))} className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm" />
-          </Field>
-        </div>
-        <Field label="Status">
-          <ToggleRow options={['Active', 'Draft', 'Archived']} value={formData.status} onChange={(value) => setFormData((prev) => ({ ...prev, status: value as GridPosterFormState['status'] }))} />
-        </Field>
-        <Actions onSave={() => setSaveConfirmOpen(true)} onCancel={() => setIsPanelOpen(false)} />
-      </FormDialog>
-
-      <ConfirmDialog isOpen={saveConfirmOpen} title={selectedId ? 'Update poster?' : 'Create poster?'} description="This will update the poster card shown in the category product grid." confirmText="Save" onConfirm={() => void saveItem()} onCancel={() => setSaveConfirmOpen(false)} />
-      <ConfirmDialog isOpen={Boolean(deleteTarget)} title="Delete poster?" description={`Are you sure you want to delete "${deleteTarget?.title || 'this poster'}"?`} confirmText="Delete" type="delete" onConfirm={() => { if (!deleteTarget) return; void deleteItem(deleteTarget.id) }} onCancel={() => setDeleteTarget(null)} />
-    </div>
   )
 }
 

@@ -168,7 +168,9 @@ export default function DocsEditorPage() {
     eyebrow: initialCachedPayload?.page?.eyebrow ?? '',
     title: initialCachedPayload?.page?.title ?? '',
     subtitle: initialCachedPayload?.page?.subtitle ?? '',
+    faq_category_id: initialCachedPayload?.page?.faq_category_id ?? null,
   }))
+  const [faqCategories, setFaqCategories] = useState(initialCachedPayload?.faqCategories ?? [])
   const [blocks, setBlocks] = useState<Block[]>(() =>
     (initialCachedPayload?.blocks ?? []).map((block, index) => ({ clientId: block.id ? `id-${block.id}` : `cached-${index}`, ...block }))
   )
@@ -195,7 +197,9 @@ export default function DocsEditorPage() {
           eyebrow: payload?.page?.eyebrow ?? '',
           title: payload?.page?.title ?? '',
           subtitle: payload?.page?.subtitle ?? '',
+          faq_category_id: payload?.page?.faq_category_id ?? null,
         })
+        setFaqCategories(payload?.faqCategories ?? [])
         setBlocks((payload?.blocks ?? []).map((block, index) => ({ clientId: block.id ? `id-${block.id}` : `loaded-${index}`, ...block })))
         setStatus(`${meta.label} loaded`)
       } catch (error) {
@@ -362,6 +366,16 @@ export default function DocsEditorPage() {
             className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm"
           />
         </div>
+        {slug === 'returns' ? (
+          <div>
+            <label className="mb-2 block text-sm font-semibold text-foreground">FAQ category shown on Returns</label>
+            <select value={pageData.faq_category_id ?? ''} onChange={(e) => setPageData((prev) => ({ ...prev, faq_category_id: e.target.value ? Number(e.target.value) : null }))} className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm">
+              <option value="">No FAQ category selected</option>
+              {faqCategories.filter((category) => category.is_active).map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+            </select>
+            <p className="mt-2 text-xs text-muted-foreground">Only questions assigned to this category will appear on the Returns page.</p>
+          </div>
+        ) : null}
       </div>
 
       <div className="mt-8 overflow-hidden rounded-lg border border-border bg-white shadow-xs">

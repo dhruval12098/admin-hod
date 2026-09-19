@@ -71,13 +71,27 @@ export async function GET(request: Request) {
 
   const { data: items, error: itemsError } = await adminClient
     .from('support_faq_items')
-    .select('id, sort_order, question, answer, is_active')
+    .select('id, sort_order, question, answer, is_active, category_id, catalog_category_id')
     .eq('section_id', section.id)
     .order('sort_order', { ascending: true })
 
   if (itemsError) return NextResponse.json({ error: itemsError.message }, { status: 500 })
 
-  return NextResponse.json({ section, items: items ?? [] })
+  const [{ data: categories, error: categoriesError }, { data: catalogCategories, error: catalogError }] = await Promise.all([
+    adminClient
+      .from('support_faq_categories')
+      .select('id, name, slug, description, image_path, image_alt, sort_order, is_active')
+      .order('sort_order', { ascending: true }),
+    adminClient
+      .from('catalog_categories')
+      .select('id, name, slug')
+      .eq('status', 'active')
+      .order('display_order', { ascending: true }),
+  ])
+
+  if (categoriesError) return NextResponse.json({ error: categoriesError.message }, { status: 500 })
+  if (catalogError) return NextResponse.json({ error: catalogError.message }, { status: 500 })
+  return NextResponse.json({ section, items: items ?? [], categories: categories ?? [], catalogCategories: catalogCategories ?? [] })
 }
 
 export async function POST(request: Request) {
@@ -116,8 +130,10 @@ export async function POST(request: Request) {
 
   const rows = body.items
     .filter((item: { question?: unknown; answer?: unknown }) => typeof item.question === 'string' && typeof item.answer === 'string')
-    .map((item: { sort_order?: unknown; question: string; answer: string; is_active?: unknown }, index: number) => ({
+    .map((item: { sort_order?: unknown; question: string; answer: string; is_active?: unknown; category_id?: unknown; catalog_category_id?: unknown }, index: number) => ({
       section_id: section.id,
+      category_id: Number.isSafeInteger(Number(item.category_id)) && Number(item.category_id) > 0 ? Number(item.category_id) : null,
+      catalog_category_id: typeof item.catalog_category_id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(item.catalog_category_id) ? item.catalog_category_id : null,
       sort_order: Number.isFinite(Number(item.sort_order)) ? Number(item.sort_order) : index + 1,
       question: item.question,
       answer: item.answer,
@@ -131,3 +147,5 @@ export async function POST(request: Request) {
 
   return NextResponse.json({ ok: true })
 }
+
+

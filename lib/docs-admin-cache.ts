@@ -1,8 +1,9 @@
 'use client'
 
 export type DocsAdminPayload = {
-  page?: { eyebrow?: string; title?: string; subtitle?: string } | null
+  page?: { eyebrow?: string; title?: string; subtitle?: string; faq_category_id?: number | null } | null
   blocks?: Array<{ id?: number; sort_order: number; heading: string; description: string; body: string }>
+  faqCategories?: Array<{ id: number; name: string; slug: string; image_path?: string | null; image_alt?: string; is_active: boolean }>
   error?: string
 }
 

@@ -21,34 +21,23 @@ type ValueItem = {
   id?: number
   sort_order: number
   icon_path: string
+  image_path: string
+  image_alt: string
   title: string
   description: string
 }
 
-type ApiPayload = {
-  items?: Array<{
-    id: number
-    sort_order: number
-    icon_path: string
-    title: string
-    description: string
-  }>
-  error?: string
-}
+type ApiPayload = { error?: string }
 
-type EditorItem = {
-  clientId: string
-  sort_order: number
-  icon_path: string
-  title: string
-  description: string
-}
+type EditorItem = ValueItem
 
 export type ValuesInitialData = {
   items: Array<{
     id: number
     sort_order: number
     icon_path: string
+    image_path: string | null
+    image_alt: string | null
     title: string
     description: string
   }>
@@ -58,13 +47,15 @@ const empty = (sortOrder: number): EditorItem => ({
   clientId: `draft-${Date.now()}`,
   sort_order: sortOrder,
   icon_path: '',
+  image_path: '',
+  image_alt: '',
   title: '',
   description: '',
 })
 
 export function ValuesEditorClient({ initialData }: { initialData: ValuesInitialData }) {
   const [items, setItems] = useState<ValueItem[]>(
-    initialData.items.map((item) => ({ clientId: `id-${item.id}`, ...item }))
+    initialData.items.map((item) => ({ clientId: `id-${item.id}`, ...item, image_path: item.image_path ?? '', image_alt: item.image_alt ?? '' }))
   )
   const [status, setStatus] = useState(initialData.items.length ? 'Values loaded' : 'No values found yet')
   const [isSaving, setIsSaving] = useState(false)
@@ -109,9 +100,11 @@ export function ValuesEditorClient({ initialData }: { initialData: ValuesInitial
         authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify({
-        items: sorted.map(({ sort_order, icon_path, title, description }) => ({
+        items: sorted.map(({ sort_order, icon_path, image_path, image_alt, title, description }) => ({
           sort_order,
           icon_path,
+          image_path,
+          image_alt,
           title,
           description,
         })),
@@ -151,7 +144,7 @@ export function ValuesEditorClient({ initialData }: { initialData: ValuesInitial
           <thead>
             <tr className="border-b border-border bg-secondary/40">
               <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground">Order</th>
-              <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground">Icon</th>
+              <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground">Image</th>
               <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground">Title</th>
               <th className="px-5 py-3 text-right text-xs font-semibold uppercase tracking-wider text-foreground">Actions</th>
             </tr>
@@ -160,7 +153,7 @@ export function ValuesEditorClient({ initialData }: { initialData: ValuesInitial
             {sorted.map((item) => (
               <tr key={item.clientId} className="border-b border-border last:border-b-0">
                 <td className="px-5 py-4 text-sm">{item.sort_order}</td>
-                <td className="px-5 py-4 text-sm">{item.icon_path}</td>
+                <td className="max-w-[260px] truncate px-5 py-4 text-sm" title={item.image_path || item.icon_path}>{item.image_path || item.icon_path || '—'}</td>
                 <td className="px-5 py-4 text-sm">{item.title}</td>
                 <td className="px-5 py-4 text-right">
                   <div className="flex items-center justify-end gap-2">
@@ -206,10 +199,32 @@ export function ValuesEditorClient({ initialData }: { initialData: ValuesInitial
         <DialogContent className="sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>Edit Value</DialogTitle>
-            <DialogDescription>Upload an SVG icon and update the title and description.</DialogDescription>
+            <DialogDescription>Upload the card image and update its title and reveal paragraph.</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
+            <div>
+              <label className="mb-2 block text-sm font-semibold text-foreground">Card Image</label>
+              <div className="flex items-center gap-3">
+                <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary">
+                  <Plus size={14} />
+                  Upload Image
+                  <input type="file" accept="image/jpeg,image/png,image/webp,image/avif" className="hidden" onChange={async (e) => {
+                    const file = e.target.files?.[0]; e.target.value = ''; if (!file) return
+                    const { data } = await supabase.auth.getSession(); const accessToken = data.session?.access_token; if (!accessToken) return setStatus('You are not signed in.')
+                    try {
+                      const path = await uploadCmsAssetDirectWithFallback({ file, accessToken, signEndpoint: '/api/cms/uploads/values/sign', fallbackEndpoint: '/api/cms/uploads/values', maxInputBytes: 8 * 1024 * 1024, rasterWidth: 1400, webpQuality: 86, rasterOnly: true, allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/avif'], signFields: { kind: 'image', declaredSize: file.size }, fallbackFields: { kind: 'image' } })
+                      setEditorItem((prev) => ({ ...prev, image_path: path })); setStatus('Value image uploaded. Update the item, then save changes.')
+                    } catch (error) { setStatus(error instanceof Error ? error.message : 'Unable to upload value image.') }
+                  }} />
+                </label>
+                <span className="min-w-0 truncate text-xs text-muted-foreground">{editorItem.image_path || 'No image uploaded yet'}</span>
+              </div>
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-semibold text-foreground">Image Alt Text</label>
+              <input value={editorItem.image_alt} onChange={(e) => setEditorItem((prev) => ({ ...prev, image_alt: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" placeholder="Describe the image" />
+            </div>
             <div>
               <label className="mb-2 block text-sm font-semibold text-foreground">Icon</label>
               <div className="flex items-center gap-3">
@@ -248,7 +263,7 @@ export function ValuesEditorClient({ initialData }: { initialData: ValuesInitial
               <input value={editorItem.title} onChange={(e) => setEditorItem((prev) => ({ ...prev, title: e.target.value }))} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" />
             </div>
             <div>
-              <label className="mb-2 block text-sm font-semibold text-foreground">Description</label>
+              <label className="mb-2 block text-sm font-semibold text-foreground">Reveal Paragraph</label>
               <textarea value={editorItem.description} onChange={(e) => setEditorItem((prev) => ({ ...prev, description: e.target.value }))} rows={5} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" />
             </div>
           </div>
@@ -262,3 +277,5 @@ export function ValuesEditorClient({ initialData }: { initialData: ValuesInitial
     </div>
   )
 }
+
+

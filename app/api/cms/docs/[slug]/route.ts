@@ -37,7 +37,7 @@ export async function GET(
   const supabase = createClient(supabaseUrl, supabaseServiceRoleKey)
   const { data: page, error: pageError } = await supabase
     .from('docs_pages')
-    .select('id, slug, title, eyebrow, subtitle')
+    .select('id, slug, title, eyebrow, subtitle, faq_category_id')
     .eq('slug', slug)
     .maybeSingle()
 
@@ -50,6 +50,16 @@ export async function GET(
     .order('sort_order', { ascending: true })
 
   if (blocksError) return NextResponse.json({ error: blocksError.message }, { status: 500 })
+
+  if (slug === 'returns') {
+    const { data: categories, error: categoriesError } = await supabase
+      .from('support_faq_categories')
+      .select('id, name, slug, image_path, image_alt, is_active')
+      .order('sort_order', { ascending: true })
+    if (categoriesError) return NextResponse.json({ error: categoriesError.message }, { status: 500 })
+    return NextResponse.json({ page: page ?? null, blocks: blocks ?? [], faqCategories: categories ?? [] })
+  }
+
   return NextResponse.json({ page: page ?? null, blocks: blocks ?? [] })
 }
 
@@ -66,12 +76,14 @@ export async function POST(
 
   const { slug } = await params
   const body = await request.json()
+  const requestedCategoryId = Number(body.faq_category_id)
   const payload = {
     slug,
     title: String(body.title ?? '').trim(),
     eyebrow: String(body.eyebrow ?? '').trim(),
     subtitle: String(body.subtitle ?? '').trim(),
     updated_at: new Date().toISOString(),
+    ...(slug === 'returns' ? { faq_category_id: Number.isSafeInteger(requestedCategoryId) && requestedCategoryId > 0 ? requestedCategoryId : null } : {}),
   }
   const blocks = Array.isArray(body.blocks) ? body.blocks : []
 
@@ -82,8 +94,9 @@ export async function POST(
   const supabase = createClient(supabaseUrl, supabaseServiceRoleKey)
   const { data: pageData, error: pageError } = await supabase
     .from('docs_pages')
-    .upsert(payload, { onConflict: 'slug' })
-    .select('id, slug, title, eyebrow, subtitle')
+    .update(payload)
+    .eq('slug', slug)
+    .select('id, slug, title, eyebrow, subtitle, faq_category_id')
     .maybeSingle()
 
   if (pageError) return NextResponse.json({ error: pageError.message }, { status: 500 })
