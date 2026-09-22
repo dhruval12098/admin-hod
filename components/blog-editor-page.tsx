@@ -178,6 +178,10 @@ function RichTextEditor({ value, onChange }: { value: string; onChange: (value: 
   )
 }
 
+async function adminApiFetch(input: RequestInfo | URL, init: RequestInit = {}) {
+  return fetch(input, { ...init, credentials: 'same-origin' })
+}
+
 const emptyForm: BlogForm = {
   slug: '',
   title: '',
@@ -230,11 +234,8 @@ export function BlogEditorPage({ mode, id, categories }: { mode: 'create' | 'edi
 
   useEffect(() => {
     const loadProducts = async () => {
-      const { data: sessionData } = await supabase.auth.getSession()
-      const accessToken = sessionData.session?.access_token
-      if (!accessToken) return
+      const response = await adminApiFetch('/api/products')
 
-      const response = await fetch('/api/products', { headers: { authorization: `Bearer ${accessToken}` } })
       const payload = (await response.json().catch(() => null)) as { items?: BlogProduct[] } | null
       if (!response.ok) return
       setAvailableProducts(payload?.items ?? [])
@@ -247,11 +248,8 @@ export function BlogEditorPage({ mode, id, categories }: { mode: 'create' | 'edi
     if (mode !== 'edit' || !id) return
 
     const load = async () => {
-      const { data: sessionData } = await supabase.auth.getSession()
-      const accessToken = sessionData.session?.access_token
-      if (!accessToken) return setStatus('You are not signed in.')
+      const response = await adminApiFetch(`/api/cms/blog/posts/${id}`)
 
-      const response = await fetch(`/api/cms/blog/posts/${id}`, { headers: { authorization: `Bearer ${accessToken}` } })
       const payload = (await response.json().catch(() => null)) as Payload | null
       if (!response.ok || !payload?.post) return setStatus(payload?.error ?? 'Unable to load blog post.')
 
@@ -282,15 +280,14 @@ export function BlogEditorPage({ mode, id, categories }: { mode: 'create' | 'edi
     load()
   }, [mode, id])
 
-  const uploadBlogMedia = async (file: File, accessToken: string) => {
+  const uploadBlogMedia = async (file: File) => {
     if (file.size > 5 * 1024 * 1024) throw new Error('File too large. Max size is 5MB.')
 
     try {
       const preparedFile = await prepareBlogImage(file)
-      const signResponse = await fetch('/api/cms/uploads/blog/sign', {
+      const signResponse = await adminApiFetch('/api/cms/uploads/blog/sign', {
         method: 'POST',
         headers: {
-          authorization: `Bearer ${accessToken}`,
           'content-type': 'application/json',
         },
         body: JSON.stringify({ contentType: preparedFile.type }),
@@ -307,9 +304,8 @@ export function BlogEditorPage({ mode, id, categories }: { mode: 'create' | 'edi
     } catch (directError) {
       const formData = new FormData()
       formData.append('file', file)
-      const response = await fetch('/api/cms/uploads/blog', {
+      const response = await adminApiFetch('/api/cms/uploads/blog', {
         method: 'POST',
-        headers: { authorization: `Bearer ${accessToken}` },
         body: formData,
       })
       const payload = (await response.json().catch(() => null)) as { path?: string; error?: string } | null
@@ -321,14 +317,10 @@ export function BlogEditorPage({ mode, id, categories }: { mode: 'create' | 'edi
   }
 
   const uploadImage = async (file: File) => {
-    const { data: sessionData } = await supabase.auth.getSession()
-    const accessToken = sessionData.session?.access_token
-    if (!accessToken) return setStatus('You are not signed in.')
-
     setUploading(true)
     setStatus('Uploading blog image...')
     try {
-      const path = await uploadBlogMedia(file, accessToken)
+      const path = await uploadBlogMedia(file)
       setForm((prev) => ({ ...prev, hero_image_path: path }))
       setStatus('Blog image uploaded successfully')
     } catch (error) {
@@ -339,14 +331,10 @@ export function BlogEditorPage({ mode, id, categories }: { mode: 'create' | 'edi
   }
 
   const uploadCardImage = async (file: File) => {
-    const { data: sessionData } = await supabase.auth.getSession()
-    const accessToken = sessionData.session?.access_token
-    if (!accessToken) return setStatus('You are not signed in.')
-
     setUploading(true)
     setStatus('Uploading blog card image...')
     try {
-      const path = await uploadBlogMedia(file, accessToken)
+      const path = await uploadBlogMedia(file)
       setForm((prev) => ({ ...prev, card_image_path: path }))
       setStatus('Blog card image uploaded successfully')
     } catch (error) {
@@ -357,14 +345,10 @@ export function BlogEditorPage({ mode, id, categories }: { mode: 'create' | 'edi
   }
 
   const uploadBlockImage = async (clientId: string, file: File) => {
-    const { data: sessionData } = await supabase.auth.getSession()
-    const accessToken = sessionData.session?.access_token
-    if (!accessToken) return setStatus('You are not signed in.')
-
     setUploading(true)
     setStatus('Uploading block image...')
     try {
-      const path = await uploadBlogMedia(file, accessToken)
+      const path = await uploadBlogMedia(file)
       setContentBlocks((prev) =>
         prev.map((block) => (block.clientId === clientId ? { ...block, image_path: path } : block))
       )
@@ -377,15 +361,11 @@ export function BlogEditorPage({ mode, id, categories }: { mode: 'create' | 'edi
   }
 
   const save = async () => {
-    const { data: sessionData } = await supabase.auth.getSession()
-    const accessToken = sessionData.session?.access_token
-    if (!accessToken) return setStatus('You are not signed in.')
-
     setIsSaving(true)
     const endpoint = mode === 'create' ? '/api/cms/blog/posts' : `/api/cms/blog/posts/${id}`
-    const response = await fetch(endpoint, {
+    const response = await adminApiFetch(endpoint, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` },
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         ...form,
         tags: cleanedTags,
@@ -425,15 +405,8 @@ export function BlogEditorPage({ mode, id, categories }: { mode: 'create' | 'edi
   const deletePost = async () => {
     if (mode !== 'edit' || !id) return
 
-    const { data: sessionData } = await supabase.auth.getSession()
-    const accessToken = sessionData.session?.access_token
-    if (!accessToken) return setStatus('You are not signed in.')
-
     setIsDeleting(true)
-    const response = await fetch(`/api/cms/blog/posts/${id}`, {
-      method: 'DELETE',
-      headers: { authorization: `Bearer ${accessToken}` },
-    })
+    const response = await adminApiFetch(`/api/cms/blog/posts/${id}`, { method: 'DELETE' })
 
     const payload = (await response.json().catch(() => null)) as { error?: string } | null
     setIsDeleting(false)
