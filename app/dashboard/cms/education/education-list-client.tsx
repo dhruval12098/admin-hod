@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
-import { Plus, Edit2, Trash2 } from 'lucide-react'
+import { Plus, Edit2, Trash2, ImageIcon } from 'lucide-react'
 import { CMSTabs } from '@/components/cms-tabs'
 import { supabase } from '@/lib/supabase'
 import { TablePagination } from '@/components/table-pagination'
@@ -79,6 +79,7 @@ export function EducationListClient({ initialItems }: { initialItems: EducationL
             <p className="mt-1 text-sm text-muted-foreground">Manage all education posts and create new articles.</p>
             <p className="mt-2 text-xs text-muted-foreground">{status}</p>
           </div>
+          <Link href="/dashboard/cms/education/hero" className="inline-flex items-center gap-2 rounded-lg border border-border bg-white px-4 py-2.5 text-sm font-semibold text-foreground hover:bg-secondary"><ImageIcon size={16} />Education Hero</Link>
           <Link href="/dashboard/cms/education/new" className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary/90">
             <Plus size={16} />
             Create Education

@@ -49,7 +49,6 @@ const NAVIGATION_GROUPS = [
       { name: 'Products', href: '/dashboard/products', icon: Package },
       { name: 'Bulk Imports', href: '/dashboard/product-imports', icon: Files },
       { name: 'Inventory', href: '/dashboard/inventory', icon: Package },
-      { name: 'Hip Hop Products', href: '/dashboard/hiphop-products', icon: Gem },
       { name: 'Collection Products', href: '/dashboard/collection-products', icon: Package },
       { name: 'Bespoke Products', href: '/dashboard/bespoke', icon: Sparkles },
     ],

@@ -29,7 +29,6 @@ const SEARCH_ENTRIES: SearchEntry[] = [
   { title: 'Media Trash', description: 'Review used and unused bucket assets before permanent deletion.', href: '/dashboard/media-trash', keywords: ['media', 'trash', 'storage', 'images', 'bucket'] },
   { title: 'Inventory', description: 'Check stock and inventory levels.', href: '/dashboard/inventory', keywords: ['inventory', 'stock', 'quantity'] },
   { title: 'Bespoke', description: 'Manage bespoke submissions and custom content.', href: '/dashboard/bespoke', keywords: ['bespoke', 'custom', 'submissions'] },
-  { title: 'Hip Hop Products', description: 'Manage the hip hop collection separately.', href: '/dashboard/hiphop-products', keywords: ['hip hop', 'hiphop', 'chains', 'grillz'] },
   { title: 'Settings', description: 'Admin settings and configuration.', href: '/dashboard/settings', keywords: ['settings', 'config', 'configuration'] },
 ]
 

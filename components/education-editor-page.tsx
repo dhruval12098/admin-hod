@@ -59,6 +59,7 @@ type EducationForm = {
   slug: string
   title: string
   title_html: string
+  card_title: string
   subtitle: string
   category: string
   author: string
@@ -67,6 +68,7 @@ type EducationForm = {
   bg_key: string
   bg_color: string
   hero_image_path: string
+  card_image_path: string
   hero_image_alt: string
   body_html: string
   is_published: boolean
@@ -177,6 +179,7 @@ const emptyForm: EducationForm = {
   slug: '',
   title: '',
   title_html: '',
+  card_title: '',
   subtitle: '',
   category: '',
   author: '',
@@ -185,6 +188,7 @@ const emptyForm: EducationForm = {
   bg_key: 'bg-0',
   bg_color: '#EEF1F8',
   hero_image_path: '',
+  card_image_path: '',
   hero_image_alt: '',
   body_html: '<p></p>',
   is_published: true,
@@ -247,7 +251,7 @@ export function EducationEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?
       const payload = (await response.json().catch(() => null)) as Payload | null
       if (!response.ok || !payload?.post) return setStatus(payload?.error ?? 'Unable to load education post.')
 
-      setForm({ ...payload.post, hero_image_alt: payload.post.hero_image_alt ?? '' })
+      setForm({ ...payload.post, card_title: payload.post.card_title ?? '', card_image_path: payload.post.card_image_path ?? '', hero_image_alt: payload.post.hero_image_alt ?? '' })
       setTags((payload.tags ?? []).map((tag) => ({ clientId: `tag-${tag.id}`, value: tag.tag })))
       setSelectedProducts(
         (payload.products ?? [])
@@ -330,6 +334,17 @@ export function EducationEditorPage({ mode, id }: { mode: 'create' | 'edit'; id?
     }
   }
 
+  const uploadCardImage = async (file: File) => {
+    const { data: sessionData } = await supabase.auth.getSession()
+    const accessToken = sessionData.session?.access_token
+    if (!accessToken) return setStatus('You are not signed in.')
+    setUploading(true)
+    try {
+      const path = await uploadEducationMedia(file, accessToken)
+      setForm((prev) => ({ ...prev, card_image_path: path }))
+      setStatus('Education display image uploaded successfully')
+    } catch (error) { setStatus(error instanceof Error ? error.message : 'Unable to upload image.') } finally { setUploading(false) }
+  }
   const uploadBlockImage = async (clientId: string, file: File) => {
     const { data: sessionData } = await supabase.auth.getSession()
     const accessToken = sessionData.session?.access_token

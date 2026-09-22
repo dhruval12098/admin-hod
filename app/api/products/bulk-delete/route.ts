@@ -16,7 +16,15 @@ export async function POST(request: Request) {
 
   const { error } = await access.adminClient.from('products').delete().in('id', ids)
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    const blockedByReservation = error.code === '23503' && error.message.includes('inventory_reservations')
+    return NextResponse.json(
+      {
+        error: blockedByReservation
+          ? 'One or more selected products have active inventory reservations. Apply the product reservation deletion migration, then try again.'
+          : error.message,
+      },
+      { status: blockedByReservation ? 409 : 500 },
+    )
   }
 
   return NextResponse.json({ ok: true, deletedCount: ids.length })

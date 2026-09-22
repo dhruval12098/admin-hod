@@ -2,7 +2,8 @@
 
 import Link from 'next/link'
 import { useMemo, useState, type ChangeEvent } from 'react'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Edit2 } from 'lucide-react'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { CmsSaveAction } from '@/components/cms-save-action'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { useToast } from '@/hooks/use-toast'
@@ -40,6 +41,7 @@ export function HomeBestSellersEditorClient({ initialData }: { initialData: Home
   const [isSaving, setIsSaving] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [uploadingProductId, setUploadingProductId] = useState<string | null>(null)
+  const [editingProductId, setEditingProductId] = useState<string | null>(null)
 
   const filteredProducts = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -58,6 +60,9 @@ export function HomeBestSellersEditorClient({ initialData }: { initialData: Home
         .filter(Boolean) as ProductListItem[],
     [form.selected_product_ids, products]
   )
+
+  const editingProduct = editingProductId ? products.find((product) => product.id === editingProductId) ?? null : null
+  const editingOverride = editingProductId ? form.selected_products.find((item) => item.product_id === editingProductId) ?? null : null
 
   const toggleProduct = (id: string) => {
     setForm((current) => ({
@@ -162,7 +167,7 @@ export function HomeBestSellersEditorClient({ initialData }: { initialData: Home
         <p className="mt-2 text-xs text-muted-foreground">{status}</p>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[420px_1fr]">
+      <div className="space-y-6">
         <div className="space-y-4 rounded-lg border border-border bg-white p-6 shadow-xs">
           <div>
             <label className="mb-2 block text-sm font-semibold text-foreground">Eyebrow</label>
@@ -197,15 +202,18 @@ export function HomeBestSellersEditorClient({ initialData }: { initialData: Home
                         <div className="text-sm font-semibold text-foreground">{index + 1}. {product.name}</div>
                         <div className="mt-1 text-xs text-muted-foreground">{product.categoryPath}</div>
                       </div>
-                      <button
+                      <div className="flex items-center gap-3">
+                        <button type="button" onClick={() => setEditingProductId(product.id)} className="inline-flex items-center gap-1 text-xs font-semibold text-foreground hover:text-primary"><Edit2 size={13} />Edit</button>
+                        <button
                         type="button"
                         onClick={() => toggleProduct(product.id)}
                         className="text-xs font-semibold text-red-600 hover:text-red-700"
                       >
                         Remove
-                      </button>
+                        </button>
+                      </div>
                     </div>
-                    <div className="mt-4 space-y-3 border-t border-border pt-3">
+                    <div className="hidden">
                       <div>
                         <label className="mb-1 block text-xs font-semibold text-foreground">Card title</label>
                         <input value={form.selected_products.find((item) => item.product_id === product.id)?.display_title ?? ''} onChange={(event) => updateCardOverride(product.id, { display_title: event.target.value })} maxLength={160} placeholder={product.name} className="w-full rounded-md border border-border px-3 py-2 text-sm" />
@@ -281,6 +289,19 @@ export function HomeBestSellersEditorClient({ initialData }: { initialData: Home
         </div>
       </div>
 
+      <Dialog open={Boolean(editingProduct)} onOpenChange={(open) => { if (!open) setEditingProductId(null) }}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Edit selected product</DialogTitle>
+            <DialogDescription>{editingProduct ? `Customize how ${editingProduct.name} appears in Best Sellers.` : ''}</DialogDescription>
+          </DialogHeader>
+          {editingProduct && editingOverride ? <div className="space-y-5">
+            <div><label className="mb-2 block text-sm font-semibold text-foreground">Card title</label><input value={editingOverride.display_title} onChange={(event) => updateCardOverride(editingProduct.id, { display_title: event.target.value })} maxLength={160} placeholder={editingProduct.name} className="w-full rounded-lg border border-border px-3 py-2.5 text-sm" /></div>
+            <div><label className="mb-2 block text-sm font-semibold text-foreground">Card image</label><label className="inline-flex cursor-pointer rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-secondary">{uploadingProductId === editingProduct.id ? 'Uploading...' : 'Upload image'}<input type="file" accept="image/*" className="hidden" disabled={uploadingProductId !== null} onChange={(event: ChangeEvent<HTMLInputElement>) => { const file = event.target.files?.[0]; if (file) void uploadCardImage(editingProduct.id, file); event.target.value = '' }} /></label><p className="mt-2 break-all text-xs text-muted-foreground">{editingOverride.display_image_path || 'Uses product image'}</p>{editingOverride.display_image_path ? <button type="button" onClick={() => updateCardOverride(editingProduct.id, { display_image_path: '' })} className="mt-2 text-xs font-semibold text-red-600">Use product image instead</button> : null}</div>
+          </div> : null}
+          <DialogFooter><button type="button" onClick={() => setEditingProductId(null)} className="rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white">Done</button></DialogFooter>
+        </DialogContent>
+      </Dialog>
       <CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={isSaving} />
 
       <ConfirmDialog

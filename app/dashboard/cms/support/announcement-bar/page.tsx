@@ -16,7 +16,7 @@ async function getSupportAnnouncementBarInitialData(): Promise<SupportAnnounceme
 
   if (!section) {
     return {
-      section: { section_key: 'global_support_announcement_bar', is_active: true, autoplay: true, speed_ms: 40 },
+      section: { section_key: 'global_support_announcement_bar', is_active: true, autoplay: true, speed_ms: 3000 },
       items: [],
     }
   }

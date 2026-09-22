@@ -46,7 +46,7 @@ export function SupportAnnouncementBarEditorClient({ initialData }: { initialDat
   const { toast } = useToast()
   const [barActive, setBarActive] = useState(initialData.section.is_active)
   const [autoplay, setAutoplay] = useState(initialData.section.autoplay)
-  const [speedMs, setSpeedMs] = useState(initialData.section.speed_ms)
+  const speedMs = 3000
   const [items, setItems] = useState<AnnouncementItem[]>(initialData.items.map((item) => ({ clientId: `id-${item.id}`, ...item })))
   const [isSaving, setIsSaving] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -107,8 +107,8 @@ export function SupportAnnouncementBarEditorClient({ initialData }: { initialDat
       </div>
       <div className="mb-6 max-w-4xl space-y-4">
         <label className="flex items-center gap-3 text-sm font-medium text-foreground"><input type="checkbox" checked={barActive} onChange={(e) => setBarActive(e.target.checked)} />Bar active</label>
-        <label className="flex items-center gap-3 text-sm font-medium text-foreground"><input type="checkbox" checked={autoplay} onChange={(e) => setAutoplay(e.target.checked)} />Autoplay marquee</label>
-        <div><label className="mb-2 block text-sm font-semibold text-foreground">Speed (ms)</label><input type="number" value={speedMs} onChange={(e) => setSpeedMs(Number(e.target.value) || 40)} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm" /></div>
+        <label className="flex items-center gap-3 text-sm font-medium text-foreground"><input type="checkbox" checked={autoplay} onChange={(e) => setAutoplay(e.target.checked)} />Rotate announcements automatically</label>
+        <div className="rounded-lg border border-border bg-secondary/30 px-4 py-3"><p className="text-sm font-semibold text-foreground">Rotation interval</p><p className="mt-1 text-xs text-muted-foreground">Each active announcement crossfades to the next every 3 seconds.</p></div>
       </div>
       <div className="overflow-hidden rounded-lg border border-border bg-white shadow-xs">
         <table className="w-full">

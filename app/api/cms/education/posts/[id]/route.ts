@@ -6,6 +6,7 @@ type EducationPayload = {
   slug?: string
   title?: string
   title_html?: string
+  card_title?: string
   subtitle?: string
   category?: string
   author?: string
@@ -14,6 +15,7 @@ type EducationPayload = {
   bg_key?: string
   bg_color?: string
   hero_image_path?: string
+  card_image_path?: string
   hero_image_alt?: string
   body_html?: string
   is_published?: boolean
@@ -47,7 +49,7 @@ export async function GET(
   const { adminClient } = access
   const { data: post, error } = await adminClient
     .from('education_posts')
-    .select('id, slug, title, title_html, subtitle, category, author, date_label, read_time, bg_key, bg_color, hero_image_path, hero_image_alt, body_html, is_published, sort_order')
+    .select('id, slug, title, title_html, card_title, subtitle, category, author, date_label, read_time, bg_key, bg_color, hero_image_path, card_image_path, hero_image_alt, body_html, is_published, sort_order')
     .eq('id', postId)
     .single()
 
@@ -119,6 +121,7 @@ export async function POST(
     slug,
     title,
     title_html: titleHtml,
+    card_title: String(body.card_title ?? '').trim() || null,
     subtitle: String(body.subtitle ?? '').trim(),
     category: String(body.category ?? '').trim(),
     author: String(body.author ?? '').trim(),
@@ -127,6 +130,7 @@ export async function POST(
     bg_key: String(body.bg_key ?? '').trim(),
     bg_color: String(body.bg_color ?? '').trim(),
     hero_image_path: String(body.hero_image_path ?? '').trim(),
+    card_image_path: String(body.card_image_path ?? '').trim() || null,
     hero_image_alt: String(body.hero_image_alt ?? '').trim() || null,
     body_html: String(body.body_html ?? '').trim(),
     is_published: Boolean(body.is_published),

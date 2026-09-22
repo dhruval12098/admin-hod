@@ -10,7 +10,6 @@ const HOME_SECTIONS = [
   { id: 'material-strip', label: 'Material Strip', description: 'Materials title, descriptions, and icons' },
   { id: 'testimonials', label: 'Testimonials Marquee', description: 'Scrolling quote strip on the homepage' },
   { id: 'trusted-partners', label: 'Trusted Partners', description: 'Scrolling partner logo strip near the bottom of the homepage' },
-  { id: 'hiphop-showcase', label: 'Hip Hop Home Showcase', description: 'Homepage Hip Hop showcase copy, CTA, and image' },
   { id: 'reels', label: 'Instagram Reels', description: 'Public Instagram posts shown in the homepage marquee' },
 ]
 

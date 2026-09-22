@@ -3,10 +3,11 @@
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Search, Plus, Edit2, Trash2, CheckCircle2, Circle, Copy, MoreHorizontal, EyeOff } from 'lucide-react'
+import { Search, Plus, Edit2, Trash2, CheckCircle2, Circle, Copy, MoreHorizontal, EyeOff, SlidersHorizontal } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { TablePagination } from '@/components/table-pagination'
+import { BulkPriceDialog } from '@/components/bulk-price-dialog'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -94,6 +95,7 @@ export function ProductsClient({
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([])
   const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false)
   const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false)
+  const [bulkPriceDialogOpen, setBulkPriceDialogOpen] = useState(false)
 
   const loadProducts = async () => {
     setLoading(true)
@@ -148,7 +150,7 @@ export function ProductsClient({
   const largeBulkDelete = selectedProductIds.length > 5
   const allVisibleProductsSelected =
     visibleProducts.length > 0 && visibleProducts.every((product) => selectedProductIds.includes(product.id))
-  const visibleUnusedSelectionIds = visibleProducts.map((product) => product.id)
+  const visibleProductIds = visibleProducts.map((product) => product.id)
 
   const deleteProduct = async (id: string) => {
     setDeleteLoading(true)
@@ -344,7 +346,7 @@ export function ProductsClient({
 
       if (response.ok) {
         setActivateDialogOpen(false)
-        setSelectedDraftIds([])
+        setSelectedProductIds((current) => current.filter((id) => !selectedDraftIds.includes(id)))
         await loadProducts()
       }
     } finally {
@@ -360,10 +362,8 @@ export function ProductsClient({
 
   const toggleVisibleProductSelections = (selected: boolean) => {
     setSelectedProductIds((prev) => {
-      if (selected) {
-        return [...new Set([...prev, ...visibleUnusedSelectionIds])]
-      }
-      return prev.filter((id) => !visibleUnusedSelectionIds.includes(id))
+      if (selected) return [...new Set([...prev, ...visibleProductIds])]
+      return prev.filter((id) => !visibleProductIds.includes(id))
     })
   }
 
@@ -374,7 +374,16 @@ export function ProductsClient({
           <h1 className="font-jakarta text-3xl font-semibold text-foreground">{title}</h1>
           <p className="mt-1 text-sm text-muted-foreground">{description}</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          <button
+            type="button"
+            onClick={() => setBulkPriceDialogOpen(true)}
+            disabled={filteredProducts.length === 0}
+            className="flex items-center gap-2 rounded-lg border border-border bg-white px-4 py-2.5 text-sm font-semibold text-foreground transition-colors duration-200 hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <SlidersHorizontal size={18} />
+            {selectedProductIds.length > 0 ? `Adjust Prices (${selectedProductIds.length})` : 'Select Products to Adjust'}
+          </button>
           <button
             type="button"
             onClick={() => setBulkDeleteDialogOpen(true)}
@@ -529,6 +538,21 @@ export function ProductsClient({
       {filteredProducts.length > PAGE_SIZE ? (
         <TablePagination page={page} totalItems={filteredProducts.length} pageSize={PAGE_SIZE} onPageChange={setPage} />
       ) : null}
+
+      <BulkPriceDialog
+        open={bulkPriceDialogOpen}
+        products={selectedProducts.map((product) => ({ id: product.id, name: product.name, price: product.price }))}
+        allProducts={filteredProducts.map((product) => ({ id: product.id, name: product.name, price: product.price }))}
+        lane={lane}
+        onClose={() => setBulkPriceDialogOpen(false)}
+        onApplied={(items) => {
+          const nextPrices = new Map(items.map((item) => [item.id, item.price]))
+          setProducts((current) => current.map((product) => nextPrices.has(product.id) ? { ...product, price: nextPrices.get(product.id)! } : product))
+          setBulkPriceDialogOpen(false)
+          setSelectedProductIds([])
+          toast({ title: 'Prices updated', description: `${items.length} product base price${items.length === 1 ? '' : 's'} updated successfully.` })
+        }}
+      />
 
       <ConfirmDialog
         isOpen={activateDialogOpen}

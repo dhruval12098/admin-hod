@@ -64,7 +64,7 @@ export async function GET(request: Request) {
 
   if (!section) {
     return NextResponse.json({
-      section: { section_key: sectionKey, is_active: true, autoplay: true, speed_ms: 40 },
+      section: { section_key: sectionKey, is_active: true, autoplay: true, speed_ms: 3000 },
       items: [],
     })
   }
@@ -97,7 +97,7 @@ export async function POST(request: Request) {
         section_key: sectionKey,
         is_active: Boolean(body.section.is_active),
         autoplay: Boolean(body.section.autoplay),
-        speed_ms: Number(body.section.speed_ms) || 40,
+        speed_ms: 3000,
       },
       { onConflict: 'section_key' }
     )

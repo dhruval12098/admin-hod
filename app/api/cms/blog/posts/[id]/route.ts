@@ -48,13 +48,25 @@ export async function GET(
   if (!Number.isFinite(postId)) return NextResponse.json({ error: 'Invalid blog id.' }, { status: 400 })
 
   const { adminClient } = access
-  const { data: post, error } = await adminClient
+  const fullPostResult = await adminClient
     .from('blog_posts')
     .select('id, slug, title, title_html, subtitle, category, catalog_category_id, author, date_label, read_time, bg_key, bg_color, hero_image_path, card_title, card_image_path, hero_image_alt, body_html, is_published, sort_order')
     .eq('id', postId)
     .single()
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  let post = fullPostResult.data as Record<string, unknown> | null
+  let postError = fullPostResult.error
+  if (postError && (postError.code === '42703' || postError.code === 'PGRST204')) {
+    const legacyResult = await adminClient
+      .from('blog_posts')
+      .select('id, slug, title, title_html, subtitle, category, author, date_label, read_time, bg_key, bg_color, hero_image_path, body_html, is_published, sort_order')
+      .eq('id', postId)
+      .single()
+    post = legacyResult.data ? { ...legacyResult.data, catalog_category_id: null, card_title: null, card_image_path: null, hero_image_alt: null } : null
+    postError = legacyResult.error
+  }
+
+  if (postError || !post) return NextResponse.json({ error: postError?.message ?? 'Blog post not found.' }, { status: 500 })
 
   const { data: tags, error: tagsError } = await adminClient
     .from('blog_post_tags')
