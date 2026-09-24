@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { assertAdmin } from '@/lib/cms-auth'
+import { readHomeGroup1Envelope, saveHomeGroup1 } from '@/lib/cms-home-group1-save'
 
 const sectionKey = 'home_hero'
 
@@ -80,35 +81,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid hero slide payload.' }, { status: 400 })
   }
 
-  const { adminClient } = access
-  const { data: hero, error: updateError } = await adminClient
-    .from('homepage_hero')
-    .update({
-      slider_enabled: body.slider_enabled,
-      seo_title: body.seo_title.trim() || null,
-      seo_description: body.seo_description.trim() || null,
-      is_active: true,
-    })
-    .eq('section_key', sectionKey)
-    .select('id')
-    .single()
+  const envelope = readHomeGroup1Envelope(body)
+  if (!envelope) return NextResponse.json({ error: 'This editor is out of date. Reload it before saving.' }, { status: 409 })
 
-  if (updateError || !hero) {
-    return NextResponse.json({ error: updateError?.message ?? 'Unable to save hero content.' }, { status: 500 })
-  }
-
-  const { error: deleteError } = await adminClient
-    .from('homepage_hero_slider_items')
-    .delete()
-    .eq('hero_id', hero.id)
-
-  if (deleteError) {
-    return NextResponse.json({ error: deleteError.message }, { status: 500 })
-  }
-
-  const items: HeroSlide[] = body.items
-      .map((item: HeroSlide, index: number) => ({
-        sort_order: Number.isFinite(Number(item.sort_order)) ? Number(item.sort_order) : index + 1,
+  const items = body.items.map((item: HeroSlide & { id?: number }, index: number) => ({
+        ...(item.id ? { id: item.id } : {}),
+        sort_order: index + 1,
         image_path: item.image_path,
         mobile_image_path: item.mobile_image_path ?? '',
         headline: item.headline,
@@ -116,22 +94,9 @@ export async function POST(request: Request) {
         button_text: item.button_text,
         button_link: item.button_link,
       }))
-
-  if (items.length > 0) {
-      const rows = items.map((item) => ({
-        hero_id: hero.id,
-        sort_order: item.sort_order,
-        image_path: item.image_path,
-        mobile_image_path: item.mobile_image_path ?? '',
-        headline: item.headline,
-        subtitle: item.subtitle,
-        button_text: item.button_text,
-        button_link: item.button_link,
-      }))
-
-    const { error: insertError } = await adminClient.from('homepage_hero_slider_items').insert(rows)
-    if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 })
-  }
-
-  return NextResponse.json({ ok: true })
+  return saveHomeGroup1(access, 'hero', envelope, {
+    slider_enabled: body.slider_enabled,
+    seo_title: body.seo_title.trim(),
+    seo_description: body.seo_description.trim(),
+  }, items)
 }

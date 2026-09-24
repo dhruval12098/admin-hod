@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useState, type ChangeEvent } from 'react'
+import { useRef, useState, type ChangeEvent } from 'react'
 import { ArrowLeft, Edit2, Plus, Upload, Trash2 } from 'lucide-react'
 import {
   Dialog,
@@ -20,6 +20,7 @@ import { uploadCmsAssetDirectWithFallback } from '@/lib/cms-direct-upload-client
 
 type DiscoverItem = {
   clientId: string
+  id?: string
   sort_order: number
   title: string
   description: string
@@ -41,6 +42,7 @@ type ApiPayload = {
 
 export type DiscoverItemsInitialData = {
   items: PersistedDiscoverItem[]
+  revision?: string
 }
 
 type ShapeOption = {
@@ -119,6 +121,9 @@ export function DiscoverItemsEditorClient({
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
   const [editorItem, setEditorItem] = useState<DiscoverItem | null>(null)
+  const [revision, setRevision] = useState(initialData.revision)
+  const [savedItemIds, setSavedItemIds] = useState(() => initialData.items.flatMap((item) => item.id ? [item.id] : []))
+  const pendingSave = useRef<{ fingerprint: string; id: string } | null>(null)
   const activeLinkTargetOptions =
     editorItem && linkTargetGroups.length > 0
       ? linkTargetGroups.find((group) => group.kind === (editorItem.target_kind ?? ''))?.options ?? []
@@ -187,18 +192,25 @@ export function DiscoverItemsEditorClient({
       return
     }
 
+    const retainedIds = new Set(items.flatMap((item) => item.id ? [item.id] : []))
+    const itemPayload = items.map(({ clientId: _clientId, ...item }) => ({
+      ...item,
+      image_alt: item.title.trim() || item.image_alt,
+    }))
+    const saveBody = revision ? {
+      items: itemPayload,
+      expected_revision: revision,
+      deleted_ids: savedItemIds.filter((id) => !retainedIds.has(id)),
+    } : { items: itemPayload }
+    const fingerprint = JSON.stringify(saveBody)
+    if (pendingSave.current?.fingerprint !== fingerprint) pendingSave.current = { fingerprint, id: crypto.randomUUID() }
     const response = await fetch(saveEndpoint, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         authorization: `Bearer ${accessToken}`,
       },
-      body: JSON.stringify({
-        items: items.map(({ clientId: _clientId, ...item }) => ({
-          ...item,
-          image_alt: item.title.trim() || item.image_alt,
-        })),
-      }),
+      body: JSON.stringify(revision ? { ...saveBody, request_id: pendingSave.current.id } : saveBody),
     })
 
     const payload = (await response.json().catch(() => null)) as ApiPayload | null
@@ -207,6 +219,14 @@ export function DiscoverItemsEditorClient({
     if (!response.ok) {
       setLoadStatus(payload?.error ?? `Unable to save ${sectionName}.`)
       return
+    }
+
+    if (revision && Array.isArray(payload?.items) && typeof (payload as { revision?: unknown }).revision === 'string') {
+      const saved = payload.items.map((item, index) => ({ ...item, clientId: `id-${item.id}`, sort_order: index + 1 }))
+      setItems(saved)
+      setSavedItemIds(saved.flatMap((item) => item.id ? [item.id] : []))
+      setRevision((payload as { revision: string }).revision)
+      pendingSave.current = null
     }
 
     setConfirmOpen(false)

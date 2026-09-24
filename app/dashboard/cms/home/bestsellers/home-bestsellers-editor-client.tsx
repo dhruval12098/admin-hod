@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useMemo, useState, type ChangeEvent } from 'react'
+import { useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { ArrowLeft, Edit2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { CmsSaveAction } from '@/components/cms-save-action'
@@ -24,10 +24,13 @@ type EditorState = {
   cta_label: string
   cta_href: string
   selected_product_ids: string[]
-  selected_products: Array<{ product_id: string; display_title: string; display_image_path: string }>
+  selected_products: Array<{ id?: string; product_id: string; display_title: string; display_image_path: string }>
 }
 
+type SavedProductOverride = { id: string; product_id: string; display_title: string; display_image_path: string }
+
 export type HomeBestSellersInitialData = {
+  revision: string
   section: EditorState
   products: ProductListItem[]
 }
@@ -42,6 +45,9 @@ export function HomeBestSellersEditorClient({ initialData }: { initialData: Home
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [uploadingProductId, setUploadingProductId] = useState<string | null>(null)
   const [editingProductId, setEditingProductId] = useState<string | null>(null)
+  const [revision, setRevision] = useState(initialData.revision)
+  const [savedItemIds, setSavedItemIds] = useState(() => initialData.section.selected_products.flatMap((item) => item.id ? [item.id] : []))
+  const pendingSave = useRef<{ fingerprint: string; id: string } | null>(null)
 
   const filteredProducts = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -130,13 +136,17 @@ export function HomeBestSellersEditorClient({ initialData }: { initialData: Home
       return
     }
 
+    const retainedIds = new Set(form.selected_products.flatMap((item) => item.id ? [item.id] : []))
+    const saveBody = { ...form, expected_revision: revision, deleted_ids: savedItemIds.filter((id) => !retainedIds.has(id)) }
+    const fingerprint = JSON.stringify(saveBody)
+    if (pendingSave.current?.fingerprint !== fingerprint) pendingSave.current = { fingerprint, id: crypto.randomUUID() }
     const response = await fetch('/api/cms/home/bestsellers', {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         authorization: `Bearer ${accessToken}`,
       },
-      body: JSON.stringify(form),
+      body: JSON.stringify({ ...saveBody, request_id: pendingSave.current.id }),
     })
 
     const payload = await response.json().catch(() => null)
@@ -145,6 +155,16 @@ export function HomeBestSellersEditorClient({ initialData }: { initialData: Home
     if (!response.ok) {
       setStatus(payload?.error ?? 'Unable to save best sellers.')
       return
+    }
+
+    if (Array.isArray(payload?.items) && typeof payload?.revision === 'string') {
+      const selectedProducts: SavedProductOverride[] = payload.items.map((item: { id: string; product_id: string; display_title?: string | null; display_image_path?: string | null }) => ({
+        id: item.id, product_id: item.product_id, display_title: item.display_title ?? '', display_image_path: item.display_image_path ?? '',
+      }))
+      setForm((current) => ({ ...current, selected_product_ids: selectedProducts.map((item) => item.product_id), selected_products: selectedProducts }))
+      setSavedItemIds(selectedProducts.map((item) => item.id))
+      setRevision(payload.revision)
+      pendingSave.current = null
     }
 
     setConfirmOpen(false)

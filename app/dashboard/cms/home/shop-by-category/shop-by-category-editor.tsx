@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { ArrowDown, ArrowLeft, ArrowUp, ImageOff, Plus, Trash2 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { CmsSaveAction } from '@/components/cms-save-action'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -14,6 +14,7 @@ type Kind = 'category' | 'subcategory' | 'option'
 type CatalogItem = { id: string; name: string; slug: string; status: string; image_path?: string | null; icon_svg_path?: string | null; image_alt?: string | null; category_id?: string; subcategory_id?: string; banner_desktop_image_path?: string | null; banner_mobile_image_path?: string | null; banner_desktop_image_alt?: string | null; banner_mobile_image_alt?: string | null }
 type SelectedItem = { id?: number; item_type: Kind; category_id: string | null; subcategory_id: string | null; option_id: string | null; display_order: number; is_active: boolean }
 export type ShopByCategoryInitialData = {
+  revision: string
   section: { id: number; heading: string; shop_all_label: string | null; shop_all_link: string | null; is_enabled: boolean; desktop_columns: number; tablet_columns: number; mobile_columns: number }
   items: SelectedItem[]
   categories: CatalogItem[]
@@ -40,6 +41,9 @@ export function ShopByCategoryEditor({ initialData }: { initialData: ShopByCateg
   const [subcategoryId, setSubcategoryId] = useState('')
   const [pendingOptionIds, setPendingOptionIds] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
+  const [revision, setRevision] = useState(initialData.revision)
+  const [savedItemIds, setSavedItemIds] = useState(() => initialData.items.flatMap((item) => item.id ? [String(item.id)] : []))
+  const pendingSave = useRef<{ fingerprint: string; id: string } | null>(null)
   const categoryMap = useMemo(() => new Map(initialData.categories.map((x) => [x.id, x])), [initialData.categories])
   const subcategoryMap = useMemo(() => new Map(initialData.subcategories.map((x) => [x.id, x])), [initialData.subcategories])
   const selectedKeys = new Set(items.map((item) => `${item.item_type}:${sourceId(item)}`))
@@ -85,9 +89,21 @@ export function ShopByCategoryEditor({ initialData }: { initialData: ShopByCateg
     setSaving(true)
     try {
       const { data } = await supabase.auth.getSession()
-      const response = await fetch('/api/cms/home/shop-by-category', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${data.session?.access_token ?? ''}` }, body: JSON.stringify({ section, items: items.map((x, i) => ({ ...x, display_order: i })) }) })
+      if (!data.session) throw new Error('Your session expired. Sign in again before saving.')
+      const retainedIds = new Set(items.flatMap((item) => item.id ? [String(item.id)] : []))
+      const saveBody = { section, items: items.map((x, i) => ({ ...x, display_order: i })), expected_revision: revision, deleted_ids: savedItemIds.filter((id) => !retainedIds.has(id)) }
+      const fingerprint = JSON.stringify(saveBody)
+      if (pendingSave.current?.fingerprint !== fingerprint) pendingSave.current = { fingerprint, id: crypto.randomUUID() }
+      const response = await fetch('/api/cms/home/shop-by-category', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${data.session.access_token}` }, body: JSON.stringify({ ...saveBody, request_id: pendingSave.current.id }) })
       const payload = await response.json().catch(() => null)
       if (!response.ok) throw new Error(payload?.error ?? 'Unable to save section.')
+      if (Array.isArray(payload?.items) && typeof payload?.revision === 'string') {
+        setItems(payload.items)
+        setSection(payload.section)
+        setSavedItemIds(payload.items.map((item: SelectedItem) => String(item.id)))
+        setRevision(payload.revision)
+        pendingSave.current = null
+      }
       toast({ title: 'Saved', description: 'Shop By Category updated successfully.' })
     } catch (error) {
       toast({ title: 'Save failed', description: error instanceof Error ? error.message : 'Unable to save section.', variant: 'destructive' })

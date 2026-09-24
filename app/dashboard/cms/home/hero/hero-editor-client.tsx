@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useMemo, useState, type ChangeEvent } from 'react'
+import { useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { ArrowDown, ArrowLeft, ArrowUp, Edit2, Plus, Trash2, Upload } from 'lucide-react'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { CmsSaveAction } from '@/components/cms-save-action'
@@ -30,6 +30,7 @@ type Payload = {
 }
 
 export type HeroEditorInitialData = {
+  revision: string
   section: HeroSectionData
   items: Array<{ id: number; sort_order: number; image_path: string; mobile_image_path?: string; headline: string; subtitle: string; button_text: string; button_link: string }>
 }
@@ -73,6 +74,7 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
   const [editorItem, setEditorItem] = useState<SlideItem>(emptySlide(1))
   const [uploadState, setUploadState] = useState<'idle' | 'uploading' | 'done' | 'error'>('idle')
   const [slidesDirty, setSlidesDirty] = useState(false)
+  const pendingSave = useRef<{ fingerprint: string; id: string } | null>(null)
 
   const sortedSlides = useMemo(
     () => [...slides].sort((a, b) => a.sort_order - b.sort_order || a.clientId.localeCompare(b.clientId)),
@@ -187,15 +189,14 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
 
     setIsSaving(true)
     try {
-      const response = await fetch('/api/cms/home/hero', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({
+      const savedIds = new Set(sortedSlides.flatMap((item) => item.id ? [String(item.id)] : []))
+      const deletedIds = initialData.items.flatMap((item) => savedIds.has(String(item.id)) ? [] : [String(item.id)])
+      const saveBody = {
         ...formData,
-        items: sortedSlides.map(({ image_path, mobile_image_path, headline, subtitle, button_text, button_link }, index) => ({
+        expected_revision: initialData.revision,
+        deleted_ids: deletedIds,
+        items: sortedSlides.map(({ id, image_path, mobile_image_path, headline, subtitle, button_text, button_link }, index) => ({
+          ...(id ? { id } : {}),
           sort_order: index + 1,
           image_path,
           mobile_image_path,
@@ -204,7 +205,16 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
           button_text,
           button_link,
         })),
-        }),
+      }
+      const fingerprint = JSON.stringify(saveBody)
+      if (pendingSave.current?.fingerprint !== fingerprint) pendingSave.current = { fingerprint, id: crypto.randomUUID() }
+      const response = await fetch('/api/cms/home/hero', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ ...saveBody, request_id: pendingSave.current.id }),
       })
 
       if (!response.ok) {

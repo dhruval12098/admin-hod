@@ -62,8 +62,10 @@ const PAGE_SIZE = 20
 
 function getCategoryNavStatus(category: CatalogCategory, navbarItems: CatalogNavbarItem[]) {
   const navbarItem = navbarItems.find((item) => item.linked_category_id === category.id || item.slug === category.slug)
-  const isInNavbar = navbarItem?.status === 'active' || (category.show_in_nav !== false && Boolean(category.nav_type))
-  const navType = navbarItem?.item_type ?? category.nav_type
+  const categoryIsInNavbar = category.show_in_nav !== false && Boolean(category.nav_type)
+  const navbarItemIsActive = navbarItem?.status === 'active'
+  const isInNavbar = categoryIsInNavbar || navbarItemIsActive
+  const navType = categoryIsInNavbar ? category.nav_type : navbarItem?.item_type
 
   if (!isInNavbar) {
     return { label: 'Not in Nav', className: 'bg-slate-100 text-slate-700' }

@@ -1,13 +1,14 @@
 import { NextResponse } from 'next/server'
 import { assertAdmin } from '@/lib/cms-auth'
+import { readHomeGroup1Envelope, saveHomeGroup1 } from '@/lib/cms-home-group1-save'
 
-const sectionKey = 'home_shop_by_category'
 type Kind = 'category' | 'subcategory' | 'option'
-type ItemInput = { item_type: Kind; category_id: string | null; subcategory_id: string | null; option_id: string | null; display_order: number; is_active: boolean }
+type ItemInput = { id?: number; item_type: Kind; category_id: string | null; subcategory_id: string | null; option_id: string | null; display_order: number; is_active: boolean }
 
 function validateItem(value: unknown): value is ItemInput {
   if (!value || typeof value !== 'object') return false
   const item = value as Partial<ItemInput>
+  if (typeof item.id !== 'undefined' && !Number.isSafeInteger(item.id)) return false
   if (!['category', 'subcategory', 'option'].includes(item.item_type ?? '')) return false
   const ids = [item.category_id, item.subcategory_id, item.option_id].filter((id) => typeof id === 'string' && id.length > 0)
   if (ids.length !== 1 || typeof item.is_active !== 'boolean') return false
@@ -42,53 +43,11 @@ export async function POST(request: Request) {
   if (missing.length) return NextResponse.json({ error: 'One or more selected catalog records no longer exist. Refresh the editor and try again.' }, { status: 400 })
   if (inactive.length) return NextResponse.json({ error: `Remove inactive catalog items before saving: ${inactive.map((item) => item.name).join(', ')}.` }, { status: 400 })
 
-  const settings = { section_key: sectionKey, heading: section.heading.trim() || 'Shop By Category', shop_all_label: String(section.shop_all_label ?? '').trim() || null, shop_all_link: String(section.shop_all_link ?? '').trim() || null, is_enabled: section.is_enabled, ...columns }
-  const { data: currentSection, error: currentSectionError } = await db.from('homepage_shop_by_category').select('id, heading, shop_all_label, shop_all_link, is_enabled, desktop_columns, tablet_columns, mobile_columns').eq('section_key', sectionKey).maybeSingle()
-  if (currentSectionError) return NextResponse.json({ error: currentSectionError.message }, { status: 500 })
-
-  let sectionId = currentSection?.id as number | undefined
-  let createdSection = false
-  if (!sectionId) {
-    const created = await db.from('homepage_shop_by_category').insert({ ...settings, is_enabled: false }).select('id').single()
-    if (created.error || !created.data) return NextResponse.json({ error: created.error?.message ?? 'Unable to create section.' }, { status: 500 })
-    sectionId = created.data.id
-    createdSection = true
-  }
-
-  const { data: existing, error: existingError } = await db.from('homepage_shop_by_category_items').select('id, item_type, category_id, subcategory_id, option_id, display_order, is_active').eq('section_id', sectionId)
-  if (existingError) {
-    if (createdSection) await db.from('homepage_shop_by_category').delete().eq('id', sectionId)
-    return NextResponse.json({ error: existingError.message }, { status: 500 })
-  }
-  const keyOf = (item: { item_type: string; category_id: string | null; subcategory_id: string | null; option_id: string | null }) => `${item.item_type}:${item.category_id ?? item.subcategory_id ?? item.option_id}`
-  const existingByKey = new Map((existing ?? []).map((item) => [keyOf(item), item]))
-  const desiredKeys = new Set(normalized.map(keyOf))
-  const added = normalized.filter((item) => !existingByKey.has(keyOf(item)))
-  const retained = normalized.filter((item) => existingByKey.has(keyOf(item))).map((item) => ({ ...item, id: existingByKey.get(keyOf(item))!.id, section_id: sectionId }))
-  const removedIds = (existing ?? []).filter((item) => !desiredKeys.has(keyOf(item))).map((item) => item.id)
-  let insertedIds: number[] = []
-
-  const rollback = async () => {
-    if (insertedIds.length) await db.from('homepage_shop_by_category_items').delete().in('id', insertedIds)
-    if (existing?.length) await db.from('homepage_shop_by_category_items').upsert(existing.map((item) => ({ ...item, section_id: sectionId })), { onConflict: 'id' })
-    if (currentSection) await db.from('homepage_shop_by_category').update(currentSection).eq('id', sectionId)
-    if (createdSection) await db.from('homepage_shop_by_category').delete().eq('id', sectionId)
-  }
-
-  if (added.length) {
-    const inserted = await db.from('homepage_shop_by_category_items').insert(added.map((item) => ({ ...item, section_id: sectionId }))).select('id')
-    if (inserted.error) { if (createdSection) await rollback(); return NextResponse.json({ error: inserted.error.code === '23505' ? 'A selected item is duplicated.' : inserted.error.message }, { status: inserted.error.code === '23505' ? 409 : 500 }) }
-    insertedIds = (inserted.data ?? []).map((item) => item.id)
-  }
-  if (retained.length) {
-    const updated = await db.from('homepage_shop_by_category_items').upsert(retained, { onConflict: 'id' })
-    if (updated.error) { await rollback(); return NextResponse.json({ error: updated.error.message }, { status: 500 }) }
-  }
-  const settingsResult = await db.from('homepage_shop_by_category').update(settings).eq('id', sectionId)
-  if (settingsResult.error) { await rollback(); return NextResponse.json({ error: settingsResult.error.message }, { status: 500 }) }
-  if (removedIds.length) {
-    const removed = await db.from('homepage_shop_by_category_items').delete().in('id', removedIds)
-    if (removed.error) { await rollback(); return NextResponse.json({ error: removed.error.message }, { status: 500 }) }
-  }
-  return NextResponse.json({ ok: true })
+  const envelope = readHomeGroup1Envelope(body)
+  if (!envelope) return NextResponse.json({ error: 'This editor is out of date. Reload it before saving.' }, { status: 409 })
+  const settings = { heading: section.heading.trim() || 'Shop By Category', shop_all_label: String(section.shop_all_label ?? '').trim(), shop_all_link: String(section.shop_all_link ?? '').trim(), is_enabled: section.is_enabled, ...columns }
+  const safeItems = normalized.map(({ id, item_type, category_id, subcategory_id, option_id, is_active }) => ({
+    ...(id ? { id } : {}), item_type, category_id, subcategory_id, option_id, is_active,
+  }))
+  return saveHomeGroup1(access, 'shop_by_category', envelope, settings, safeItems)
 }

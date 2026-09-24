@@ -55,10 +55,22 @@ type PolicyFormState = {
 
 const PAGE_SIZE = 20
 
+function directUrlFromSlug(slug: string) {
+  const normalizedSlug = slug.trim().replace(/^\/+|\/+$/g, '').replace(/\/{2,}/g, '/')
+  return normalizedSlug ? `/${normalizedSlug}` : ''
+}
+
+function shouldSyncDirectUrl(directUrl: string, previousSlug: string) {
+  const currentUrl = directUrl.trim()
+  return currentUrl === '' || currentUrl === directUrlFromSlug(previousSlug)
+}
+
 function getCategoryNavStatus(category: CatalogCategory, navbarItems: CatalogNavbarItem[]) {
   const navbarItem = navbarItems.find((item) => item.linked_category_id === category.id || item.slug === category.slug)
-  const isInNavbar = navbarItem?.status === 'active' || (category.show_in_nav !== false && Boolean(category.nav_type))
-  const navType = navbarItem?.item_type ?? category.nav_type
+  const categoryIsInNavbar = category.show_in_nav !== false && Boolean(category.nav_type)
+  const navbarItemIsActive = navbarItem?.status === 'active'
+  const isInNavbar = categoryIsInNavbar || navbarItemIsActive
+  const navType = categoryIsInNavbar ? category.nav_type : navbarItem?.item_type
 
   if (!isInNavbar) {
     return { label: 'Not in Nav', className: 'bg-slate-100 text-slate-700' }
@@ -262,7 +274,7 @@ function CategoriesPanel({ categories, navbarItems, onChange }: { categories: Ca
       slug: item.slug,
       showInNav: item.show_in_nav ?? Boolean(item.nav_type),
       navType: item.nav_type === 'direct_link' ? 'Direct Link' : 'Mega Menu',
-      directUrl: item.direct_link_url ?? '',
+      directUrl: item.direct_link_url?.trim() || (item.nav_type === 'direct_link' ? directUrlFromSlug(item.slug) : ''),
       displayOrder: item.display_order,
       status: item.status === 'hidden' ? 'Hidden' : 'Active',
     })
@@ -270,6 +282,13 @@ function CategoriesPanel({ categories, navbarItems, onChange }: { categories: Ca
   }
 
   const saveItem = async () => {
+    const directUrl = formData.directUrl.trim()
+    if (formData.showInNav && formData.navType === 'Direct Link' && !directUrl) {
+      setSaveConfirmOpen(false)
+      toast({ title: 'Direct Link URL required', description: 'Enter a slug or provide a URL before saving this direct-link category.' })
+      return
+    }
+
     const response = await authedFetch(selectedId ? `/api/catalog/categories/${selectedId}` : '/api/catalog/categories', {
       method: selectedId ? 'PATCH' : 'POST',
       body: JSON.stringify({
@@ -278,7 +297,7 @@ function CategoriesPanel({ categories, navbarItems, onChange }: { categories: Ca
         slug: formData.slug,
         show_in_nav: formData.showInNav,
         nav_type: formData.showInNav ? (formData.navType === 'Direct Link' ? 'direct_link' : 'mega_menu') : null,
-        direct_link_url: formData.showInNav && formData.navType === 'Direct Link' ? formData.directUrl : null,
+        direct_link_url: formData.showInNav && formData.navType === 'Direct Link' ? directUrl : null,
         display_order: formData.displayOrder,
         status: formData.status === 'Hidden' ? 'hidden' : 'active',
       }),
@@ -369,20 +388,69 @@ function CategoriesPanel({ categories, navbarItems, onChange }: { categories: Ca
         <Field label="Name">
           <input
             value={formData.name}
-            onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value, slug: prev.slug === '' || prev.slug === slugify(prev.name) ? slugify(e.target.value) : prev.slug }))}
+            onChange={(e) => setFormData((prev) => {
+              const nextName = e.target.value
+              const nextSlug = prev.slug === '' || prev.slug === slugify(prev.name) ? slugify(nextName) : prev.slug
+              return {
+                ...prev,
+                name: nextName,
+                slug: nextSlug,
+                directUrl: shouldSyncDirectUrl(prev.directUrl, prev.slug) ? directUrlFromSlug(nextSlug) : prev.directUrl,
+              }
+            })}
             disabled={isEditingLockedCategory}
             className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm"
           />
         </Field>
         <Field label="Slug">
-          <input value={formData.slug} onChange={(e) => setFormData((prev) => ({ ...prev, slug: e.target.value }))} disabled={isEditingLockedCategory} className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm" />
+          <input
+            value={formData.slug}
+            onChange={(e) => setFormData((prev) => {
+              const nextSlug = e.target.value
+              return {
+                ...prev,
+                slug: nextSlug,
+                directUrl: shouldSyncDirectUrl(prev.directUrl, prev.slug) ? directUrlFromSlug(nextSlug) : prev.directUrl,
+              }
+            })}
+            disabled={isEditingLockedCategory}
+            className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm"
+          />
         </Field>
         <Field label="Show in Navbar">
-          <ToggleRow options={['Yes', 'No']} value={formData.showInNav ? 'Yes' : 'No'} onChange={(value) => setFormData((prev) => ({ ...prev, showInNav: value === 'Yes' }))} disabled={isEditingLockedCategory} />
+          <ToggleRow
+            options={['Yes', 'No']}
+            value={formData.showInNav ? 'Yes' : 'No'}
+            onChange={(value) => setFormData((prev) => {
+              const showInNav = value === 'Yes'
+              return {
+                ...prev,
+                showInNav,
+                directUrl: showInNav && prev.navType === 'Direct Link' && !prev.directUrl.trim()
+                  ? directUrlFromSlug(prev.slug)
+                  : prev.directUrl,
+              }
+            })}
+            disabled={isEditingLockedCategory}
+          />
         </Field>
         {formData.showInNav ? (
           <Field label="Nav Type">
-            <ToggleRow options={['Mega Menu', 'Direct Link']} value={formData.navType} onChange={(value) => setFormData((prev) => ({ ...prev, navType: value as CategoryFormState['navType'] }))} disabled={isEditingLockedCategory} />
+            <ToggleRow
+              options={['Mega Menu', 'Direct Link']}
+              value={formData.navType}
+              onChange={(value) => setFormData((prev) => {
+                const navType = value as CategoryFormState['navType']
+                return {
+                  ...prev,
+                  navType,
+                  directUrl: navType === 'Direct Link' && !prev.directUrl.trim()
+                    ? directUrlFromSlug(prev.slug)
+                    : prev.directUrl,
+                }
+              })}
+              disabled={isEditingLockedCategory}
+            />
           </Field>
         ) : null}
         {formData.showInNav && formData.navType === 'Direct Link' ? (
@@ -396,7 +464,17 @@ function CategoriesPanel({ categories, navbarItems, onChange }: { categories: Ca
         <Field label="Status">
           <ToggleRow options={['Active', 'Hidden']} value={formData.status} onChange={(value) => setFormData((prev) => ({ ...prev, status: value as CategoryFormState['status'] }))} disabled={isEditingLockedCategory} />
         </Field>
-        <Actions onSave={() => setSaveConfirmOpen(true)} onCancel={() => setIsPanelOpen(false)} saveDisabled={isEditingLockedCategory} />
+        <Actions
+          onSave={() => {
+            if (formData.showInNav && formData.navType === 'Direct Link' && !formData.directUrl.trim()) {
+              toast({ title: 'Direct Link URL required', description: 'Enter a slug or provide a URL before saving this direct-link category.' })
+              return
+            }
+            setSaveConfirmOpen(true)
+          }}
+          onCancel={() => setIsPanelOpen(false)}
+          saveDisabled={isEditingLockedCategory}
+        />
       </FormDialog>
 
       <ConfirmDialog

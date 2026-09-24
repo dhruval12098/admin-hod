@@ -7,20 +7,13 @@ import type {
   ProductRecord,
 } from '@/lib/product-catalog'
 import { HomeBestSellersEditorClient, type HomeBestSellersInitialData, type ProductListItem } from './home-bestsellers-editor-client'
+import { loadHomeGroup1Snapshot } from '@/lib/cms-home-group1-save'
 
 async function getBestSellersInitialData(): Promise<HomeBestSellersInitialData> {
   const adminClient = createSupabaseAdminClient()
 
-  const [{ data: section }, { data: links }, { data: products, error: productsError }, { data: categories }, { data: subcategories }, { data: options }] = await Promise.all([
-    adminClient
-      .from('cms_home_bestsellers')
-      .select('id, eyebrow, heading, cta_label, cta_href, status')
-      .eq('status', 'active')
-      .maybeSingle(),
-    adminClient
-      .from('cms_home_bestseller_products')
-      .select('section_id, product_id, display_order, display_title, display_image_path')
-      .order('display_order', { ascending: true }),
+  const [snapshot, { data: products, error: productsError }, { data: categories }, { data: subcategories }, { data: options }] = await Promise.all([
+    loadHomeGroup1Snapshot(adminClient, 'bestsellers'),
     adminClient.from('products').select('*').order('created_at', { ascending: false }),
     adminClient.from('catalog_categories').select('*'),
     adminClient.from('catalog_subcategories').select('*'),
@@ -31,7 +24,8 @@ async function getBestSellersInitialData(): Promise<HomeBestSellersInitialData> 
     throw new Error(productsError.message)
   }
 
-  const sectionLinks = (links ?? []).filter((item) => !section?.id || item.section_id === section.id)
+  const section = snapshot.section
+  const sectionLinks = snapshot.items
   const categoryRows = (categories ?? []) as CatalogCategory[]
   const subcategoryRows = (subcategories ?? []) as CatalogSubcategory[]
   const optionRows = (options ?? []) as CatalogOption[]
@@ -53,18 +47,20 @@ async function getBestSellersInitialData(): Promise<HomeBestSellersInitialData> 
 
   return {
     section: {
-      eyebrow: section?.eyebrow ?? 'House of Diams',
-      heading: section?.heading ?? 'Our Best Sellers',
-      cta_label: section?.cta_label ?? 'View All Collection',
-      cta_href: section?.cta_href ?? '/shop',
-      selected_product_ids: sectionLinks.map((item) => item.product_id),
+      eyebrow: String(section?.eyebrow ?? 'House of Diams'),
+      heading: String(section?.heading ?? 'Our Best Sellers'),
+      cta_label: String(section?.cta_label ?? 'View All Collection'),
+      cta_href: String(section?.cta_href ?? '/shop'),
+      selected_product_ids: sectionLinks.map((item) => String(item.product_id)),
       selected_products: sectionLinks.map((item) => ({
-        product_id: item.product_id,
-        display_title: item.display_title ?? '',
-        display_image_path: item.display_image_path ?? '',
+        id: String(item.id),
+        product_id: String(item.product_id),
+        display_title: String(item.display_title ?? ''),
+        display_image_path: String(item.display_image_path ?? ''),
       })),
     },
     products: productRows,
+    revision: snapshot.revision,
   }
 }
 

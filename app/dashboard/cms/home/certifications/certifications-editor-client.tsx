@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useState, type ChangeEvent } from 'react'
+import { useRef, useState, type ChangeEvent } from 'react'
 import { ArrowLeft, Edit2, Plus, Trash2 } from 'lucide-react'
 import {
   Dialog,
@@ -44,6 +44,7 @@ type ApiPayload = {
 }
 
 export type CertificationsInitialData = {
+  revision: string
   section: {
     eyebrow: string
     heading: string
@@ -83,6 +84,9 @@ export function CertificationsEditorClient({ initialData }: { initialData: Certi
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
   const [editorItem, setEditorItem] = useState<CertificationItem | null>(null)
+  const [revision, setRevision] = useState(initialData.revision)
+  const [savedItemIds, setSavedItemIds] = useState(() => initialData.items.flatMap((item) => item.id ? [String(item.id)] : []))
+  const pendingSave = useRef<{ fingerprint: string; id: string } | null>(null)
 
   const openEditor = (item?: CertificationItem) => {
     setEditorItem(item ?? emptyItem(items.length + 1))
@@ -141,25 +145,22 @@ export function CertificationsEditorClient({ initialData }: { initialData: Certi
       return
     }
 
+    const retainedIds = new Set(items.flatMap((item) => item.id ? [String(item.id)] : []))
+    const saveBody = {
+      expected_revision: revision,
+      deleted_ids: savedItemIds.filter((id) => !retainedIds.has(id)),
+      section: { eyebrow: 'Our Promise', heading: 'Why Choose House of Diams' },
+      items: items.map(({ id, title, icon_path }) => ({ ...(id ? { id } : {}), title, description: '', badge: '', icon_path })),
+    }
+    const fingerprint = JSON.stringify(saveBody)
+    if (pendingSave.current?.fingerprint !== fingerprint) pendingSave.current = { fingerprint, id: crypto.randomUUID() }
     const response = await fetch('/api/cms/home/certifications', {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         authorization: `Bearer ${accessToken}`,
       },
-      body: JSON.stringify({
-        section: {
-          eyebrow: 'Our Promise',
-          heading: 'Why Choose House of Diams',
-        },
-        items: items.map(({ sort_order, title, icon_path }) => ({
-          sort_order,
-          title,
-          description: '',
-          badge: '',
-          icon_path,
-        })),
-      }),
+      body: JSON.stringify({ ...saveBody, request_id: pendingSave.current.id }),
     })
 
     const payload = (await response.json().catch(() => null)) as ApiPayload | null
@@ -168,6 +169,14 @@ export function CertificationsEditorClient({ initialData }: { initialData: Certi
     if (!response.ok) {
       setLoadStatus(payload?.error ?? 'Unable to save Why Choose content.')
       return
+    }
+
+    if (Array.isArray(payload?.items) && typeof (payload as { revision?: unknown }).revision === 'string') {
+      const saved = payload.items.map((item, index) => ({ clientId: `id-${item.id}`, ...item, sort_order: index + 1 }))
+      setItems(saved)
+      setSavedItemIds(saved.map((item) => String(item.id)))
+      setRevision((payload as { revision: string }).revision)
+      pendingSave.current = null
     }
 
     setLoadStatus('Why Choose section saved')

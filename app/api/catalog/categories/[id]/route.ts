@@ -38,37 +38,42 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     }
   }
 
-  const updatePayload = existingCategory?.is_system_locked
-    ? {
-        banner_desktop_image_path: body.banner_desktop_image_path ?? null,
-        banner_mobile_image_path: body.banner_mobile_image_path ?? null,
-        banner_desktop_image_alt: body.banner_desktop_image_alt ?? null,
-        banner_mobile_image_alt: body.banner_mobile_image_alt ?? null,
-        banner_title: body.banner_title ?? null,
-        banner_subtitle: body.banner_subtitle ?? null,
-        banner_cta_label: body.banner_cta_label ?? null,
-        banner_cta_link: body.banner_cta_link ?? null,
-        banner_enabled: body.banner_enabled ?? false,
-      }
-    : {
-        code: body.code,
-        name: body.name,
-        slug: body.slug,
-        show_in_nav: body.show_in_nav ?? true,
-        nav_type: body.show_in_nav === false ? null : body.nav_type ?? null,
-        direct_link_url: body.direct_link_url ?? null,
-        banner_desktop_image_path: body.banner_desktop_image_path ?? null,
-        banner_mobile_image_path: body.banner_mobile_image_path ?? null,
-        banner_desktop_image_alt: body.banner_desktop_image_alt ?? null,
-        banner_mobile_image_alt: body.banner_mobile_image_alt ?? null,
-        banner_title: body.banner_title ?? null,
-        banner_subtitle: body.banner_subtitle ?? null,
-        banner_cta_label: body.banner_cta_label ?? null,
-        banner_cta_link: body.banner_cta_link ?? null,
-        banner_enabled: body.banner_enabled ?? false,
-        display_order: body.display_order ?? 0,
-        status: body.status ?? 'active',
-      }
+  const bannerFields = [
+    'banner_desktop_image_path',
+    'banner_mobile_image_path',
+    'banner_desktop_image_alt',
+    'banner_mobile_image_alt',
+    'banner_title',
+    'banner_subtitle',
+    'banner_cta_label',
+    'banner_cta_link',
+    'banner_enabled',
+  ] as const
+  const updatePayload: Record<string, unknown> = {}
+
+  for (const field of bannerFields) {
+    if (field in body) updatePayload[field] = body[field]
+  }
+
+  if (!existingCategory?.is_system_locked) {
+    const editableFields = ['code', 'name', 'slug', 'display_order', 'status'] as const
+    for (const field of editableFields) {
+      if (field in body) updatePayload[field] = body[field]
+    }
+
+    if ('show_in_nav' in body) updatePayload.show_in_nav = body.show_in_nav
+    if (body.show_in_nav === false) {
+      updatePayload.nav_type = null
+      updatePayload.direct_link_url = null
+    } else {
+      if ('nav_type' in body) updatePayload.nav_type = body.nav_type
+      if ('direct_link_url' in body) updatePayload.direct_link_url = body.direct_link_url
+    }
+  }
+
+  if (Object.keys(updatePayload).length === 0) {
+    return NextResponse.json({ error: 'No editable fields were provided.' }, { status: 400 })
+  }
 
   const { data, error } = await access.adminClient
     .from('catalog_categories')

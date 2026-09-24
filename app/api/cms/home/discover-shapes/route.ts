@@ -1,66 +1,36 @@
 import { NextResponse } from 'next/server'
 import { assertAdmin } from '@/lib/cms-auth'
+import { readHomeGroup1Envelope, saveHomeGroup1 } from '@/lib/cms-home-group1-save'
 
-type DiscoverItem = {
-  sort_order: number
-  title: string
-  description: string
-  image_path: string
-  image_alt?: string
-  shape_id?: string
-}
-
-const tableName = 'discover_shapes_items'
+type DiscoverItem = { id?: string; title: string; description: string; image_path: string; image_alt?: string; shape_id?: string }
 
 export async function GET(request: Request) {
   const access = await assertAdmin(request)
   if ('error' in access) return access.error
-
-  const { data, error } = await access.adminClient
-    .from(tableName)
-    .select('*')
-    .order('sort_order', { ascending: true })
-
+  const { data, error } = await access.adminClient.rpc('cms_home_group1_snapshot_v1', { p_kind: 'discover_shapes' })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ items: data ?? [] })
+  return NextResponse.json(data, { headers: { 'Cache-Control': 'no-store' } })
 }
 
 export async function POST(request: Request) {
   const access = await assertAdmin(request)
   if ('error' in access) return access.error
-
-  const body = await request.json().catch(() => null)
-  if (!body || !Array.isArray(body.items)) {
-    return NextResponse.json({ error: 'Invalid payload.' }, { status: 400 })
-  }
-
-  const items = body.items.filter((item: DiscoverItem) => {
-    return (
-      typeof item.sort_order === 'number' &&
-      typeof item.title === 'string' &&
-      typeof item.description === 'string' &&
-      typeof item.image_path === 'string' &&
-      (typeof item.shape_id === 'undefined' || typeof item.shape_id === 'string')
-    )
-  }) as DiscoverItem[]
-
-  const { error: deleteError } = await access.adminClient.from(tableName).delete().gte('sort_order', 0)
-  if (deleteError) return NextResponse.json({ error: deleteError.message }, { status: 500 })
-
-  if (items.length > 0) {
-    const rows = items.map((item) => ({
-      sort_order: item.sort_order,
-      title: item.title,
-      description: item.description,
-      image_path: item.image_path,
-      image_alt: item.image_alt || item.title,
-      shape_id: item.shape_id || null,
-      status: 'active',
-    }))
-
-    const { error: insertError } = await access.adminClient.from(tableName).insert(rows)
-    if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 })
-  }
-
-  return NextResponse.json({ ok: true })
+  const body = await request.json().catch(() => null) as Record<string, unknown> | null
+  if (!body || !Array.isArray(body.items)) return NextResponse.json({ error: 'Invalid payload.' }, { status: 400 })
+  const envelope = readHomeGroup1Envelope(body)
+  if (!envelope) return NextResponse.json({ error: 'This editor is out of date. Reload it before saving.' }, { status: 409 })
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+  const valid = body.items.every((value) => {
+    const item = value as Partial<DiscoverItem>
+    return value && typeof value === 'object' && (typeof item.id === 'undefined' || uuid.test(item.id))
+      && typeof item.title === 'string' && typeof item.description === 'string' && typeof item.image_path === 'string'
+      && (typeof item.image_alt === 'undefined' || typeof item.image_alt === 'string')
+      && (typeof item.shape_id === 'undefined' || item.shape_id === '' || uuid.test(item.shape_id))
+  })
+  if (!valid) return NextResponse.json({ error: 'Every shape card must be valid.' }, { status: 400 })
+  const items = (body.items as DiscoverItem[]).map((item) => ({
+    ...(item.id ? { id: item.id } : {}), title: item.title.trim(), description: item.description.trim(),
+    image_path: item.image_path.trim(), image_alt: item.image_alt?.trim() || item.title.trim(), shape_id: item.shape_id || null,
+  }))
+  return saveHomeGroup1(access, 'discover_shapes', envelope, null, items)
 }
