@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { AlertCircle, ArrowLeft, CheckCircle2, ExternalLink, Plus, Trash2, Edit2 } from 'lucide-react'
 import { CmsSaveAction } from '@/components/cms-save-action'
@@ -182,6 +182,9 @@ export default function DocsEditorPage() {
   const [editorConfirmOpen, setEditorConfirmOpen] = useState(false)
   const [editorBlock, setEditorBlock] = useState<Block>(emptyBlock(1))
   const [deleteTarget, setDeleteTarget] = useState<Block | null>(null)
+  const [revision, setRevision] = useState(initialCachedPayload?.revision ?? '')
+  const [savedBlockIds, setSavedBlockIds] = useState(() => (initialCachedPayload?.blocks ?? []).flatMap((block) => block.id ? [String(block.id)] : []))
+  const pendingSave = useRef<{ fingerprint: string; requestId: string } | null>(null)
 
   const sortedBlocks = useMemo(() => [...blocks].sort((a, b) => a.sort_order - b.sort_order || a.clientId.localeCompare(b.clientId)), [blocks])
   const nextOrder = Math.max(...blocks.map((block) => block.sort_order), 0) + 1
@@ -201,6 +204,8 @@ export default function DocsEditorPage() {
         })
         setFaqCategories(payload?.faqCategories ?? [])
         setBlocks((payload?.blocks ?? []).map((block, index) => ({ clientId: block.id ? `id-${block.id}` : `loaded-${index}`, ...block })))
+        setRevision(payload?.revision ?? '')
+        setSavedBlockIds((payload?.blocks ?? []).flatMap((block) => block.id ? [String(block.id)] : []))
         setStatus(`${meta.label} loaded`)
       } catch (error) {
         setStatus(error instanceof Error ? error.message : 'Unable to load docs page.')
@@ -255,21 +260,22 @@ export default function DocsEditorPage() {
       const accessToken = sessionData.session?.access_token
       if (!accessToken) throw new Error('You are not signed in. Please sign in again and retry.')
 
+      const retainedBlockIds = new Set(sortedBlocks.flatMap((block) => block.id ? [String(block.id)] : []))
+      const saveBody = {
+        expected_revision: revision,
+        page: pageData,
+        blocks: sortedBlocks.map(({ id, heading, description, body }) => ({ id, heading, description, body })),
+        deleted_block_ids: savedBlockIds.filter((savedId) => !retainedBlockIds.has(savedId)),
+      }
+      const fingerprint = JSON.stringify(saveBody)
+      if (pendingSave.current?.fingerprint !== fingerprint) pendingSave.current = { fingerprint, requestId: crypto.randomUUID() }
       const response = await fetch(`/api/cms/docs/${slug}`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
           authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({
-          ...pageData,
-          blocks: sortedBlocks.map(({ sort_order, heading, description, body }) => ({
-            sort_order,
-            heading,
-            description,
-            body,
-          })),
-        }),
+        body: JSON.stringify({ ...saveBody, request_id: pendingSave.current.requestId }),
       })
       const payload = (await response.json().catch(() => null)) as Payload | null
       if (!response.ok) throw new Error(payload?.error ?? 'Unable to save docs page.')
@@ -277,9 +283,21 @@ export default function DocsEditorPage() {
       const message = `${meta.label} saved successfully and is available on the storefront.`
       setStatus(`${meta.label} saved`)
       const storefrontUrl = process.env.NEXT_PUBLIC_STOREFRONT_URL || 'https://www.houseofdiams.com'
+      const canonicalPage = payload?.page ?? pageData
+      const canonicalBlocks = payload?.blocks ?? []
+      setPageData({
+        eyebrow: canonicalPage.eyebrow ?? '', title: canonicalPage.title ?? '', subtitle: canonicalPage.subtitle ?? '',
+        faq_category_id: canonicalPage.faq_category_id ?? null,
+      })
+      setBlocks(canonicalBlocks.map((block, index) => ({ clientId: block.id ? `id-${block.id}` : `saved-${index}`, ...block })))
+      setRevision(payload?.revision ?? revision)
+      setSavedBlockIds(canonicalBlocks.flatMap((block) => block.id ? [String(block.id)] : []))
+      pendingSave.current = null
       setCachedDocsPage(slug, {
-        page: pageData,
-        blocks: sortedBlocks.map(({ id, sort_order, heading, description, body }) => ({ id, sort_order, heading, description, body })),
+        page: canonicalPage,
+        blocks: canonicalBlocks,
+        faqCategories,
+        revision: payload?.revision ?? revision,
       })
       setSaveFeedback({ type: 'success', message, previewUrl: `${storefrontUrl}/${slug}?preview=${Date.now()}` })
       setConfirmOpen(false)

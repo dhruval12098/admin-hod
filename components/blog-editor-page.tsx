@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, Bold, Heading2, Heading3, Italic, List, ListOrdered, Pilcrow, Plus, Quote, Trash2, Upload } from 'lucide-react'
 import { CmsSaveAction } from '@/components/cms-save-action'
@@ -14,9 +14,10 @@ import Placeholder from '@tiptap/extension-placeholder'
 
 export type BlogCatalogCategory = { id: string; name: string; slug: string }
 
-type BlogTag = { clientId: string; value: string }
+type BlogTag = { clientId: string; id?: number; value: string }
 type BlogProduct = {
   id: string
+  relationId?: number
   slug: string
   name: string
   status?: string | null
@@ -82,10 +83,12 @@ export type BlogEditorInitialData = {
   post?: BlogForm & { id: number }
   tags?: Array<{ id: number; tag: string; sort_order: number }>
   products?: Array<{
+    id: number
     product_id: string
     sort_order: number
     product: BlogProduct | BlogProduct[] | null
   }>
+  revision?: string
   content_blocks?: Array<{
     id: number
     block_type: 'text' | 'image' | 'heading' | 'quote'
@@ -204,14 +207,15 @@ const emptyForm: BlogForm = {
 }
 
 function initialTags(data?: BlogEditorInitialData) {
-  const tags = (data?.tags ?? []).map((tag) => ({ clientId: `tag-${tag.id}`, value: tag.tag }))
+  const tags = (data?.tags ?? []).map((tag) => ({ clientId: `tag-${tag.id}`, id: tag.id, value: tag.tag }))
   return tags.length > 0 ? tags : [{ clientId: 'tag-empty', value: '' }]
 }
 
 function initialProducts(data?: BlogEditorInitialData) {
-  return (data?.products ?? [])
-    .map((item) => (Array.isArray(item.product) ? item.product[0] : item.product))
-    .filter((product): product is BlogProduct => Boolean(product?.id))
+  return (data?.products ?? []).flatMap((item): BlogProduct[] => {
+    const product = Array.isArray(item.product) ? item.product[0] : item.product
+    return product?.id ? [{ ...product, relationId: item.id }] : []
+  })
 }
 
 function initialContentBlocks(data?: BlogEditorInitialData): BlogContentBlock[] {
@@ -244,8 +248,13 @@ export function BlogEditorPage({ mode, id, categories, initialData }: { mode: 'c
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [revision, setRevision] = useState(initialData?.revision ?? '')
+  const [savedTagIds, setSavedTagIds] = useState(() => (initialData?.tags ?? []).map((item) => String(item.id)))
+  const [savedProductIds, setSavedProductIds] = useState(() => (initialData?.products ?? []).map((item) => String(item.id)))
+  const [savedBlockIds, setSavedBlockIds] = useState(() => (initialData?.content_blocks ?? []).map((item) => String(item.id)))
+  const pendingSave = useRef<{ fingerprint: string; requestId: string } | null>(null)
+  const pendingDeleteId = useRef<string | null>(null)
 
-  const cleanedTags = useMemo(() => tags.map((tag) => tag.value.trim()).filter(Boolean), [tags])
   const filteredProducts = useMemo(() => {
     const search = productSearch.trim().toLowerCase()
     const selectedIds = new Set(selectedProducts.map((product) => product.id))
@@ -280,11 +289,9 @@ export function BlogEditorPage({ mode, id, categories, initialData }: { mode: 'c
       if (!response.ok || !payload?.post) return setStatus(payload?.error ?? 'Unable to load blog post.')
 
       setForm({ ...payload.post, catalog_category_id: payload.post.catalog_category_id ?? '', card_title: payload.post.card_title ?? '', card_image_path: payload.post.card_image_path ?? '', hero_image_alt: payload.post.hero_image_alt ?? '' })
-      setTags((payload.tags ?? []).map((tag) => ({ clientId: `tag-${tag.id}`, value: tag.tag })))
+      setTags((payload.tags ?? []).map((tag) => ({ clientId: `tag-${tag.id}`, id: tag.id, value: tag.tag })))
       setSelectedProducts(
-        (payload.products ?? [])
-          .map((item) => (Array.isArray(item.product) ? item.product[0] : item.product))
-          .filter((product): product is BlogProduct => Boolean(product?.id))
+        initialProducts(payload)
       )
       setContentBlocks(
         (payload.content_blocks ?? []).map((block, index) => ({
@@ -300,6 +307,10 @@ export function BlogEditorPage({ mode, id, categories, initialData }: { mode: 'c
           is_enabled: block.is_enabled !== false,
         }))
       )
+      setRevision(payload.revision ?? '')
+      setSavedTagIds((payload.tags ?? []).map((item) => String(item.id)))
+      setSavedProductIds((payload.products ?? []).map((item) => String(item.id)))
+      setSavedBlockIds((payload.content_blocks ?? []).map((item) => String(item.id)))
       setStatus('Blog post loaded')
     }
 
@@ -389,33 +400,52 @@ export function BlogEditorPage({ mode, id, categories, initialData }: { mode: 'c
   const save = async () => {
     setIsSaving(true)
     const endpoint = mode === 'create' ? '/api/cms/blog/posts' : `/api/cms/blog/posts/${id}`
+    const retainedTagIds = new Set(tags.flatMap((tag) => tag.id ? [String(tag.id)] : []))
+    const retainedProductIds = new Set(selectedProducts.flatMap((product) => product.relationId ? [String(product.relationId)] : []))
+    const retainedBlockIds = new Set(contentBlocks.flatMap((block) => block.id ? [String(block.id)] : []))
+    const saveBody = {
+      expected_revision: mode === 'edit' ? revision : null,
+      post: form,
+      tags: tags.filter((tag) => tag.value.trim()).map((tag) => ({ id: tag.id, tag: tag.value.trim() })),
+      content_blocks: contentBlocks.map((block) => ({
+        id: block.id,
+        block_type: block.block_type,
+        heading: block.heading,
+        body_html: block.body_html,
+        image_path: block.image_path,
+        image_alt: block.image_alt,
+        image_caption: block.image_caption,
+        is_enabled: block.is_enabled,
+      })),
+      products: selectedProducts.map((product) => ({ id: product.relationId, product_id: product.id })),
+      deleted_tag_ids: savedTagIds.filter((savedId) => !retainedTagIds.has(savedId)),
+      deleted_product_ids: savedProductIds.filter((savedId) => !retainedProductIds.has(savedId)),
+      deleted_block_ids: savedBlockIds.filter((savedId) => !retainedBlockIds.has(savedId)),
+    }
+    const fingerprint = JSON.stringify(saveBody)
+    if (pendingSave.current?.fingerprint !== fingerprint) pendingSave.current = { fingerprint, requestId: crypto.randomUUID() }
     const response = await adminApiFetch(endpoint, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        ...form,
-        tags: cleanedTags,
-        content_blocks: contentBlocks.map((block, index) => ({
-          id: block.id,
-          block_type: block.block_type,
-          sort_order: index + 1,
-          heading: block.heading,
-          body_html: block.body_html,
-          image_path: block.image_path,
-          image_alt: block.image_alt,
-          image_caption: block.image_caption,
-          is_enabled: block.is_enabled,
-        })),
-        products: selectedProducts.map((product) => product.id),
-      }),
+      body: JSON.stringify({ ...saveBody, request_id: pendingSave.current.requestId }),
     })
 
-    const payload = (await response.json().catch(() => null)) as { id?: number; slug?: string; error?: string } | null
+    const payload = (await response.json().catch(() => null)) as (BlogEditorInitialData & { id?: number; slug?: string; error?: string }) | null
     setIsSaving(false)
     if (!response.ok) return setStatus(payload?.error ?? 'Unable to save blog post.')
 
     if (payload?.slug) {
       setForm((prev) => ({ ...prev, slug: payload.slug ?? prev.slug }))
+    }
+    if (payload?.revision) {
+      setRevision(payload.revision)
+      setTags((payload.tags ?? []).map((tag) => ({ clientId: `tag-${tag.id}`, id: tag.id, value: tag.tag })))
+      setSelectedProducts(initialProducts(payload))
+      setContentBlocks(initialContentBlocks(payload))
+      setSavedTagIds((payload.tags ?? []).map((item) => String(item.id)))
+      setSavedProductIds((payload.products ?? []).map((item) => String(item.id)))
+      setSavedBlockIds((payload.content_blocks ?? []).map((item) => String(item.id)))
+      pendingSave.current = null
     }
 
     setConfirmOpen(false)
@@ -432,7 +462,11 @@ export function BlogEditorPage({ mode, id, categories, initialData }: { mode: 'c
     if (mode !== 'edit' || !id) return
 
     setIsDeleting(true)
-    const response = await adminApiFetch(`/api/cms/blog/posts/${id}`, { method: 'DELETE' })
+    pendingDeleteId.current ??= crypto.randomUUID()
+    const response = await adminApiFetch(`/api/cms/blog/posts/${id}`, {
+      method: 'DELETE', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ request_id: pendingDeleteId.current, expected_revision: revision }),
+    })
 
     const payload = (await response.json().catch(() => null)) as { error?: string } | null
     setIsDeleting(false)

@@ -1,9 +1,10 @@
 'use client'
 
 export type DocsAdminPayload = {
-  page?: { eyebrow?: string; title?: string; subtitle?: string; faq_category_id?: number | null } | null
+  page?: { id?: number; slug?: string; eyebrow?: string; title?: string; subtitle?: string; faq_category_id?: number | null } | null
   blocks?: Array<{ id?: number; sort_order: number; heading: string; description: string; body: string }>
   faqCategories?: Array<{ id: number; name: string; slug: string; image_path?: string | null; image_alt?: string; is_active: boolean }>
+  revision?: string
   error?: string
 }
 
@@ -15,7 +16,10 @@ const pendingRequests = new Map<string, Promise<DocsAdminPayload>>()
 
 export function getCachedDocsPage(slug: string): DocsAdminPayload | null {
   const memoryEntry = memoryCache.get(slug)
-  if (memoryEntry && Date.now() - memoryEntry.cachedAt < CACHE_TTL_MS) return memoryEntry.payload
+  if (memoryEntry && Date.now() - memoryEntry.cachedAt < CACHE_TTL_MS && /^[a-f0-9]{32}$/.test(memoryEntry.payload.revision ?? '')) {
+    return memoryEntry.payload
+  }
+  if (memoryEntry) memoryCache.delete(slug)
   return null
 }
 
