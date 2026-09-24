@@ -78,7 +78,7 @@ type BlogForm = {
   sort_order: number
 }
 
-type Payload = {
+export type BlogEditorInitialData = {
   post?: BlogForm & { id: number }
   tags?: Array<{ id: number; tag: string; sort_order: number }>
   products?: Array<{
@@ -203,16 +203,42 @@ const emptyForm: BlogForm = {
   sort_order: 1,
 }
 
-export function BlogEditorPage({ mode, id, categories }: { mode: 'create' | 'edit'; id?: string; categories: BlogCatalogCategory[] }) {
+function initialTags(data?: BlogEditorInitialData) {
+  const tags = (data?.tags ?? []).map((tag) => ({ clientId: `tag-${tag.id}`, value: tag.tag }))
+  return tags.length > 0 ? tags : [{ clientId: 'tag-empty', value: '' }]
+}
+
+function initialProducts(data?: BlogEditorInitialData) {
+  return (data?.products ?? [])
+    .map((item) => (Array.isArray(item.product) ? item.product[0] : item.product))
+    .filter((product): product is BlogProduct => Boolean(product?.id))
+}
+
+function initialContentBlocks(data?: BlogEditorInitialData): BlogContentBlock[] {
+  return (data?.content_blocks ?? []).map((block, index) => ({
+    clientId: `block-${block.id}`,
+    id: block.id,
+    block_type: block.block_type,
+    sort_order: block.sort_order ?? index + 1,
+    heading: block.heading ?? '',
+    body_html: block.body_html ?? '',
+    image_path: block.image_path ?? '',
+    image_alt: block.image_alt ?? '',
+    image_caption: block.image_caption ?? '',
+    is_enabled: block.is_enabled !== false,
+  }))
+}
+
+export function BlogEditorPage({ mode, id, categories, initialData }: { mode: 'create' | 'edit'; id?: string; categories: BlogCatalogCategory[]; initialData?: BlogEditorInitialData }) {
   const { toast } = useToast()
   const router = useRouter()
-  const [form, setForm] = useState<BlogForm>(emptyForm)
-  const [tags, setTags] = useState<BlogTag[]>([{ clientId: `tag-${Date.now()}`, value: '' }])
-  const [selectedProducts, setSelectedProducts] = useState<BlogProduct[]>([])
+  const [form, setForm] = useState<BlogForm>(() => initialData?.post ? { ...initialData.post, catalog_category_id: initialData.post.catalog_category_id ?? '', card_title: initialData.post.card_title ?? '', card_image_path: initialData.post.card_image_path ?? '', hero_image_alt: initialData.post.hero_image_alt ?? '' } : emptyForm)
+  const [tags, setTags] = useState<BlogTag[]>(() => initialTags(initialData))
+  const [selectedProducts, setSelectedProducts] = useState<BlogProduct[]>(() => initialProducts(initialData))
   const [availableProducts, setAvailableProducts] = useState<BlogProduct[]>([])
   const [productSearch, setProductSearch] = useState('')
-  const [contentBlocks, setContentBlocks] = useState<BlogContentBlock[]>([])
-  const [status, setStatus] = useState(mode === 'create' ? 'Create a new blog post.' : 'Loading blog post...')
+  const [contentBlocks, setContentBlocks] = useState<BlogContentBlock[]>(() => initialContentBlocks(initialData))
+  const [status, setStatus] = useState(mode === 'create' ? 'Create a new blog post.' : initialData?.post ? 'Ready to edit' : 'Loading blog post...')
   const [isSaving, setIsSaving] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
@@ -245,12 +271,12 @@ export function BlogEditorPage({ mode, id, categories }: { mode: 'create' | 'edi
   }, [])
 
   useEffect(() => {
-    if (mode !== 'edit' || !id) return
+    if (mode !== 'edit' || !id || initialData?.post) return
 
     const load = async () => {
       const response = await adminApiFetch(`/api/cms/blog/posts/${id}`)
 
-      const payload = (await response.json().catch(() => null)) as Payload | null
+      const payload = (await response.json().catch(() => null)) as BlogEditorInitialData | null
       if (!response.ok || !payload?.post) return setStatus(payload?.error ?? 'Unable to load blog post.')
 
       setForm({ ...payload.post, catalog_category_id: payload.post.catalog_category_id ?? '', card_title: payload.post.card_title ?? '', card_image_path: payload.post.card_image_path ?? '', hero_image_alt: payload.post.hero_image_alt ?? '' })
@@ -278,7 +304,7 @@ export function BlogEditorPage({ mode, id, categories }: { mode: 'create' | 'edi
     }
 
     load()
-  }, [mode, id])
+  }, [mode, id, initialData?.post])
 
   const uploadBlogMedia = async (file: File) => {
     if (file.size > 5 * 1024 * 1024) throw new Error('File too large. Max size is 5MB.')

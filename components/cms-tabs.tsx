@@ -13,6 +13,7 @@ const CMS_TABS = [
   { label: 'Education', href: '/dashboard/cms/education', key: 'education' },
   { label: 'Docs', href: '/dashboard/cms/docs', key: 'docs' },
   { label: 'Support', href: '/dashboard/cms/support', key: 'support' },
+  { label: 'Summary', href: '/dashboard/cms/summary', key: 'summary' },
   { label: 'Service Banner', href: '/dashboard/cms/service-banner', key: 'service-banner' },
   { label: 'Checkout Result', href: '/dashboard/cms/checkout-result', key: 'checkout-result' },
   { label: 'Promotion', href: '/dashboard/cms/promotion', key: 'promotion' },

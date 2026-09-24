@@ -23,7 +23,6 @@ import {
   Receipt,
   TicketPercent,
   BadgeAlert,
-  Trash,
   SwatchBook,
   Inbox,
   Files,
@@ -77,7 +76,6 @@ const CATALOG_ITEMS = [
 
 const SYSTEM_ITEMS = [
   { name: 'Settings', href: '/dashboard/settings', icon: Settings },
-  { name: 'Media Trash', href: '/dashboard/media-trash', icon: Trash },
 ]
 
 export function Sidebar({ customerCount }: { customerCount?: number }) {
