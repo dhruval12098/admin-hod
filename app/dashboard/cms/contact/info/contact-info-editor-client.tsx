@@ -17,6 +17,7 @@ import { CmsSaveAction } from '@/components/cms-save-action'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
 import { uploadCmsAssetDirectWithFallback } from '@/lib/cms-direct-upload-client'
+import { useCmsAtomicListSave } from '@/hooks/use-cms-atomic-list-save'
 
 type ContactInfoItem = {
   clientId: string
@@ -32,6 +33,7 @@ type ContactInfoItem = {
 type EditorItem = ContactInfoItem
 
 export type ContactInfoInitialData = {
+  revision: string
   items: Array<{
     id: number
     sort_order: number
@@ -65,6 +67,7 @@ export function ContactInfoEditorClient({ initialData }: { initialData: ContactI
   const [editorOpen, setEditorOpen] = useState(false)
   const [editorItem, setEditorItem] = useState<EditorItem>(empty(1))
   const [uploading, setUploading] = useState(false)
+  const { prepareSave, acceptSave } = useCmsAtomicListSave(initialData.items, initialData.revision)
 
   const sorted = useMemo(
     () => [...items].sort((a, b) => a.sort_order - b.sort_order || a.clientId.localeCompare(b.clientId)),
@@ -83,27 +86,26 @@ export function ContactInfoEditorClient({ initialData }: { initialData: ContactI
         return
       }
 
+      const saveItems = sorted.map(({ id, label, value, note, href, icon_path }) => ({
+        ...(id ? { id } : {}), label, value, note, href, icon_path,
+      }))
       const response = await fetch('/api/cms/contact/info', {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({
-          items: sorted.map(({ sort_order, label, value, note, href, icon_path }) => ({
-            sort_order,
-            label,
-            value,
-            note,
-            href,
-            icon_path,
-          })),
-        }),
+        body: JSON.stringify(prepareSave({ items: saveItems }, saveItems)),
       })
 
-      const payload = (await response.json().catch(() => null)) as { error?: string } | null
+      const payload = (await response.json().catch(() => null)) as { items?: ContactInfoInitialData['items']; revision?: string; error?: string } | null
       if (!response.ok) {
         const message = payload?.error ?? 'Unable to save contact info.'
         setStatus(message)
         toast({ title: 'Save failed', description: message, variant: 'destructive' })
         return
+      }
+
+      if (Array.isArray(payload?.items) && typeof payload.revision === 'string') {
+        setItems(payload.items.map((item) => ({ clientId: `id-${item.id}`, ...item })))
+        acceptSave(payload.items, payload.revision)
       }
 
       setConfirmOpen(false)

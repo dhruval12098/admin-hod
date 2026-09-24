@@ -1,19 +1,14 @@
 import { createSupabaseAdminClient } from '@/lib/admin-supabase'
+import { loadCmsContentListSnapshot } from '@/lib/cms-content-list-save'
 import { ContactInfoEditorClient, type ContactInfoInitialData } from './contact-info-editor-client'
 
 async function getContactInfoInitialData(): Promise<ContactInfoInitialData> {
   const adminClient = createSupabaseAdminClient()
-  const { data, error } = await adminClient
-    .from('contact_info')
-    .select('id, sort_order, label, value, note, href, icon_path')
-    .order('sort_order', { ascending: true })
-
-  if (error) {
-    throw new Error(error.message)
-  }
+  const snapshot = await loadCmsContentListSnapshot(adminClient, 'contact_info')
 
   return {
-    items: data ?? [],
+    revision: snapshot.revision,
+    items: snapshot.items.map((item) => ({ id: Number(item.id), sort_order: Number(item.sort_order), label: String(item.label ?? ''), value: String(item.value ?? ''), note: String(item.note ?? ''), href: String(item.href ?? ''), icon_path: String(item.icon_path ?? '') })),
   }
 }
 

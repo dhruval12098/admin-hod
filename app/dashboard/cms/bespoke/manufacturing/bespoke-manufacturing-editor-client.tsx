@@ -15,6 +15,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { CmsSaveAction } from '@/components/cms-save-action'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
+import { useCmsAtomicListSave } from '@/hooks/use-cms-atomic-list-save'
 
 type ManufacturingItem = {
   clientId: string
@@ -32,6 +33,7 @@ type ManufacturingItem = {
 type EditorItem = ManufacturingItem
 
 export type BespokeManufacturingInitialData = {
+  revision: string
   items: Array<{
     id: number
     sort_order: number
@@ -105,6 +107,7 @@ export function BespokeManufacturingEditorClient({
   const [editorOpen, setEditorOpen] = useState(false)
   const [editorItem, setEditorItem] = useState<EditorItem>(empty(1))
   const [uploading, setUploading] = useState(false)
+  const { prepareSave, acceptSave } = useCmsAtomicListSave(initialData.items, initialData.revision)
 
   const sorted = useMemo(
     () => [...items].sort((a, b) => a.sort_order - b.sort_order || a.clientId.localeCompare(b.clientId)),
@@ -172,30 +175,27 @@ export function BespokeManufacturingEditorClient({
       setStatus('You are not signed in.')
       return
     }
+    const saveItems = sorted.map(({ id, step, eyebrow, title, description, media_type, media_path, image_path }) => ({
+      ...(id ? { id } : {}), step, eyebrow, title, description, media_type, media_path,
+      image_path: media_type === 'image' ? (media_path || image_path) : '',
+    }))
     const response = await fetch('/api/cms/bespoke/manufacturing', {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         authorization: `Bearer ${accessToken}`,
       },
-      body: JSON.stringify({
-        items: sorted.map(({ sort_order, step, eyebrow, title, description, media_type, media_path, image_path }) => ({
-          sort_order,
-          step,
-          eyebrow,
-          title,
-          description,
-          media_type,
-          media_path,
-          image_path: media_type === 'image' ? (media_path || image_path) : '',
-        })),
-      }),
+      body: JSON.stringify(prepareSave({ items: saveItems }, saveItems)),
     })
-    const payload = (await response.json().catch(() => null)) as { error?: string } | null
+    const payload = (await response.json().catch(() => null)) as { items?: BespokeManufacturingInitialData['items']; revision?: string; error?: string } | null
     setIsSaving(false)
     if (!response.ok) {
       setStatus(payload?.error ?? 'Unable to save bespoke manufacturing.')
       return
+    }
+    if (Array.isArray(payload?.items) && typeof payload.revision === 'string') {
+      setItems(payload.items.map((item) => ({ clientId: `id-${item.id}`, ...item, media_type: item.media_type === 'video' ? 'video' : 'image', media_path: item.media_path ?? item.image_path ?? '', image_path: item.image_path ?? item.media_path ?? '' })))
+      acceptSave(payload.items, payload.revision)
     }
     setConfirmOpen(false)
     setStatus(resolvedCopy.savedStatus)

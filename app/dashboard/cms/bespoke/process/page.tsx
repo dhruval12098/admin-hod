@@ -1,19 +1,14 @@
 import { createSupabaseAdminClient } from '@/lib/admin-supabase'
+import { loadCmsContentListSnapshot } from '@/lib/cms-content-list-save'
 import { BespokeProcessEditorClient, type BespokeProcessInitialData } from './bespoke-process-editor-client'
 
 async function getBespokeProcessInitialData(): Promise<BespokeProcessInitialData> {
   const adminClient = createSupabaseAdminClient()
-  const { data, error } = await adminClient
-    .from('bespoke_process_cards')
-    .select('id, sort_order, eyebrow, title, description')
-    .order('sort_order', { ascending: true })
-
-  if (error) {
-    throw new Error(error.message)
-  }
+  const snapshot = await loadCmsContentListSnapshot(adminClient, 'bespoke_process')
 
   return {
-    items: data ?? [],
+    revision: snapshot.revision,
+    items: snapshot.items.map((item) => ({ id: Number(item.id), sort_order: Number(item.sort_order), eyebrow: String(item.eyebrow ?? ''), title: String(item.title ?? ''), description: String(item.description ?? '') })),
   }
 }
 

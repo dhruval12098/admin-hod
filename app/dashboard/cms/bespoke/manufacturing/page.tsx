@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from '@/lib/admin-supabase'
+import { loadCmsContentListSnapshot } from '@/lib/cms-content-list-save'
 import {
   BespokeManufacturingEditorClient,
   type BespokeManufacturingInitialData,
@@ -6,17 +7,11 @@ import {
 
 async function getBespokeManufacturingInitialData(): Promise<BespokeManufacturingInitialData> {
   const adminClient = createSupabaseAdminClient()
-  const { data, error } = await adminClient
-    .from('bespoke_process_steps')
-    .select('id, sort_order, step, eyebrow, title, description, image_path, media_type, media_path')
-    .order('sort_order', { ascending: true })
-
-  if (error) {
-    throw new Error(error.message)
-  }
+  const snapshot = await loadCmsContentListSnapshot(adminClient, 'bespoke_manufacturing')
 
   return {
-    items: data ?? [],
+    revision: snapshot.revision,
+    items: snapshot.items.map((item) => ({ id: Number(item.id), sort_order: Number(item.sort_order), step: String(item.step ?? ''), eyebrow: String(item.eyebrow ?? ''), title: String(item.title ?? ''), description: String(item.description ?? ''), image_path: String(item.image_path ?? ''), media_type: item.media_type === 'video' ? 'video' : 'image', media_path: String(item.media_path ?? '') })),
   }
 }
 

@@ -14,6 +14,7 @@ import {
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { CmsSaveAction } from '@/components/cms-save-action'
 import { supabase } from '@/lib/supabase'
+import { useCmsAtomicListSave } from '@/hooks/use-cms-atomic-list-save'
 
 type TimelineItem = {
   clientId: string
@@ -30,6 +31,7 @@ type ApiPayload = {
     year: string
     label: string
   }>
+  revision?: string
   error?: string
 }
 
@@ -41,6 +43,7 @@ type EditorItem = {
 }
 
 export type TimelineInitialData = {
+  revision: string
   items: Array<{
     id: number
     sort_order: number
@@ -65,6 +68,7 @@ export function TimelineEditorClient({ initialData }: { initialData: TimelineIni
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
   const [editorItem, setEditorItem] = useState<EditorItem>(empty(1))
+  const { prepareSave, acceptSave } = useCmsAtomicListSave(initialData.items, initialData.revision)
 
   const sorted = useMemo(
     () => [...items].sort((a, b) => a.sort_order - b.sort_order || a.clientId.localeCompare(b.clientId)),
@@ -96,19 +100,14 @@ export function TimelineEditorClient({ initialData }: { initialData: TimelineIni
       return
     }
 
+    const saveItems = sorted.map(({ id, year, label }) => ({ ...(id ? { id } : {}), year, label }))
     const response = await fetch('/api/cms/about/timeline', {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({
-        items: sorted.map(({ sort_order, year, label }) => ({
-          sort_order,
-          year,
-          label,
-        })),
-      }),
+      body: JSON.stringify(prepareSave({ items: saveItems }, saveItems)),
     })
 
     const payload = (await response.json().catch(() => null)) as ApiPayload | null
@@ -117,6 +116,12 @@ export function TimelineEditorClient({ initialData }: { initialData: TimelineIni
     if (!response.ok) {
       setStatus(payload?.error ?? 'Unable to save timeline.')
       return
+    }
+
+
+    if (Array.isArray(payload?.items) && typeof payload.revision === 'string') {
+      setItems(payload.items.map((item) => ({ clientId: `id-${item.id}`, ...item })))
+      acceptSave(payload.items, payload.revision)
     }
 
     setConfirmOpen(false)

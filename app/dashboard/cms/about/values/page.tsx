@@ -1,19 +1,14 @@
 import { createSupabaseAdminClient } from '@/lib/admin-supabase'
+import { loadCmsContentListSnapshot } from '@/lib/cms-content-list-save'
 import { ValuesEditorClient, type ValuesInitialData } from './values-editor-client'
 
 async function getValuesInitialData(): Promise<ValuesInitialData> {
   const adminClient = createSupabaseAdminClient()
-  const { data, error } = await adminClient
-    .from('about_values')
-    .select('id, sort_order, icon_path, image_path, image_alt, title, description')
-    .order('sort_order', { ascending: true })
-
-  if (error) {
-    throw new Error(error.message)
-  }
+  const snapshot = await loadCmsContentListSnapshot(adminClient, 'about_values')
 
   return {
-    items: data ?? [],
+    revision: snapshot.revision,
+    items: snapshot.items.map((item) => ({ id: Number(item.id), sort_order: Number(item.sort_order), icon_path: String(item.icon_path ?? ''), image_path: String(item.image_path ?? ''), image_alt: String(item.image_alt ?? ''), title: String(item.title ?? ''), description: String(item.description ?? '') })),
   }
 }
 

@@ -1,19 +1,14 @@
 import { createSupabaseAdminClient } from '@/lib/admin-supabase'
+import { loadCmsContentListSnapshot } from '@/lib/cms-content-list-save'
 import { FoundersEditorClient, type FoundersInitialData } from './founders-editor-client'
 
 async function getFoundersInitialData(): Promise<FoundersInitialData> {
   const adminClient = createSupabaseAdminClient()
-  const { data, error } = await adminClient
-    .from('about_founders')
-    .select('id, sort_order, name, designation, bio, image_path')
-    .order('sort_order', { ascending: true })
-
-  if (error) {
-    throw new Error(error.message)
-  }
+  const snapshot = await loadCmsContentListSnapshot(adminClient, 'about_founders')
 
   return {
-    items: data ?? [],
+    revision: snapshot.revision,
+    items: snapshot.items.map((item) => ({ id: Number(item.id), sort_order: Number(item.sort_order), name: String(item.name ?? ''), designation: String(item.designation ?? ''), bio: String(item.bio ?? ''), image_path: String(item.image_path ?? '') })),
   }
 }
 

@@ -14,6 +14,7 @@ import {
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { CmsSaveAction } from '@/components/cms-save-action'
 import { supabase } from '@/lib/supabase'
+import { useCmsAtomicListSave } from '@/hooks/use-cms-atomic-list-save'
 
 type FounderItem = {
   clientId: string
@@ -34,6 +35,7 @@ type ApiPayload = {
     bio: string
     image_path: string
   }>
+  revision?: string
   error?: string
 }
 
@@ -47,6 +49,7 @@ type EditorItem = {
 }
 
 export type FoundersInitialData = {
+  revision: string
   items: Array<{
     id: number
     sort_order: number
@@ -76,6 +79,7 @@ export function FoundersEditorClient({ initialData }: { initialData: FoundersIni
   const [editorOpen, setEditorOpen] = useState(false)
   const [editorItem, setEditorItem] = useState<EditorItem>(empty(1))
   const [uploadState, setUploadState] = useState<'idle' | 'uploading'>('idle')
+  const { prepareSave, acceptSave } = useCmsAtomicListSave(initialData.items, initialData.revision)
 
   const sorted = useMemo(
     () => [...items].sort((a, b) => a.sort_order - b.sort_order || a.clientId.localeCompare(b.clientId)),
@@ -155,21 +159,16 @@ export function FoundersEditorClient({ initialData }: { initialData: FoundersIni
       return
     }
 
+    const saveItems = sorted.map(({ id, name, designation, bio, image_path }) => ({
+      ...(id ? { id } : {}), name, designation, bio, image_path,
+    }))
     const response = await fetch('/api/cms/about/founders', {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({
-        items: sorted.map(({ sort_order, name, designation, bio, image_path }) => ({
-          sort_order,
-          name,
-          designation,
-          bio,
-          image_path,
-        })),
-      }),
+      body: JSON.stringify(prepareSave({ items: saveItems }, saveItems)),
     })
 
     const payload = (await response.json().catch(() => null)) as ApiPayload | null
@@ -178,6 +177,11 @@ export function FoundersEditorClient({ initialData }: { initialData: FoundersIni
     if (!response.ok) {
       setStatus(payload?.error ?? 'Unable to save founders.')
       return
+    }
+
+    if (Array.isArray(payload?.items) && typeof payload.revision === 'string') {
+      setItems(payload.items.map((item) => ({ clientId: `id-${item.id}`, ...item })))
+      acceptSave(payload.items, payload.revision)
     }
 
     setConfirmOpen(false)

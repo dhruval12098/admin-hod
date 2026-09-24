@@ -14,6 +14,7 @@ import {
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { CmsSaveAction } from '@/components/cms-save-action'
 import { supabase } from '@/lib/supabase'
+import { useCmsAtomicListSave } from '@/hooks/use-cms-atomic-list-save'
 
 type ProcessItem = {
   clientId: string
@@ -27,6 +28,7 @@ type ProcessItem = {
 type EditorItem = ProcessItem
 
 export type BespokeProcessInitialData = {
+  revision: string
   items: Array<{
     id: number
     sort_order: number
@@ -53,6 +55,7 @@ export function BespokeProcessEditorClient({ initialData }: { initialData: Bespo
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
   const [editorItem, setEditorItem] = useState<EditorItem>(empty(1))
+  const { prepareSave, acceptSave } = useCmsAtomicListSave(initialData.items, initialData.revision)
 
   const sorted = useMemo(
     () => [...items].sort((a, b) => a.sort_order - b.sort_order || a.clientId.localeCompare(b.clientId)),
@@ -69,26 +72,26 @@ export function BespokeProcessEditorClient({ initialData }: { initialData: Bespo
       setStatus('You are not signed in.')
       return
     }
+    const saveItems = sorted.map(({ id, eyebrow, title, description }) => ({
+      ...(id ? { id } : {}), eyebrow, title, description,
+    }))
     const response = await fetch('/api/cms/bespoke/process', {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         authorization: `Bearer ${accessToken}`,
       },
-      body: JSON.stringify({
-        items: sorted.map(({ sort_order, eyebrow, title, description }) => ({
-          sort_order,
-          eyebrow,
-          title,
-          description,
-        })),
-      }),
+      body: JSON.stringify(prepareSave({ items: saveItems }, saveItems)),
     })
-    const payload = (await response.json().catch(() => null)) as { error?: string } | null
+    const payload = (await response.json().catch(() => null)) as { items?: BespokeProcessInitialData['items']; revision?: string; error?: string } | null
     setIsSaving(false)
     if (!response.ok) {
       setStatus(payload?.error ?? 'Unable to save bespoke process.')
       return
+    }
+    if (Array.isArray(payload?.items) && typeof payload.revision === 'string') {
+      setItems(payload.items.map((item) => ({ clientId: `id-${item.id}`, ...item })))
+      acceptSave(payload.items, payload.revision)
     }
     setConfirmOpen(false)
     setStatus('Bespoke process saved')

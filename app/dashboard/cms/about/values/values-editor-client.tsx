@@ -15,6 +15,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { CmsSaveAction } from '@/components/cms-save-action'
 import { supabase } from '@/lib/supabase'
 import { uploadCmsAssetDirectWithFallback } from '@/lib/cms-direct-upload-client'
+import { useCmsAtomicListSave } from '@/hooks/use-cms-atomic-list-save'
 
 type ValueItem = {
   clientId: string
@@ -27,11 +28,12 @@ type ValueItem = {
   description: string
 }
 
-type ApiPayload = { error?: string }
+type ApiPayload = { items?: ValuesInitialData['items']; revision?: string; error?: string }
 
 type EditorItem = ValueItem
 
 export type ValuesInitialData = {
+  revision: string
   items: Array<{
     id: number
     sort_order: number
@@ -62,6 +64,7 @@ export function ValuesEditorClient({ initialData }: { initialData: ValuesInitial
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
   const [editorItem, setEditorItem] = useState<EditorItem>(empty(1))
+  const { prepareSave, acceptSave } = useCmsAtomicListSave(initialData.items, initialData.revision)
 
   const sorted = useMemo(
     () => [...items].sort((a, b) => a.sort_order - b.sort_order || a.clientId.localeCompare(b.clientId)),
@@ -93,22 +96,16 @@ export function ValuesEditorClient({ initialData }: { initialData: ValuesInitial
       return
     }
 
+    const saveItems = sorted.map(({ id, icon_path, image_path, image_alt, title, description }) => ({
+      ...(id ? { id } : {}), icon_path, image_path, image_alt, title, description,
+    }))
     const response = await fetch('/api/cms/about/values', {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         authorization: `Bearer ${accessToken}`,
       },
-      body: JSON.stringify({
-        items: sorted.map(({ sort_order, icon_path, image_path, image_alt, title, description }) => ({
-          sort_order,
-          icon_path,
-          image_path,
-          image_alt,
-          title,
-          description,
-        })),
-      }),
+      body: JSON.stringify(prepareSave({ items: saveItems }, saveItems)),
     })
 
     const payload = (await response.json().catch(() => null)) as ApiPayload | null
@@ -117,6 +114,11 @@ export function ValuesEditorClient({ initialData }: { initialData: ValuesInitial
     if (!response.ok) {
       setStatus(payload?.error ?? 'Unable to save values.')
       return
+    }
+
+    if (Array.isArray(payload?.items) && typeof payload.revision === 'string') {
+      setItems(payload.items.map((item) => ({ clientId: `id-${item.id}`, ...item, image_path: item.image_path ?? '', image_alt: item.image_alt ?? '' })))
+      acceptSave(payload.items, payload.revision)
     }
 
     setConfirmOpen(false)

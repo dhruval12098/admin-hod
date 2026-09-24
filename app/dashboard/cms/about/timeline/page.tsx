@@ -1,19 +1,14 @@
 import { createSupabaseAdminClient } from '@/lib/admin-supabase'
+import { loadCmsContentListSnapshot } from '@/lib/cms-content-list-save'
 import { TimelineEditorClient, type TimelineInitialData } from './timeline-editor-client'
 
 async function getTimelineInitialData(): Promise<TimelineInitialData> {
   const adminClient = createSupabaseAdminClient()
-  const { data, error } = await adminClient
-    .from('about_timeline')
-    .select('id, sort_order, year, label')
-    .order('sort_order', { ascending: true })
-
-  if (error) {
-    throw new Error(error.message)
-  }
+  const snapshot = await loadCmsContentListSnapshot(adminClient, 'about_timeline')
 
   return {
-    items: data ?? [],
+    revision: snapshot.revision,
+    items: snapshot.items.map((item) => ({ id: Number(item.id), sort_order: Number(item.sort_order), year: String(item.year ?? ''), label: String(item.label ?? '') })),
   }
 }
 
