@@ -9,6 +9,7 @@ import { useToast } from '@/hooks/use-toast'
 import { slugify } from '@/lib/product-catalog'
 import type { MetalItem } from './metals-client'
 import { buildCombinedMetalDisplayLabel } from '@/lib/product-metal-variants'
+import { catalogMetalSaveBody } from '@/lib/catalog-metal-client'
 
 function stripPurityPrefix(value: string, purity?: string | null) {
   const source = value.trim()
@@ -88,7 +89,12 @@ export function MetalForm({
           authorization: `Bearer ${accessToken}`,
           'content-type': 'application/json',
         },
-        body: JSON.stringify(savePayload),
+        body: catalogMetalSaveBody(
+          Object.fromEntries(Object.entries(savePayload).filter(([key]) => key !== 'composition_parts')),
+          savePayload.composition_parts,
+          initialItem?._revision ?? null,
+          initialItem?.composition_parts ?? []
+        ),
       })
 
       const payload = await response.json().catch(() => null)

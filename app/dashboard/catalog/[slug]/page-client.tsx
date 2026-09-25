@@ -13,6 +13,7 @@ import { useToast } from '@/hooks/use-toast'
 import { CatalogImagePreview } from '@/components/catalog-image-preview'
 import type { CatalogCategory, CatalogNavbarItem, CatalogOption, CatalogSubcategory } from '@/lib/product-catalog'
 import { slugify } from '@/lib/product-catalog'
+import { catalogHierarchyDeleteBody, catalogHierarchySaveBody } from '@/lib/catalog-hierarchy-client'
 
 type CatalogDetailTab = 'subcategories' | 'options'
 
@@ -352,7 +353,7 @@ function CategoryBannerPanel({
     try {
       const response = await authedFetch(`/api/catalog/categories/${category.id}`, {
         method: 'PATCH',
-        body: JSON.stringify({
+        body: catalogHierarchySaveBody({
           banner_enabled: formData.bannerEnabled,
           banner_desktop_image_path: formData.desktopImagePath || null,
           banner_mobile_image_path: formData.mobileImagePath || null,
@@ -362,7 +363,7 @@ function CategoryBannerPanel({
           banner_subtitle: formData.subtitle || null,
           banner_cta_label: formData.ctaLabel || null,
           banner_cta_link: formData.ctaLink || null,
-        }),
+        }, category._revision ?? null),
       })
 
       if (!response.ok) {
@@ -574,16 +575,16 @@ function CategorySubcategoriesPanel({
   const saveItem = async () => {
     const response = await authedFetch(selectedId ? `/api/catalog/subcategories/${selectedId}` : '/api/catalog/subcategories', {
       method: selectedId ? 'PATCH' : 'POST',
-      body: JSON.stringify({
+      body: catalogHierarchySaveBody({
         category_id: category.id,
         name: formData.name,
         slug: formData.slug,
-        sub_type: 'standard',
+        sub_type: subcategories.find((item) => item.id === selectedId)?.sub_type ?? 'standard',
         image_path: formData.imagePath || null,
         image_alt: formData.imageAlt || null,
         display_order: formData.displayOrder,
         status: formData.status === 'Hidden' ? 'hidden' : 'active',
-      }),
+      }, subcategories.find((item) => item.id === selectedId)?._revision ?? null),
     })
 
     if (response.ok) {
@@ -599,7 +600,9 @@ function CategorySubcategoriesPanel({
   }
 
   const deleteItem = async (id: string) => {
-    const response = await authedFetch(`/api/catalog/subcategories/${id}`, { method: 'DELETE' })
+    const revision = subcategories.find((item) => item.id === id)?._revision
+    if (!revision) { toast({ title: 'Reload required', description: 'Reload this subcategory before deleting it.' }); return }
+    const response = await authedFetch(`/api/catalog/subcategories/${id}`, { method: 'DELETE', body: catalogHierarchyDeleteBody(revision) })
     if (response.ok) {
       await onChange()
       setDeleteTarget(null)
@@ -617,7 +620,7 @@ function CategorySubcategoriesPanel({
       if (selectedId) {
         const response = await authedFetch(`/api/catalog/subcategories/${selectedId}`, {
           method: 'PATCH',
-          body: JSON.stringify({ image_path: path }),
+          body: catalogHierarchySaveBody({ image_path: path }, subcategories.find((item) => item.id === selectedId)?._revision ?? null),
         })
         if (!response.ok) {
           const payload = await response.json().catch(() => null)
@@ -787,7 +790,7 @@ function CategoryOptionsPanel({
 
     const response = await authedFetch(selectedId ? `/api/catalog/options/${selectedId}` : '/api/catalog/options', {
       method: selectedId ? 'PATCH' : 'POST',
-      body: JSON.stringify({
+      body: catalogHierarchySaveBody({
         subcategory_id: formData.parentSubcategoryId,
         name: formData.name,
         slug: formData.slug,
@@ -795,7 +798,7 @@ function CategoryOptionsPanel({
         image_alt: formData.imageAlt || null,
         display_order: formData.displayOrder,
         status: formData.status === 'Hidden' ? 'hidden' : 'active',
-      }),
+      }, options.find((item) => item.id === selectedId)?._revision ?? null),
     })
 
     if (response.ok) {
@@ -811,7 +814,9 @@ function CategoryOptionsPanel({
   }
 
   const deleteItem = async (id: string) => {
-    const response = await authedFetch(`/api/catalog/options/${id}`, { method: 'DELETE' })
+    const revision = options.find((item) => item.id === id)?._revision
+    if (!revision) { toast({ title: 'Reload required', description: 'Reload this option before deleting it.' }); return }
+    const response = await authedFetch(`/api/catalog/options/${id}`, { method: 'DELETE', body: catalogHierarchyDeleteBody(revision) })
     if (response.ok) {
       await onChange()
       setDeleteTarget(null)
@@ -829,7 +834,7 @@ function CategoryOptionsPanel({
       if (selectedId) {
         const response = await authedFetch(`/api/catalog/options/${selectedId}`, {
           method: 'PATCH',
-          body: JSON.stringify({ image_path: path }),
+          body: catalogHierarchySaveBody({ image_path: path }, options.find((item) => item.id === selectedId)?._revision ?? null),
         })
         if (!response.ok) {
           const payload = await response.json().catch(() => null)

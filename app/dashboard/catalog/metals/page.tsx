@@ -1,18 +1,10 @@
 import { createSupabaseAdminClient } from '@/lib/admin-supabase'
 import { MetalsClient, type MetalItem } from './metals-client'
+import { loadCatalogMetalList } from '@/lib/catalog-metal-save'
 
 async function getMetals(): Promise<MetalItem[]> {
   const adminClient = createSupabaseAdminClient()
-  const { data, error } = await adminClient
-    .from('catalog_metals')
-    .select('*')
-    .order('display_order', { ascending: true })
-
-  if (error) {
-    throw new Error(error.message)
-  }
-
-  return (data ?? []) as MetalItem[]
+  return await loadCatalogMetalList(adminClient) as MetalItem[]
 }
 
 export default async function MetalsPage() {

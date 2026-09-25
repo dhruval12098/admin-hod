@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server'
 import { assertAdmin } from '@/lib/cms-auth'
 import { loadCatalogMasterList } from '@/lib/catalog-master-save'
+import { loadCatalogRingSnapshot } from '@/lib/catalog-ring-save'
+import { loadCatalogHierarchyList } from '@/lib/catalog-hierarchy-save'
+import { loadCatalogMetalList } from '@/lib/catalog-metal-save'
 
 async function loadOptionalTable(adminClient: any, table: string, columns = '*') {
   const result = await adminClient.from(table).select(columns).order('display_order', { ascending: true })
@@ -20,16 +23,15 @@ export async function GET(request: Request) {
   const includeAttributes = scope === 'all' || scope === 'attributes'
   const includeContent = scope === 'all' || scope === 'content'
 
-  const [categoriesResult, subcategoriesResult, optionsResult, metalsResult, materialValues, stoneShapesResult, ringSizes, ringCategories, ringCategorySizes, certificates, styles, productContentRules, gstSlabs, navbarItemsResult] = await Promise.all([
-    includeBasics ? adminClient.from('catalog_categories').select('id, code, name, slug, category_lane, show_in_nav, nav_type, direct_link_url, banner_desktop_image_path, banner_mobile_image_path, banner_desktop_image_alt, banner_mobile_image_alt, banner_title, banner_subtitle, banner_cta_label, banner_cta_link, banner_enabled, display_order, status').order('display_order', { ascending: true }) : Promise.resolve({ data: [], error: null }),
-    includeBasics ? adminClient.from('catalog_subcategories').select('id, category_id, name, slug, sub_type, icon_svg_path, image_path, image_alt, display_order, status').order('display_order', { ascending: true }) : Promise.resolve({ data: [], error: null }),
-    includeBasics ? adminClient.from('catalog_options').select('id, subcategory_id, name, slug, icon_svg_path, image_path, image_alt, display_order, status').order('display_order', { ascending: true }) : Promise.resolve({ data: [], error: null }),
-    (includePricing || includeAttributes) ? adminClient.from('catalog_metals').select('id, name, slug, purity_label, base_metal_name, display_label, is_combined_option, color_hex, display_order, status').order('display_order', { ascending: true }) : Promise.resolve({ data: [], error: null }),
+  const [categories, subcategories, options, metalsResult, materialValues, stoneShapesResult, ringSizes, ringCategories, certificates, styles, productContentRules, gstSlabs, navbarItemsResult] = await Promise.all([
+    includeBasics ? loadCatalogHierarchyList(adminClient, 'category') : Promise.resolve([]),
+    includeBasics ? loadCatalogHierarchyList(adminClient, 'subcategory') : Promise.resolve([]),
+    includeBasics ? loadCatalogHierarchyList(adminClient, 'option') : Promise.resolve([]),
+    (includePricing || includeAttributes) ? loadCatalogMetalList(adminClient) : Promise.resolve([]),
     includeAttributes ? loadOptionalTable(adminClient, 'catalog_material_values', 'id, name, slug, display_order, status') : Promise.resolve([]),
     includeAttributes ? adminClient.from('catalog_stone_shapes').select('id, name, slug, svg_asset_url, display_order, status').order('display_order', { ascending: true }) : Promise.resolve({ data: [], error: null }),
     includeAttributes ? loadOptionalTable(adminClient, 'catalog_ring_sizes', 'id, name, slug, display_order, status') : Promise.resolve([]),
-    includeAttributes ? loadOptionalTable(adminClient, 'catalog_ring_categories', 'id, name, slug, description, display_order, status') : Promise.resolve([]),
-    includeAttributes ? loadOptionalTable(adminClient, 'catalog_ring_category_sizes', 'id, ring_category_id, size_label, size_value, display_order, status') : Promise.resolve([]),
+    includeAttributes ? loadCatalogRingSnapshot(adminClient) : Promise.resolve({ categories: [], sizes: [], revision: '' }),
     (includePricing || includeAttributes) ? loadOptionalTable(adminClient, 'catalog_certificates', 'id, name, code, slug, display_order, status') : Promise.resolve([]),
     includeBasics ? loadOptionalTable(adminClient, 'catalog_styles', 'id, name, icon_svg_path, display_order, status') : Promise.resolve([]),
     includeContent ? loadCatalogMasterList(adminClient, 'content_rule') : Promise.resolve([]),
@@ -38,10 +40,6 @@ export async function GET(request: Request) {
   ])
 
   const error =
-    categoriesResult.error ||
-    subcategoriesResult.error ||
-    optionsResult.error ||
-    metalsResult.error ||
     stoneShapesResult.error
 
   if (error) {
@@ -51,27 +49,27 @@ export async function GET(request: Request) {
   return NextResponse.json({
     ...(includeBasics
       ? {
-          categories: categoriesResult.data ?? [],
-          subcategories: subcategoriesResult.data ?? [],
-          options: optionsResult.data ?? [],
+          categories,
+          subcategories,
+          options,
           styles,
         }
       : {}),
     ...(includePricing
       ? {
-          metals: metalsResult.data ?? [],
+          metals: metalsResult,
           certificates,
           gstSlabs,
         }
       : {}),
     ...(includeAttributes
       ? {
-          metals: metalsResult.data ?? [],
+          metals: metalsResult,
           materialValues,
           stoneShapes: stoneShapesResult.data ?? [],
           ringSizes,
-          ringCategories,
-          ringCategorySizes,
+          ringCategories: ringCategories.categories,
+          ringCategorySizes: ringCategories.sizes,
           certificates,
         }
       : {}),

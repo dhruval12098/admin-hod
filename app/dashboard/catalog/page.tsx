@@ -1,5 +1,6 @@
 import { createSupabaseAdminClient } from '@/lib/admin-supabase'
 import { loadCatalogMasterList } from '@/lib/catalog-master-save'
+import { loadCatalogHierarchyList } from '@/lib/catalog-hierarchy-save'
 import type { CatalogCategory, CatalogNavbarItem, ProductContentRule } from '@/lib/product-catalog'
 import { CatalogClient } from './catalog-client'
 
@@ -9,19 +10,14 @@ async function getCatalogOverviewData(): Promise<{
   productContentRules: ProductContentRule[]
 }> {
   const adminClient = createSupabaseAdminClient()
-  const [categoriesResult, navbarItemsResult, productContentRulesResult] = await Promise.all([
-    adminClient.from('catalog_categories').select('*').order('display_order', { ascending: true }),
+  const [categories, navbarItemsResult, productContentRulesResult] = await Promise.all([
+    loadCatalogHierarchyList(adminClient, 'category'),
     adminClient.from('navbar_items').select('id, label, slug, item_type, linked_category_id, direct_link_url, status').order('display_order', { ascending: true }),
     loadCatalogMasterList(adminClient, 'content_rule'),
   ])
 
-  const error = categoriesResult.error
-  if (error) {
-    throw new Error(error.message)
-  }
-
   return {
-    categories: (categoriesResult.data ?? []) as CatalogCategory[],
+    categories: categories as CatalogCategory[],
     navbarItems: (navbarItemsResult.error ? [] : navbarItemsResult.data ?? []) as CatalogNavbarItem[],
     productContentRules: productContentRulesResult as ProductContentRule[],
   }

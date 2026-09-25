@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from '@/lib/admin-supabase'
+import { loadCatalogRingSnapshot } from '@/lib/catalog-ring-save'
 import {
   RingSizesClient,
   type RingCategory,
@@ -8,25 +9,18 @@ import {
 async function getRingSizesData(): Promise<{
   categories: RingCategory[]
   sizes: RingCategorySize[]
+  revision: string
 }> {
   const adminClient = createSupabaseAdminClient()
-  const [categoriesResult, sizesResult] = await Promise.all([
-    adminClient.from('catalog_ring_categories').select('*').order('display_order', { ascending: true }),
-    adminClient.from('catalog_ring_category_sizes').select('*').order('display_order', { ascending: true }),
-  ])
-
-  const error = categoriesResult.error || sizesResult.error
-  if (error) {
-    throw new Error(error.message)
-  }
-
+  const snapshot = await loadCatalogRingSnapshot(adminClient)
   return {
-    categories: (categoriesResult.data ?? []) as RingCategory[],
-    sizes: (sizesResult.data ?? []) as RingCategorySize[],
+    categories: snapshot.categories as RingCategory[],
+    sizes: snapshot.sizes as RingCategorySize[],
+    revision: snapshot.revision,
   }
 }
 
 export default async function RingSizesPage() {
-  const { categories, sizes } = await getRingSizesData()
-  return <RingSizesClient initialCategories={categories} initialSizes={sizes} />
+  const { categories, sizes, revision } = await getRingSizesData()
+  return <RingSizesClient initialCategories={categories} initialSizes={sizes} initialRevision={revision} />
 }

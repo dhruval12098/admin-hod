@@ -8,9 +8,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/hooks/use-toast'
 import { slugify } from '@/lib/product-catalog'
+import { catalogRingSaveBody } from '@/lib/catalog-ring-client'
 
 export type RingCategory = {
   id: string
+  _revision?: string
   name: string
   slug: string
   description?: string | null
@@ -20,6 +22,7 @@ export type RingCategory = {
 
 export type RingCategorySize = {
   id: string
+  _revision?: string
   ring_category_id: string
   size_label: string
   size_value?: string | null
@@ -35,13 +38,16 @@ async function getAccessToken() {
 export function RingSizesClient({
   initialCategories,
   initialSizes,
+  initialRevision,
 }: {
   initialCategories: RingCategory[]
   initialSizes: RingCategorySize[]
+  initialRevision: string
 }) {
   const { toast } = useToast()
   const [categories, setCategories] = useState<RingCategory[]>(initialCategories)
   const [sizes, setSizes] = useState<RingCategorySize[]>(initialSizes)
+  const [revision, setRevision] = useState(initialRevision)
   const [loading, setLoading] = useState(false)
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false)
   const [sizeDialogOpen, setSizeDialogOpen] = useState(false)
@@ -55,37 +61,16 @@ export function RingSizesClient({
   const nextCategoryOrder = useMemo(() => (categories.at(-1)?.display_order ?? categories.length) + 1, [categories])
   const nextSizeOrder = useMemo(() => (sizes.at(-1)?.display_order ?? sizes.length) + 1, [sizes])
 
-  const loadAll = async () => {
-    setLoading(true)
-    try {
-      const accessToken = await getAccessToken()
-      if (!accessToken) return
-
-      const [categoriesResponse, sizesResponse] = await Promise.all([
-        fetch('/api/catalog/ring-categories', { headers: { authorization: `Bearer ${accessToken}` } }),
-        fetch('/api/catalog/ring-category-sizes', { headers: { authorization: `Bearer ${accessToken}` } }),
-      ])
-
-      const [categoriesPayload, sizesPayload] = await Promise.all([
-        categoriesResponse.json().catch(() => null),
-        sizesResponse.json().catch(() => null),
-      ])
-
-      if (!categoriesResponse.ok) {
-        toast({ title: 'Load failed', description: categoriesPayload?.error ?? 'Unable to load ring categories.', variant: 'destructive' })
-        return
-      }
-
-      if (!sizesResponse.ok) {
-        toast({ title: 'Load failed', description: sizesPayload?.error ?? 'Unable to load ring category sizes.', variant: 'destructive' })
-        return
-      }
-
-      setCategories(categoriesPayload?.items ?? [])
-      setSizes(sizesPayload?.items ?? [])
-    } finally {
-      setLoading(false)
-    }
+  const saveSnapshot = async (nextCategories: RingCategory[], nextSizes: RingCategorySize[], deletedCategoryIds: string[] = [], deletedSizeIds: string[] = []) => {
+    const accessToken = await getAccessToken()
+    if (!accessToken) return false
+    const response = await fetch('/api/catalog/ring-catalog', { method: 'PUT', headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' }, body: catalogRingSaveBody(nextCategories, nextSizes, revision, deletedCategoryIds, deletedSizeIds) })
+    const payload = await response.json().catch(() => null)
+    if (!response.ok) { toast({ title: 'Save failed', description: payload?.error ?? 'Unable to save ring catalog.', variant: 'destructive' }); return false }
+    setCategories(payload.categories ?? [])
+    setSizes(payload.sizes ?? [])
+    setRevision(payload.revision ?? revision)
+    return true
   }
 
   const openNewCategory = () => {
@@ -125,65 +110,33 @@ export function RingSizesClient({
   }
 
   const saveCategory = async () => {
-    const accessToken = await getAccessToken()
-    if (!accessToken) return
-    const response = await fetch(editingCategoryId ? `/api/catalog/ring-categories/${editingCategoryId}` : '/api/catalog/ring-categories', {
-      method: editingCategoryId ? 'PATCH' : 'POST',
-      headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
-      body: JSON.stringify(categoryForm),
-    })
-    const payload = await response.json().catch(() => null)
-    if (!response.ok) {
-      toast({ title: 'Save failed', description: payload?.error ?? 'Unable to save ring category.', variant: 'destructive' })
-      return
-    }
-    await loadAll()
+    const next = editingCategoryId
+      ? categories.map((item) => item.id === editingCategoryId ? { ...item, ...categoryForm } : item)
+      : [...categories, categoryForm]
+    if (!await saveSnapshot(next as RingCategory[], sizes)) return
     setCategoryDialogOpen(false)
+    setEditingCategoryId(null)
     toast({ title: 'Saved', description: 'Ring category updated successfully.' })
   }
 
   const saveSize = async () => {
-    const accessToken = await getAccessToken()
-    if (!accessToken) return
-    const response = await fetch(editingSizeId ? `/api/catalog/ring-category-sizes/${editingSizeId}` : '/api/catalog/ring-category-sizes', {
-      method: editingSizeId ? 'PATCH' : 'POST',
-      headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
-      body: JSON.stringify(sizeForm),
-    })
-    const payload = await response.json().catch(() => null)
-    if (!response.ok) {
-      toast({ title: 'Save failed', description: payload?.error ?? 'Unable to save ring category size.', variant: 'destructive' })
-      return
-    }
-    await loadAll()
+    const next = editingSizeId
+      ? sizes.map((item) => item.id === editingSizeId ? { ...item, ...sizeForm } : item)
+      : [...sizes, sizeForm]
+    if (!await saveSnapshot(categories, next as RingCategorySize[])) return
     setSizeDialogOpen(false)
+    setEditingSizeId(null)
     toast({ title: 'Saved', description: 'Ring category size updated successfully.' })
   }
 
   const deleteCategory = async (id: string) => {
-    const accessToken = await getAccessToken()
-    if (!accessToken) return
-    const response = await fetch(`/api/catalog/ring-categories/${id}`, { method: 'DELETE', headers: { authorization: `Bearer ${accessToken}` } })
-    const payload = await response.json().catch(() => null)
-    if (!response.ok) {
-      toast({ title: 'Delete failed', description: payload?.error ?? 'Unable to delete ring category.', variant: 'destructive' })
-      return
-    }
-    await loadAll()
+    if (!await saveSnapshot(categories.filter((item) => item.id !== id), sizes, [id])) return
     setDeleteCategoryTarget(null)
     toast({ title: 'Deleted', description: 'Ring category removed successfully.' })
   }
 
   const deleteSize = async (id: string) => {
-    const accessToken = await getAccessToken()
-    if (!accessToken) return
-    const response = await fetch(`/api/catalog/ring-category-sizes/${id}`, { method: 'DELETE', headers: { authorization: `Bearer ${accessToken}` } })
-    const payload = await response.json().catch(() => null)
-    if (!response.ok) {
-      toast({ title: 'Delete failed', description: payload?.error ?? 'Unable to delete ring category size.', variant: 'destructive' })
-      return
-    }
-    await loadAll()
+    if (!await saveSnapshot(categories, sizes.filter((item) => item.id !== id), [], [id])) return
     setDeleteSizeTarget(null)
     toast({ title: 'Deleted', description: 'Ring category size removed successfully.' })
   }

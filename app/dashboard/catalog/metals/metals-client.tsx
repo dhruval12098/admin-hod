@@ -7,9 +7,11 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/hooks/use-toast'
 import { buildCombinedMetalDisplayLabel } from '@/lib/product-metal-variants'
+import { catalogMetalDeleteBody } from '@/lib/catalog-metal-client'
 
 export type MetalItem = {
   id: string
+  _revision?: string
   name: string
   slug: string
   purity_label?: string | null
@@ -74,9 +76,12 @@ export function MetalsClient({ initialItems }: { initialItems: MetalItem[] }) {
     const accessToken = await getAccessToken()
     if (!accessToken) return
 
+    const revision=items.find((item)=>item.id===id)?._revision
+    if(!revision){toast({title:'Reload required',description:'Reload this metal before deleting it.',variant:'destructive'});return}
     const response = await fetch(`/api/catalog/metals/${id}`, {
       method: 'DELETE',
-      headers: { authorization: `Bearer ${accessToken}` },
+      headers: { authorization: `Bearer ${accessToken}`,'content-type':'application/json' },
+      body:catalogMetalDeleteBody(revision),
     })
 
     const payload = await response.json().catch(() => null)

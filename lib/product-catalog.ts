@@ -27,6 +27,7 @@ export type ProductFaqItem = {
 
 export type CatalogCategory = {
   id: string
+  _revision?: string
   code: CategoryCode
   name: string
   slug: string
@@ -60,6 +61,7 @@ export type CatalogNavbarItem = {
 
 export type CatalogSubcategory = {
   id: string
+  _revision?: string
   category_id: string
   name: string
   slug: string
@@ -74,6 +76,7 @@ export type CatalogSubcategory = {
 
 export type CatalogOption = {
   id: string
+  _revision?: string
   subcategory_id: string
   name: string
   slug: string
@@ -183,6 +186,7 @@ export type CatalogRingSize = {
 
 export type CatalogRingCategory = {
   id: string
+  _revision?: string
   name: string
   slug: string
   description?: string | null
@@ -192,6 +196,7 @@ export type CatalogRingCategory = {
 
 export type CatalogRingCategorySize = {
   id: string
+  _revision?: string
   ring_category_id: string
   size_label: string
   size_value?: string | null

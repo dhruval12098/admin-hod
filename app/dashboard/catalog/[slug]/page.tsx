@@ -1,6 +1,7 @@
 import { createSupabaseAdminClient } from '@/lib/admin-supabase'
 import type { CatalogCategory, CatalogNavbarItem, CatalogOption, CatalogSubcategory } from '@/lib/product-catalog'
 import { CategoryDetailClient } from './page-client'
+import { loadCatalogHierarchyList } from '@/lib/catalog-hierarchy-save'
 
 type CategoryDetailPageProps = {
   params: Promise<{
@@ -15,25 +16,18 @@ async function getCategoryDetailData(slug: string): Promise<{
   options: CatalogOption[]
 }> {
   const adminClient = createSupabaseAdminClient()
-  const [categoriesResult, navbarItemsResult, subcategoriesResult, optionsResult] = await Promise.all([
-    adminClient.from('catalog_categories').select('*').order('display_order', { ascending: true }),
+  const [categories, navbarItemsResult, allSubcategories, allOptions] = await Promise.all([
+    loadCatalogHierarchyList(adminClient, 'category'),
     adminClient.from('navbar_items').select('id, label, slug, item_type, linked_category_id, direct_link_url, status').order('display_order', { ascending: true }),
-    adminClient.from('catalog_subcategories').select('*').order('display_order', { ascending: true }),
-    adminClient.from('catalog_options').select('*').order('display_order', { ascending: true }),
+    loadCatalogHierarchyList(adminClient, 'subcategory'),
+    loadCatalogHierarchyList(adminClient, 'option'),
   ])
-
-  const error = categoriesResult.error || subcategoriesResult.error || optionsResult.error
-  if (error) {
-    throw new Error(error.message)
-  }
-
-  const categories = (categoriesResult.data ?? []) as CatalogCategory[]
-  const category = categories.find((item) => item.slug === slug) ?? null
-  const subcategories = ((subcategoriesResult.data ?? []) as CatalogSubcategory[]).filter(
+  const category = (categories as CatalogCategory[]).find((item) => item.slug === slug) ?? null
+  const subcategories = (allSubcategories as CatalogSubcategory[]).filter(
     (item) => item.category_id === category?.id
   )
   const subcategoryIds = new Set(subcategories.map((item) => item.id))
-  const options = ((optionsResult.data ?? []) as CatalogOption[]).filter((item) =>
+  const options = (allOptions as CatalogOption[]).filter((item) =>
     subcategoryIds.has(item.subcategory_id)
   )
 
