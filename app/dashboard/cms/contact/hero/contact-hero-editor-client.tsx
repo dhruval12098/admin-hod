@@ -6,6 +6,7 @@ import { ArrowLeft } from 'lucide-react'
 import { CmsSaveAction } from '@/components/cms-save-action'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { supabase } from '@/lib/supabase'
+import { useCmsSingletonSave } from '@/hooks/use-cms-singleton-save'
 
 export type ContactHeroInitialData = {
   item: {
@@ -16,13 +17,14 @@ export type ContactHeroInitialData = {
   }
 }
 
-export function ContactHeroEditorClient({ initialData }: { initialData: ContactHeroInitialData }) {
+export function ContactHeroEditorClient({ initialData, initialRevision }: { initialData: ContactHeroInitialData; initialRevision: string }) {
   const [eyebrow, setEyebrow] = useState(initialData.item.eyebrow)
   const [heading, setHeading] = useState(initialData.item.heading)
   const [subtitle, setSubtitle] = useState(initialData.item.subtitle)
   const [status, setStatus] = useState('Contact hero loaded')
   const [isSaving, setIsSaving] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const { prepareSave, acceptSave } = useCmsSingletonSave(initialRevision)
 
   const save = async () => {
     setIsSaving(true)
@@ -40,16 +42,21 @@ export function ContactHeroEditorClient({ initialData }: { initialData: ContactH
         'content-type': 'application/json',
         authorization: `Bearer ${accessToken}`,
       },
-      body: JSON.stringify({ eyebrow, heading, subtitle }),
+      body: JSON.stringify(prepareSave({ section_key: 'contact_hero', eyebrow, heading, subtitle })),
     })
 
-    const payload = (await response.json().catch(() => null)) as { error?: string } | null
+    const payload = (await response.json().catch(() => null)) as { error?: string; revision?: string } | null
     setIsSaving(false)
 
     if (!response.ok) {
       setStatus(payload?.error ?? 'Unable to save contact hero.')
       return
     }
+    if (!payload?.revision) {
+      setStatus('The hero was saved, but its new revision was not returned. Reload this page.')
+      return
+    }
+    acceptSave(payload.revision)
 
     setConfirmOpen(false)
     setStatus('Contact hero saved')

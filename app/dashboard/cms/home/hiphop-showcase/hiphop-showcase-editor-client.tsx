@@ -8,6 +8,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
 import { uploadCmsAssetDirectWithFallback } from '@/lib/cms-direct-upload-client'
+import { useCmsSingletonSave } from '@/hooks/use-cms-singleton-save'
 
 export type HipHopShowcaseInitialData = {
   is_enabled: boolean
@@ -25,14 +26,16 @@ type ApiPayload = {
   item?: HipHopShowcaseInitialData
   path?: string
   error?: string
+  revision?: string
 }
 
-export function HipHopShowcaseEditorClient({ initialData }: { initialData: HipHopShowcaseInitialData }) {
+export function HipHopShowcaseEditorClient({ initialData, initialRevision }: { initialData: HipHopShowcaseInitialData; initialRevision: string }) {
   const { toast } = useToast()
   const [form, setForm] = useState(initialData)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [status, setStatus] = useState('Hip Hop home showcase loaded')
+  const { prepareSave, acceptSave } = useCmsSingletonSave(initialRevision)
 
   const uploadAsset = async (file: File) => {
     const { data: sessionData } = await supabase.auth.getSession()
@@ -77,7 +80,7 @@ export function HipHopShowcaseEditorClient({ initialData }: { initialData: HipHo
         authorization: `Bearer ${accessToken}`,
         'content-type': 'application/json',
       },
-      body: JSON.stringify(form),
+      body: JSON.stringify(prepareSave(form)),
     })
 
     const payload = (await response.json().catch(() => null)) as ApiPayload | null
@@ -87,6 +90,11 @@ export function HipHopShowcaseEditorClient({ initialData }: { initialData: HipHo
       setStatus(payload?.error ?? 'Unable to save Hip Hop showcase.')
       return
     }
+    if (!payload?.revision) {
+      setStatus('The showcase was saved, but its new revision was not returned. Reload this page.')
+      return
+    }
+    acceptSave(payload.revision)
 
     setConfirmOpen(false)
     setStatus('Hip Hop home showcase saved')

@@ -2,7 +2,7 @@
 
 import { useRef, useState } from 'react'
 
-type PersistedItem = { id?: string | number }
+type PersistedItem = Record<string, unknown> & { id?: string | number | null }
 
 export function useCmsAtomicListSave(initialItems: PersistedItem[], initialRevision: string) {
   const [revision, setRevision] = useState(initialRevision)

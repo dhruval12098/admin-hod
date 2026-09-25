@@ -1,38 +1,21 @@
 import { createSupabaseAdminClient } from '@/lib/admin-supabase'
+import { loadCmsRelationalSnapshot } from '@/lib/cms-relational-save'
 import {
   SupportAnnouncementBarEditorClient,
   type SupportAnnouncementBarInitialData,
 } from './support-announcement-bar-editor-client'
 
-async function getSupportAnnouncementBarInitialData(): Promise<SupportAnnouncementBarInitialData> {
+async function getSupportAnnouncementBarInitialData() {
   const adminClient = createSupabaseAdminClient()
-  const { data: section, error: sectionError } = await adminClient
-    .from('support_announcement_bar')
-    .select('id, section_key, is_active, autoplay, speed_ms')
-    .eq('section_key', 'global_support_announcement_bar')
-    .maybeSingle()
-
-  if (sectionError) throw new Error(sectionError.message)
-
-  if (!section) {
-    return {
+  const snapshot = await loadCmsRelationalSnapshot(adminClient, 'announcement')
+  if (!snapshot.parent) return { initialData: {
       section: { section_key: 'global_support_announcement_bar', is_active: true, autoplay: true, speed_ms: 3000 },
       items: [],
-    }
-  }
-
-  const { data: items, error: itemsError } = await adminClient
-    .from('support_announcement_bar_items')
-    .select('id, sort_order, message, link_url, open_in_new_tab, is_active')
-    .eq('bar_id', section.id)
-    .order('sort_order', { ascending: true })
-
-  if (itemsError) throw new Error(itemsError.message)
-
-  return { section, items: items ?? [] }
+    }, revision: snapshot.revision }
+  return { initialData: { section: snapshot.parent, items: snapshot.items } as SupportAnnouncementBarInitialData, revision: snapshot.revision }
 }
 
 export default async function SupportAnnouncementBarPage() {
-  const initialData = await getSupportAnnouncementBarInitialData()
-  return <SupportAnnouncementBarEditorClient initialData={initialData} />
+  const { initialData, revision } = await getSupportAnnouncementBarInitialData()
+  return <SupportAnnouncementBarEditorClient initialData={initialData} initialRevision={revision} />
 }

@@ -7,6 +7,7 @@ import { CmsSaveAction } from '@/components/cms-save-action'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
+import { useCmsSingletonSave } from '@/hooks/use-cms-singleton-save'
 
 export type CollectionPageEditorInitialData = {
   page_enabled: boolean
@@ -20,14 +21,15 @@ export type CollectionPageEditorInitialData = {
   showcase_mobile_image_path: string
 }
 
-type ApiPayload = { item?: CollectionPageEditorInitialData; path?: string; error?: string }
+type ApiPayload = { item?: CollectionPageEditorInitialData; path?: string; error?: string; revision?: string }
 
-export function CollectionPageEditorClient({ initialData }: { initialData: CollectionPageEditorInitialData }) {
+export function CollectionPageEditorClient({ initialData, initialRevision }: { initialData: CollectionPageEditorInitialData; initialRevision: string }) {
   const { toast } = useToast()
   const [form, setForm] = useState(initialData)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [status, setStatus] = useState('Collection page settings loaded')
+  const { prepareSave, acceptSave } = useCmsSingletonSave(initialRevision)
 
   const uploadAsset = async (file: File, field: 'showcase_image_path' | 'showcase_mobile_image_path') => {
     const { data: sessionData } = await supabase.auth.getSession()
@@ -95,7 +97,7 @@ export function CollectionPageEditorClient({ initialData }: { initialData: Colle
         authorization: `Bearer ${accessToken}`,
         'content-type': 'application/json',
       },
-      body: JSON.stringify(form),
+      body: JSON.stringify(prepareSave(form)),
     })
     const payload = (await response.json().catch(() => null)) as ApiPayload | null
     setIsSaving(false)
@@ -103,6 +105,11 @@ export function CollectionPageEditorClient({ initialData }: { initialData: Colle
       setStatus(payload?.error ?? 'Unable to save collection page settings.')
       return
     }
+    if (!payload?.revision) {
+      setStatus('The settings were saved, but their new revision was not returned. Reload this page.')
+      return
+    }
+    acceptSave(payload.revision)
     setConfirmOpen(false)
     setStatus('Collection page settings saved')
     toast({ title: 'Saved', description: 'Collection page settings updated successfully.' })

@@ -8,6 +8,7 @@ import { Switch } from '@/components/ui/switch'
 import { CmsSaveAction } from '@/components/cms-save-action'
 import { uploadCmsAssetDirectWithFallback } from '@/lib/cms-direct-upload-client'
 import { supabase } from '@/lib/supabase'
+import { useCmsSingletonSave } from '@/hooks/use-cms-singleton-save'
 
 export type OverlayPosition = 'left' | 'center' | 'right' | 'bottom-left' | 'bottom-center' | 'bottom-right'
 export type AboutHeroInitialData = {
@@ -30,12 +31,13 @@ function SwitchRow({ label, description, checked, onChange }: { label: string; d
   </div>
 }
 
-export function AboutHeroEditorClient({ initialData }: { initialData: AboutHeroInitialData }) {
+export function AboutHeroEditorClient({ initialData, initialRevision }: { initialData: AboutHeroInitialData; initialRevision: string }) {
   const [form, setForm] = useState(initialData)
   const [status, setStatus] = useState('About hero loaded')
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState<string | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const { prepareSave, acceptSave } = useCmsSingletonSave(initialRevision)
   const patch = <K extends keyof AboutHeroInitialData>(key: K, value: AboutHeroInitialData[K]) => setForm((current) => ({ ...current, [key]: value }))
 
   const upload = async (event: ChangeEvent<HTMLInputElement>, target: 'desktop_media_path' | 'mobile_media_path' | 'video_poster_path') => {
@@ -62,10 +64,12 @@ export function AboutHeroEditorClient({ initialData }: { initialData: AboutHeroI
       const saveResponse = await fetch('/api/cms/about/hero', {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-        body: JSON.stringify(nextForm),
+        body: JSON.stringify(prepareSave(nextForm)),
       })
-      const savePayload = await saveResponse.json().catch(() => null) as { error?: string } | null
+      const savePayload = await saveResponse.json().catch(() => null) as { error?: string; revision?: string } | null
       if (!saveResponse.ok) throw new Error(savePayload?.error ?? 'Image uploaded, but the hero record could not be updated.')
+      if (!savePayload?.revision) throw new Error('The media was saved, but its new revision was not returned. Reload this page.')
+      acceptSave(savePayload.revision)
       setStatus('Hero media uploaded and saved.')
     } catch (error) { setStatus(error instanceof Error ? error.message : 'Upload failed.') }
     finally { setUploading(null) }
@@ -76,10 +80,12 @@ export function AboutHeroEditorClient({ initialData }: { initialData: AboutHeroI
     const { data } = await supabase.auth.getSession()
     const token = data.session?.access_token
     if (!token) { setSaving(false); return setStatus('You are not signed in.') }
-    const response = await fetch('/api/cms/about/hero', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify(form) })
-    const payload = await response.json().catch(() => null) as { error?: string } | null
+    const response = await fetch('/api/cms/about/hero', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify(prepareSave(form)) })
+    const payload = await response.json().catch(() => null) as { error?: string; revision?: string } | null
     setSaving(false)
     if (!response.ok) return setStatus(payload?.error ?? 'Unable to save about hero.')
+    if (!payload?.revision) return setStatus('The hero was saved, but its new revision was not returned. Reload this page.')
+    acceptSave(payload.revision)
     setConfirmOpen(false); setStatus('About hero saved')
   }
 

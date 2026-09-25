@@ -1,20 +1,11 @@
 import { HipHopShowcaseEditorClient, type HipHopShowcaseInitialData } from './hiphop-showcase-editor-client'
 import { createSupabaseAdminClient } from '@/lib/admin-supabase'
+import { loadCmsSingletonSnapshot } from '@/lib/cms-singleton-save'
 
-async function getHipHopShowcaseInitialData(): Promise<HipHopShowcaseInitialData> {
-  const adminClient = createSupabaseAdminClient()
-
-  const { data, error } = await adminClient
-    .from('hiphop_showcase_section')
-    .select('*')
-    .eq('section_key', 'home_hiphop_showcase')
-    .maybeSingle()
-
-  if (error) {
-    throw new Error(error.message)
-  }
-
-  return {
+async function getHipHopShowcaseInitialData() {
+  const snapshot = await loadCmsSingletonSnapshot<HipHopShowcaseInitialData>(createSupabaseAdminClient(), 'hiphop_showcase')
+  const data = snapshot.item
+  return { initialData: {
     is_enabled: data?.is_enabled ?? true,
     eyebrow: data?.eyebrow ?? 'Hip Hop Collection · House of Diams',
     heading_line_1: data?.heading_line_1 ?? 'Ice That',
@@ -24,10 +15,10 @@ async function getHipHopShowcaseInitialData(): Promise<HipHopShowcaseInitialData
     cta_link: data?.cta_link ?? '/hiphop',
     image_path: data?.image_path ?? '',
     image_alt: data?.image_alt ?? 'House of Diams Hip Hop Collection',
-  }
+  }, revision: snapshot.revision }
 }
 
 export default async function HipHopShowcaseEditorPage() {
-  const initialData = await getHipHopShowcaseInitialData()
-  return <HipHopShowcaseEditorClient initialData={initialData} />
+  const { initialData, revision } = await getHipHopShowcaseInitialData()
+  return <HipHopShowcaseEditorClient initialData={initialData} initialRevision={revision} />
 }

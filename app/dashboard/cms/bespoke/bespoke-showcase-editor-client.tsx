@@ -7,6 +7,7 @@ import { CmsSaveAction } from '@/components/cms-save-action'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
+import { useCmsSingletonSave } from '@/hooks/use-cms-singleton-save'
 
 export type BespokeShowcaseEditorInitialData = {
   is_enabled: boolean
@@ -20,14 +21,15 @@ export type BespokeShowcaseEditorInitialData = {
   sort_order: number
 }
 
-type ApiPayload = { item?: BespokeShowcaseEditorInitialData; path?: string; error?: string }
+type ApiPayload = { item?: BespokeShowcaseEditorInitialData; path?: string; error?: string; revision?: string }
 
-export function BespokeShowcaseEditorClient({ initialData }: { initialData: BespokeShowcaseEditorInitialData }) {
+export function BespokeShowcaseEditorClient({ initialData, initialRevision }: { initialData: BespokeShowcaseEditorInitialData; initialRevision: string }) {
   const { toast } = useToast()
   const [form, setForm] = useState(initialData)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [status, setStatus] = useState('Bespoke home showcase loaded')
+  const { prepareSave, acceptSave } = useCmsSingletonSave(initialRevision)
 
   const uploadAsset = async (file: File, field: 'image_path' | 'mobile_image_path') => {
     const { data: sessionData } = await supabase.auth.getSession()
@@ -86,7 +88,7 @@ export function BespokeShowcaseEditorClient({ initialData }: { initialData: Besp
         authorization: `Bearer ${accessToken}`,
         'content-type': 'application/json',
       },
-      body: JSON.stringify(form),
+      body: JSON.stringify(prepareSave(form)),
     })
     const payload = (await response.json().catch(() => null)) as ApiPayload | null
     setIsSaving(false)
@@ -94,6 +96,11 @@ export function BespokeShowcaseEditorClient({ initialData }: { initialData: Besp
       setStatus(payload?.error ?? 'Unable to save bespoke showcase settings.')
       return
     }
+    if (!payload?.revision) {
+      setStatus('The showcase was saved, but its new revision was not returned. Reload this page.')
+      return
+    }
+    acceptSave(payload.revision)
     setConfirmOpen(false)
     setStatus('Bespoke home showcase saved')
     toast({ title: 'Saved', description: 'Bespoke home showcase updated successfully.' })

@@ -1,52 +1,26 @@
 import { createSupabaseAdminClient } from '@/lib/admin-supabase'
+import { loadCmsRelationalSnapshot } from '@/lib/cms-relational-save'
 import { SupportFaqEditorClient, type SupportFaqInitialData } from './support-faq-editor-client'
 
-async function getSupportFaqInitialData(): Promise<SupportFaqInitialData> {
+async function getSupportFaqInitialData() {
   const adminClient = createSupabaseAdminClient()
-
-  const [{ data: section, error: sectionError }, { data: catalogCategories, error: catalogError }] = await Promise.all([
-    adminClient.from('support_faq_section').select('id, section_key, title, subtitle').eq('section_key', 'global_support_faq').maybeSingle(),
+  const [snapshot, { data: catalogCategories, error: catalogError }, { data: categories, error: categoriesError }] = await Promise.all([
+    loadCmsRelationalSnapshot(adminClient, 'faq'),
     adminClient.from('catalog_categories').select('id, name, slug').eq('status', 'active').order('display_order', { ascending: true }),
+    adminClient.from('support_faq_categories').select('id, name, slug, description, image_path, image_alt, sort_order, is_active').order('sort_order', { ascending: true }),
   ])
-
-  if (sectionError) throw new Error(sectionError.message)
   if (catalogError) throw new Error(catalogError.message)
-
-  if (!section) {
-    return {
+  if (categoriesError) throw new Error(categoriesError.message)
+  if (!snapshot.parent) return { initialData: {
       section: { section_key: 'global_support_faq', title: 'Frequently Asked Questions', subtitle: '' },
       items: [],
-      categories: [],
+      categories: categories ?? [],
       catalogCategories: catalogCategories ?? [],
-    }
-  }
-
-  let itemsResult = await adminClient
-    .from('support_faq_items')
-    .select('id, sort_order, question, answer, is_active, category_id, catalog_category_id')
-    .eq('section_id', section.id)
-    .order('sort_order', { ascending: true })
-
-  if (itemsResult.error?.message?.includes('catalog_category_id')) {
-    itemsResult = await adminClient
-      .from('support_faq_items')
-      .select('id, sort_order, question, answer, is_active, category_id')
-      .eq('section_id', section.id)
-      .order('sort_order', { ascending: true })
-  }
-  if (itemsResult.error) throw new Error(itemsResult.error.message)
-
-  const { data: categories, error: categoriesError } = await adminClient
-    .from('support_faq_categories')
-    .select('id, name, slug, description, image_path, image_alt, sort_order, is_active')
-    .order('sort_order', { ascending: true })
-
-  if (categoriesError) throw new Error(categoriesError.message)
-  const items = (itemsResult.data ?? []).map((item) => ({ ...item, catalog_category_id: 'catalog_category_id' in item ? item.catalog_category_id as string | null : null }))
-  return { section, items, categories: categories ?? [], catalogCategories: catalogCategories ?? [] }
+    }, revision: snapshot.revision }
+  return { initialData: { section: snapshot.parent, items: snapshot.items, categories: categories ?? [], catalogCategories: catalogCategories ?? [] } as SupportFaqInitialData, revision: snapshot.revision }
 }
 
 export default async function SupportFaqPage() {
-  const initialData = await getSupportFaqInitialData()
-  return <SupportFaqEditorClient initialData={initialData} />
+  const { initialData, revision } = await getSupportFaqInitialData()
+  return <SupportFaqEditorClient initialData={initialData} initialRevision={revision} />
 }

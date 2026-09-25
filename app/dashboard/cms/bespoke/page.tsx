@@ -1,18 +1,12 @@
 import { createSupabaseAdminClient } from '@/lib/admin-supabase'
+import { loadCmsSingletonSnapshot } from '@/lib/cms-singleton-save'
 import { CMSTabs } from '@/components/cms-tabs'
 import { BespokeShowcaseEditorClient, type BespokeShowcaseEditorInitialData } from './bespoke-showcase-editor-client'
 
-async function getBespokeShowcaseInitialData(): Promise<BespokeShowcaseEditorInitialData> {
-  const adminClient = createSupabaseAdminClient()
-  const { data, error } = await adminClient
-    .from('home_bespoke_showcase_section')
-    .select('*')
-    .eq('section_key', 'home_bespoke_showcase')
-    .maybeSingle()
-
-  if (error) throw new Error(error.message)
-
-  return {
+async function getBespokeShowcaseInitialData() {
+  const snapshot = await loadCmsSingletonSnapshot<BespokeShowcaseEditorInitialData>(createSupabaseAdminClient(), 'bespoke_showcase')
+  const data = snapshot.item
+  return { initialData: {
     is_enabled: data?.is_enabled ?? true,
     eyebrow: data?.eyebrow ?? 'Bespoke Atelier',
     heading: data?.heading ?? 'Create Something One of One',
@@ -22,16 +16,16 @@ async function getBespokeShowcaseInitialData(): Promise<BespokeShowcaseEditorIni
     mobile_image_path: data?.mobile_image_path ?? '',
     image_alt: data?.image_alt ?? 'House of Diams bespoke jewellery showcase',
     sort_order: data?.sort_order ?? 0,
-  }
+  }, revision: snapshot.revision }
 }
 
 export default async function BespokeCmsPage() {
-  const initialData = await getBespokeShowcaseInitialData()
+  const { initialData, revision } = await getBespokeShowcaseInitialData()
 
   return (
     <div>
       <CMSTabs />
-      <BespokeShowcaseEditorClient initialData={initialData} />
+      <BespokeShowcaseEditorClient initialData={initialData} initialRevision={revision} />
     </div>
   )
 }

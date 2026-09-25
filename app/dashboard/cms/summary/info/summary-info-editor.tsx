@@ -6,6 +6,7 @@ import { ArrowLeft, Pencil, Plus, Trash2 } from 'lucide-react'
 import { CMSTabs } from '@/components/cms-tabs'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { supabase } from '@/lib/supabase'
+import { useCmsAtomicListSave } from '@/hooks/use-cms-atomic-list-save'
 
 type Pointer = { id: string; sort_order: number; icon_url: string | null; pointer_text: string; video_url: string | null; video_link_text: string | null }
 type Draft = { id?: string; sort_order: number; icon_url: string; pointer_text: string; video_url: string; video_link_text: string }
@@ -13,7 +14,7 @@ type InitialData = { heading: string; enabled: boolean; hasSection: boolean; poi
 const emptyDraft: Draft = { sort_order: 0, icon_url: '', pointer_text: '', video_url: '', video_link_text: '' }
 const input = 'mt-1 w-full rounded-lg border border-border bg-white px-3 py-2 text-sm outline-none focus:border-primary'
 
-export function SummaryInfoEditor({ initialData }: { initialData?: InitialData }) {
+export function SummaryInfoEditor({ initialData, initialRevision = '' }: { initialData?: InitialData; initialRevision?: string }) {
   const safeInitialData = initialData ?? { heading: 'Additional Summary Details', enabled: false, hasSection: false, pointers: [] }
   const [heading, setHeading] = useState(safeInitialData.heading)
   const [enabled, setEnabled] = useState(safeInitialData.enabled)
@@ -24,6 +25,7 @@ export function SummaryInfoEditor({ initialData }: { initialData?: InitialData }
   const [uploading, setUploading] = useState(false)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
+  const { prepareSave, acceptSave } = useCmsAtomicListSave(safeInitialData.pointers, initialRevision)
 
   const api = useCallback(async (method: string, body?: unknown) => {
     const { data } = await supabase.auth.getSession()
@@ -40,11 +42,19 @@ export function SummaryInfoEditor({ initialData }: { initialData?: InitialData }
     setHeading(payload.section?.heading ?? 'Additional Summary Details')
     setEnabled(payload.section?.is_enabled ?? false)
     setPointers(payload.pointers ?? [])
-  }, [api])
+    if(payload.revision)acceptSave(payload.pointers??[],payload.revision)
+  }, [api, acceptSave])
+
+  const persist = async (nextHeading: string, nextEnabled: boolean, nextPointers: Array<Pointer | Draft>) => {
+    const body=prepareSave({parent:{heading:nextHeading,is_enabled:nextEnabled},items:nextPointers.map((pointer)=>({...pointer,icon_url:pointer.icon_url??'',video_url:pointer.video_url??'',video_link_text:pointer.video_link_text??''}))},nextPointers)
+    const payload=await api('POST',body)
+    if(!payload?.items||!payload?.revision)throw new Error('Saved, but the updated summary could not be reloaded. Reload this page.')
+    setHeading(payload.parent?.heading??nextHeading);setEnabled(payload.parent?.is_enabled??nextEnabled);setPointers(payload.items);setHasSection(true);acceptSave(payload.items,payload.revision)
+  }
 
   const saveHeading = async () => {
     setBusy(true); setMessage('')
-    try { await api('POST', { heading, is_enabled: enabled }); await reload(); setMessage('Summary heading saved.') }
+    try { await persist(heading, enabled, pointers); setMessage('Summary heading saved.') }
     catch (error) { setMessage(error instanceof Error ? error.message : 'Save failed.') }
     finally { setBusy(false) }
   }
@@ -52,7 +62,7 @@ export function SummaryInfoEditor({ initialData }: { initialData?: InitialData }
   const savePointer = async () => {
     if (!draft) return
     setBusy(true); setMessage('')
-    try { await api('PUT', draft); setDraft(null); await reload(); setMessage('Pointer saved.') }
+    try { const next=draft.id?pointers.map((pointer)=>pointer.id===draft.id?{...draft,id:draft.id}:pointer):[...pointers,draft];await persist(heading,enabled,next); setDraft(null); setMessage('Pointer saved.') }
     catch (error) { setMessage(error instanceof Error ? error.message : 'Save failed.') }
     finally { setBusy(false) }
   }
@@ -60,7 +70,7 @@ export function SummaryInfoEditor({ initialData }: { initialData?: InitialData }
   const deletePointer = async (id: string) => {
     if (!window.confirm('Delete this pointer?')) return
     setBusy(true); setMessage('')
-    try { await api('DELETE', { id }); await reload(); setMessage('Pointer deleted.') }
+    try { await persist(heading,enabled,pointers.filter((pointer)=>pointer.id!==id)); setMessage('Pointer deleted.') }
     catch (error) { setMessage(error instanceof Error ? error.message : 'Delete failed.') }
     finally { setBusy(false) }
   }

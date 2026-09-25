@@ -8,16 +8,18 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
 import { uploadCmsAssetDirectWithFallback } from '@/lib/cms-direct-upload-client'
+import { useCmsSingletonSave } from '@/hooks/use-cms-singleton-save'
 
 export type BlogHeroForm = { is_enabled: boolean; heading: string; paragraph: string; button_label: string; button_link: string; desktop_image_path: string; desktop_image_alt: string; mobile_image_path: string; mobile_image_alt: string }
 
-export function BlogHeroEditorClient({ initialData }: { initialData: BlogHeroForm }) {
+export function BlogHeroEditorClient({ initialData, initialRevision }: { initialData: BlogHeroForm; initialRevision: string }) {
   const [form, setForm] = useState(initialData)
   const [status, setStatus] = useState('Blog hero loaded')
   const [isSaving, setIsSaving] = useState(false)
   const [uploading, setUploading] = useState<'desktop' | 'mobile' | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const { toast } = useToast()
+  const { prepareSave, acceptSave } = useCmsSingletonSave(initialRevision)
 
   const upload = async (kind: 'desktop' | 'mobile', file?: File) => {
     if (!file) return
@@ -37,10 +39,12 @@ export function BlogHeroEditorClient({ initialData }: { initialData: BlogHeroFor
     const accessToken = data.session?.access_token
     if (!accessToken) return setStatus('You are not signed in.')
     setIsSaving(true)
-    const response = await fetch('/api/cms/blog/hero', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` }, body: JSON.stringify(form) })
-    const payload = await response.json().catch(() => null) as { error?: string } | null
+    const response = await fetch('/api/cms/blog/hero', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` }, body: JSON.stringify(prepareSave(form)) })
+    const payload = await response.json().catch(() => null) as { error?: string; revision?: string } | null
     setIsSaving(false)
     if (!response.ok) return setStatus(payload?.error ?? 'Unable to save blog hero.')
+    if (!payload?.revision) return setStatus('The hero was saved, but its new revision was not returned. Reload this page.')
+    acceptSave(payload.revision)
     setConfirmOpen(false)
     setStatus('Blog hero saved')
     toast({ title: 'Saved', description: 'Blog page hero updated successfully.' })

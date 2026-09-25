@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from '@/lib/admin-supabase'
+import { loadCmsSingletonSnapshot } from '@/lib/cms-singleton-save'
 import { AboutWideBannerEditorClient, type AboutWideBannerInitialData } from './about-wide-banner-editor-client'
 
 const fallback: AboutWideBannerInitialData = {
@@ -7,15 +8,13 @@ const fallback: AboutWideBannerInitialData = {
 }
 
 export default async function AboutWideBannerEditorPage() {
-  const { data, error } = await createSupabaseAdminClient().from('about_wide_banner')
-    .select('section_key, is_enabled, desktop_image_path, mobile_image_path, image_alt, heading, paragraph, show_button, button_label, button_link, content_position, sort_order')
-    .eq('section_key', 'about_wide_banner').maybeSingle()
-  if (error) throw new Error(error.message)
+  const snapshot = await loadCmsSingletonSnapshot<AboutWideBannerInitialData>(createSupabaseAdminClient(), 'about_wide_banner')
+  const data = snapshot.item
   return <AboutWideBannerEditorClient initialData={{
     ...fallback, ...(data ?? {}), desktop_image_path: data?.desktop_image_path ?? '', mobile_image_path: data?.mobile_image_path ?? '',
     image_alt: data?.image_alt ?? '', heading: data?.heading ?? '', paragraph: data?.paragraph ?? '', button_label: data?.button_label ?? '',
     button_link: data?.button_link ?? '', content_position: 'bottom-center',
-  }} />
+  }} initialRevision={snapshot.revision} />
 }
 
 

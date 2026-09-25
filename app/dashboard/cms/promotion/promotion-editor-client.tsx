@@ -9,6 +9,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { useCmsAtomicListSave } from '@/hooks/use-cms-atomic-list-save'
 
 async function getAccessToken() {
   const { data } = await supabase.auth.getSession()
@@ -56,7 +57,7 @@ function publicAssetUrl(path: string) {
   return projectUrl ? `${projectUrl}/storage/v1/object/public/${bucket}/${path}` : path
 }
 
-export function PromotionEditorClient({ initialData }: { initialData: PromotionInitialData }) {
+export function PromotionEditorClient({ initialData, initialRevision }: { initialData: PromotionInitialData; initialRevision: string }) {
   const { toast } = useToast()
   const [isSaving, setIsSaving] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -65,6 +66,7 @@ export function PromotionEditorClient({ initialData }: { initialData: PromotionI
   const [status, setStatus] = useState('Promotion popup loaded')
   const [uploadingField, setUploadingField] = useState<ImageField | null>(null)
   const [form, setForm] = useState(initialData.item)
+  const { prepareSave, acceptSave } = useCmsAtomicListSave(initialData.item.questions, initialRevision)
 
   const updateQuestion = (index: number, patch: Partial<PromotionInitialData['item']['questions'][number]>) => setForm((current) => ({ ...current, questions: current.questions.map((question, questionIndex) => questionIndex === index ? { ...question, ...patch } : question) }))
   const addQuestion = () => setForm((current) => { const index = current.questions.length; setEditingQuestionIndex(index); return { ...current, questions: [...current.questions, { id: null, field_key: 'question_' + (index + 1), question: '', input_type: 'text', options: [], allow_multiple: false, validation_pattern: '', validation_message: '', is_required: true, is_active: true, sort_order: index }] } })
@@ -125,13 +127,18 @@ export function PromotionEditorClient({ initialData }: { initialData: PromotionI
     try {
       const accessToken = await getAccessToken()
       if (!accessToken) throw new Error('Missing access token.')
+      const questions = form.questions.map((question, index) => ({ ...question, sort_order: index }))
+      const { questions: _questions, ...parent } = form
       const response = await fetch('/api/cms/promotion', {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify(form),
+        body: JSON.stringify(prepareSave({ parent, items: questions }, questions)),
       })
-      const payload = await response.json().catch(() => null) as { error?: string } | null
+      const payload = await response.json().catch(() => null) as { error?: string; items?: PromotionInitialData['item']['questions']; revision?: string } | null
       if (!response.ok) throw new Error(payload?.error ?? 'Unable to save promotion popup.')
+      if (!payload?.items || !payload.revision) throw new Error('Saved, but the updated questions could not be reloaded. Reload this page.')
+      setForm((current) => ({ ...current, questions: payload.items! }))
+      acceptSave(payload.items, payload.revision)
       setConfirmOpen(false)
       setStatus('Promotion popup saved')
       toast({ title: 'Saved', description: 'Promotion popup updated successfully.' })

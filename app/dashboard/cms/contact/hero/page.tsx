@@ -1,30 +1,20 @@
 import { createSupabaseAdminClient } from '@/lib/admin-supabase'
+import { loadCmsSingletonSnapshot } from '@/lib/cms-singleton-save'
 import { ContactHeroEditorClient, type ContactHeroInitialData } from './contact-hero-editor-client'
 
-async function getContactHeroInitialData(): Promise<ContactHeroInitialData> {
-  const adminClient = createSupabaseAdminClient()
-  const { data, error } = await adminClient
-    .from('contact_hero')
-    .select('id, section_key, eyebrow, heading, subtitle')
-    .eq('section_key', 'contact_hero')
-    .maybeSingle()
-
-  if (error) {
-    throw new Error(error.message)
-  }
-
-  return {
-    item:
-      data ?? {
+async function getContactHeroInitialData() {
+  const snapshot = await loadCmsSingletonSnapshot<ContactHeroInitialData['item']>(createSupabaseAdminClient(), 'contact_hero')
+  return { initialData: {
+    item: snapshot.item ?? {
         section_key: 'contact_hero',
         eyebrow: '',
         heading: '',
         subtitle: '',
       },
-  }
+  }, revision: snapshot.revision }
 }
 
 export default async function ContactHeroPage() {
-  const initialData = await getContactHeroInitialData()
-  return <ContactHeroEditorClient initialData={initialData} />
+  const { initialData, revision } = await getContactHeroInitialData()
+  return <ContactHeroEditorClient initialData={initialData} initialRevision={revision} />
 }

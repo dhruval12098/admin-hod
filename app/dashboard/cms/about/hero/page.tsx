@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from '@/lib/admin-supabase'
+import { loadCmsSingletonSnapshot } from '@/lib/cms-singleton-save'
 import { AboutHeroEditorClient, type AboutHeroInitialData } from './about-hero-editor-client'
 
 const fallback: AboutHeroInitialData = {
@@ -8,10 +9,8 @@ const fallback: AboutHeroInitialData = {
 }
 
 export default async function AboutHeroEditorPage() {
-  const { data, error } = await createSupabaseAdminClient().from('about_hero')
-    .select('section_key, is_enabled, media_type, desktop_media_path, mobile_media_path, video_poster_path, media_alt, show_text_overlay, heading, paragraph, show_button, button_label, button_link, overlay_position, overlay_scrim_enabled')
-    .eq('section_key', 'about_hero').maybeSingle()
-  if (error) throw new Error(error.message)
+  const snapshot = await loadCmsSingletonSnapshot<AboutHeroInitialData>(createSupabaseAdminClient(), 'about_hero')
+  const data = snapshot.item
 
   return <AboutHeroEditorClient initialData={{
     ...fallback, ...(data ?? {}),
@@ -20,5 +19,5 @@ export default async function AboutHeroEditorPage() {
     paragraph: data?.paragraph ?? '', button_label: data?.button_label ?? '', button_link: data?.button_link ?? '',
     media_type: data?.media_type === 'video' ? 'video' : 'image',
     overlay_position: (data?.overlay_position ?? 'left') as AboutHeroInitialData['overlay_position'],
-  }} />
+  }} initialRevision={snapshot.revision} />
 }

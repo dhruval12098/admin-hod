@@ -8,6 +8,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
+import { useCmsAtomicListSave } from '@/hooks/use-cms-atomic-list-save'
 
 type ServiceBannerBlock = {
   clientId: string
@@ -48,6 +49,7 @@ export function ServiceBannerEditorClient() {
   const [isSaving, setIsSaving] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
   const [status, setStatus] = useState('Loading service banner...')
+  const { prepareSave, acceptSave } = useCmsAtomicListSave([], '')
 
   const sortedBlocks = useMemo(
     () => [...blocks].sort((a, b) => a.sort_order - b.sort_order || a.clientId.localeCompare(b.clientId)),
@@ -69,6 +71,7 @@ export function ServiceBannerEditorClient() {
         error?: string
         section?: { image_path?: string | null; image_alt?: string | null; image_url?: string; is_enabled?: boolean }
         blocks?: Array<{ id: string; title: string; paragraph: string; sort_order: number; is_active: boolean }>
+        revision?: string
       } | null
 
       if (!active) return
@@ -82,7 +85,9 @@ export function ServiceBannerEditorClient() {
       setImagePath(payload.section.image_path ?? '')
       setImageUrl(payload.section.image_url ?? '')
       setImageAlt(payload.section.image_alt ?? '')
-      setBlocks((payload.blocks ?? []).map((block) => ({ clientId: `id-${block.id}`, ...block })))
+      const nextBlocks=(payload.blocks ?? []).map((block) => ({ clientId: `id-${block.id}`, ...block }))
+      setBlocks(nextBlocks)
+      if(payload.revision)acceptSave(nextBlocks,payload.revision)
       setStatus('Service banner loaded')
       setIsLoading(false)
     }
@@ -160,23 +165,26 @@ export function ServiceBannerEditorClient() {
     const response = await fetch('/api/cms/service-banner', {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-      body: JSON.stringify({
-        section: { image_path: imagePath, image_alt: imageAlt, is_enabled: isEnabled },
-        blocks: sortedBlocks.map((block, index) => ({
+      body: JSON.stringify(prepareSave({
+        parent: { image_path: imagePath, image_alt: imageAlt, is_enabled: isEnabled },
+        items: sortedBlocks.map((block, index) => ({
+          id: block.id,
           title: block.title,
           paragraph: block.paragraph,
           sort_order: index + 1,
           is_active: block.is_active,
         })),
-      }),
+      }, sortedBlocks)),
     })
-    const payload = await response.json().catch(() => null) as { error?: string } | null
+    const payload = await response.json().catch(() => null) as { error?: string; items?: Array<{ id: string; title: string; paragraph: string; sort_order: number; is_active: boolean }>; revision?: string } | null
     setIsSaving(false)
 
     if (!response.ok) {
       setStatus(payload?.error ?? 'Unable to save the service banner.')
       return
     }
+    if(!payload?.items||!payload.revision){setStatus('Saved, but the updated blocks could not be reloaded. Reload this page.');return}
+    const nextBlocks=payload.items.map((block)=>({clientId:`id-${block.id}`,...block}));setBlocks(nextBlocks);acceptSave(payload.items,payload.revision)
 
     setConfirmOpen(false)
     setBlocks((current) => current.map((block, index) => ({ ...block, sort_order: index + 1 })))

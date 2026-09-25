@@ -8,6 +8,7 @@ import { Switch } from '@/components/ui/switch'
 import { CmsSaveAction } from '@/components/cms-save-action'
 import { uploadCmsAssetDirectWithFallback } from '@/lib/cms-direct-upload-client'
 import { supabase } from '@/lib/supabase'
+import { useCmsSingletonSave } from '@/hooks/use-cms-singleton-save'
 
 export type BannerPosition = 'left' | 'center' | 'right' | 'bottom-left' | 'bottom-center' | 'bottom-right'
 export type AboutWideBannerInitialData = {
@@ -21,12 +22,13 @@ function SwitchRow({ label, description, checked, onChange }: { label: string; d
   return <div className="flex items-center justify-between gap-6 rounded-lg border border-border px-4 py-3"><span><span className="block text-sm font-semibold">{label}</span><span className="mt-1 block text-xs text-muted-foreground">{description}</span></span><Switch checked={checked} onCheckedChange={onChange} aria-label={label} /></div>
 }
 
-export function AboutWideBannerEditorClient({ initialData }: { initialData: AboutWideBannerInitialData }) {
+export function AboutWideBannerEditorClient({ initialData, initialRevision }: { initialData: AboutWideBannerInitialData; initialRevision: string }) {
   const [form, setForm] = useState(initialData)
   const [status, setStatus] = useState('About wide banner loaded')
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState<string | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const { prepareSave, acceptSave } = useCmsSingletonSave(initialRevision)
   const patch = <K extends keyof AboutWideBannerInitialData>(key: K, value: AboutWideBannerInitialData[K]) => setForm((current) => ({ ...current, [key]: value }))
 
   const upload = async (event: ChangeEvent<HTMLInputElement>, target: 'desktop_image_path' | 'mobile_image_path') => {
@@ -61,7 +63,7 @@ export function AboutWideBannerEditorClient({ initialData }: { initialData: Abou
       const requestSave = () => fetch('/api/cms/about/wide-banner', {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-        body: JSON.stringify(form),
+        body: JSON.stringify(prepareSave(form)),
       })
 
       let response: Response
@@ -72,11 +74,16 @@ export function AboutWideBannerEditorClient({ initialData }: { initialData: Abou
         response = await requestSave()
       }
 
-      const payload = await response.json().catch(() => null) as { error?: string } | null
+      const payload = await response.json().catch(() => null) as { error?: string; revision?: string } | null
       if (!response.ok) {
         setStatus(payload?.error ?? 'Unable to save wide banner.')
         return
       }
+      if (!payload?.revision) {
+        setStatus('The banner was saved, but its new revision was not returned. Reload this page.')
+        return
+      }
+      acceptSave(payload.revision)
 
       setConfirmOpen(false)
       setStatus('About wide banner saved')

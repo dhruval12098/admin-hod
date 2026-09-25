@@ -8,6 +8,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { CmsSaveAction } from '@/components/cms-save-action'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
+import { useCmsAtomicListSave } from '@/hooks/use-cms-atomic-list-save'
 
 type AnnouncementItem = {
   clientId: string
@@ -42,7 +43,7 @@ const emptyEditorItem = (sort_order: number): EditorItem => ({
   is_active: true,
 })
 
-export function SupportAnnouncementBarEditorClient({ initialData }: { initialData: SupportAnnouncementBarInitialData }) {
+export function SupportAnnouncementBarEditorClient({ initialData, initialRevision }: { initialData: SupportAnnouncementBarInitialData; initialRevision: string }) {
   const { toast } = useToast()
   const [barActive, setBarActive] = useState(initialData.section.is_active)
   const [autoplay, setAutoplay] = useState(initialData.section.autoplay)
@@ -53,6 +54,7 @@ export function SupportAnnouncementBarEditorClient({ initialData }: { initialDat
   const [loadStatus, setLoadStatus] = useState(initialData.items.length ? 'Announcement bar loaded' : 'No announcement items found yet')
   const [editorOpen, setEditorOpen] = useState(false)
   const [editorItem, setEditorItem] = useState<EditorItem>(emptyEditorItem(1))
+  const { prepareSave, acceptSave } = useCmsAtomicListSave(initialData.items, initialRevision)
 
   const sorted = useMemo(() => [...items].sort((a, b) => a.sort_order - b.sort_order || a.clientId.localeCompare(b.clientId)), [items])
 
@@ -79,14 +81,17 @@ export function SupportAnnouncementBarEditorClient({ initialData }: { initialDat
     const res = await fetch('/api/cms/support/announcement-bar', {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-      body: JSON.stringify({
-        section: { is_active: barActive, autoplay, speed_ms: speedMs },
-        items: sorted.map(({ sort_order, message, link_url, open_in_new_tab, is_active }) => ({ sort_order, message, link_url, open_in_new_tab, is_active })),
-      }),
+      body: JSON.stringify(prepareSave({
+        parent: { is_active: barActive, autoplay, speed_ms: speedMs },
+        items: sorted.map(({ id, sort_order, message, link_url, open_in_new_tab, is_active }) => ({ id, sort_order, message, link_url, open_in_new_tab, is_active })),
+      }, sorted)),
     })
-    const payload = (await res.json().catch(() => null)) as { error?: string } | null
+    const payload = (await res.json().catch(() => null)) as { error?: string; items?: SupportAnnouncementBarInitialData['items']; revision?: string } | null
     setIsSaving(false)
     if (!res.ok) return setLoadStatus(payload?.error ?? 'Unable to save announcement bar.')
+    if (!payload?.items || !payload.revision) return setLoadStatus('Saved, but the updated items could not be reloaded. Reload this page.')
+    setItems(payload.items.map((item) => ({ clientId: `id-${item.id}`, ...item })))
+    acceptSave(payload.items, payload.revision)
     setConfirmOpen(false)
     toast({ title: 'Saved', description: 'Announcement bar updated successfully.' })
     setLoadStatus('Announcement bar saved')

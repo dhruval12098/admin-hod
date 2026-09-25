@@ -7,6 +7,7 @@ import { CmsSaveAction } from '@/components/cms-save-action'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
+import { useCmsAtomicListSave } from '@/hooks/use-cms-atomic-list-save'
 
 const stateKeys = ['success', 'pending', 'failed', 'error'] as const
 type StateKey = typeof stateKeys[number]
@@ -36,6 +37,7 @@ export function CheckoutResultEditor() {
   const [uploading, setUploading] = useState<'main' | 'secondary' | null>(null)
   const [confirm, setConfirm] = useState(false)
   const [status, setStatus] = useState('Loading checkout result content...')
+  const { prepareSave, acceptSave } = useCmsAtomicListSave([], '')
 
   useEffect(() => {
     let active = true
@@ -43,12 +45,14 @@ export function CheckoutResultEditor() {
       const access = await token()
       if (!access) { setStatus('You are not signed in.'); setLoading(false); return }
       const response = await fetch('/api/cms/checkout-result', { headers: { authorization: `Bearer ${access}` } })
-      const data = await response.json().catch(() => null) as { error?: string; page?: Partial<PageCopy>; states?: StateCopy[] } | null
+      const data = await response.json().catch(() => null) as { error?: string; page?: Partial<PageCopy>; states?: StateCopy[]; revision?: string } | null
       if (!active) return
       if (!response.ok) { setStatus(data?.error || 'Unable to load checkout result content.'); setLoading(false); return }
       if (data?.page) setPage({ ...emptyPage, ...data.page })
       const received = data?.states || []
-      setStates(stateKeys.map((state) => ({ state, ...defaults[state], ...(received.find((row) => row.state === state) || {}) })))
+      const nextStates=stateKeys.map((state) => ({ state, ...defaults[state], ...(received.find((row) => row.state === state) || {}) }))
+      setStates(nextStates)
+      if(data?.revision)acceptSave(nextStates,data.revision)
       setStatus('Checkout result content loaded.'); setLoading(false)
     }
     void load(); return () => { active = false }
@@ -73,10 +77,13 @@ export function CheckoutResultEditor() {
     setSaving(true)
     const access = await token()
     if (!access) { setSaving(false); setStatus('You are not signed in.'); return }
-    const response = await fetch('/api/cms/checkout-result', { method: 'POST', headers: { authorization: `Bearer ${access}`, 'content-type': 'application/json' }, body: JSON.stringify({ page, states }) })
-    const data = await response.json().catch(() => null) as { error?: string } | null
+    const { main_banner_image_url: _mainUrl, secondary_banner_image_url: _secondaryUrl, ...parent } = page
+    const response = await fetch('/api/cms/checkout-result', { method: 'POST', headers: { authorization: `Bearer ${access}`, 'content-type': 'application/json' }, body: JSON.stringify(prepareSave({ parent, items: states }, states)) })
+    const data = await response.json().catch(() => null) as { error?: string; items?: StateCopy[]; revision?: string } | null
     setSaving(false)
     if (!response.ok) { setStatus(data?.error || 'Unable to save checkout result content.'); return }
+    if(!data?.items||!data.revision){setStatus('Saved, but the updated checkout states could not be reloaded. Reload this page.');return}
+    setStates(data.items);acceptSave(data.items,data.revision)
     setConfirm(false); setStatus('Checkout result content saved.'); toast({ title: 'Saved', description: 'Checkout result page content updated successfully.' })
   }
 

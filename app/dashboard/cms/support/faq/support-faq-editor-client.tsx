@@ -9,6 +9,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { CmsSaveAction } from '@/components/cms-save-action'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
+import { useCmsAtomicListSave } from '@/hooks/use-cms-atomic-list-save'
 
 type Category = { id: number; name: string; slug: string; description: string; image_path: string | null; image_alt: string; sort_order: number; is_active: boolean }
 type FaqItem = { clientId: string; id?: number; sort_order: number; question: string; answer: string; is_active: boolean; category_id: number | null; catalog_category_id: string | null }
@@ -23,7 +24,7 @@ export type SupportFaqInitialData = {
 const emptyItem = (sort_order: number): EditorItem => ({ clientId: `draft-${Date.now()}`, sort_order, question: '', answer: '', is_active: true, category_id: null, catalog_category_id: null })
 const emptyCategory = (sort_order: number): CategoryDraft => ({ name: '', slug: '', description: '', image_path: null, image_alt: '', sort_order, is_active: true })
 
-export function SupportFaqEditorClient({ initialData }: { initialData: SupportFaqInitialData }) {
+export function SupportFaqEditorClient({ initialData, initialRevision }: { initialData: SupportFaqInitialData; initialRevision: string }) {
   const { toast } = useToast()
   const [title, setTitle] = useState(initialData.section.title)
   const [subtitle, setSubtitle] = useState(initialData.section.subtitle)
@@ -39,6 +40,7 @@ export function SupportFaqEditorClient({ initialData }: { initialData: SupportFa
   const [categorySaving, setCategorySaving] = useState(false)
   const [categoryDeleteTarget, setCategoryDeleteTarget] = useState<Category | null>(null)
   const [faqDeleteTarget, setFaqDeleteTarget] = useState<FaqItem | null>(null)
+  const { prepareSave, acceptSave } = useCmsAtomicListSave(initialData.items, initialRevision)
   const sorted = useMemo(() => [...items].sort((a,b) => a.sort_order-b.sort_order), [items])
   const sortedCategories = useMemo(() => [...categories].sort((a,b) => a.sort_order-b.sort_order), [categories])
   const token = async () => (await supabase.auth.getSession()).data.session?.access_token
@@ -51,8 +53,9 @@ export function SupportFaqEditorClient({ initialData }: { initialData: SupportFa
     setIsSaving(true)
     try {
       const accessToken=await token(); if(!accessToken) throw new Error('You are not signed in.')
-      const res=await fetch('/api/cms/support/faq',{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${accessToken}`},body:JSON.stringify({section:{title,subtitle},items:sorted.map(({sort_order,question,answer,is_active,category_id,catalog_category_id})=>({sort_order,question,answer,is_active,category_id,catalog_category_id}))})})
-      const payload=await res.json().catch(()=>null); if(!res.ok) throw new Error(payload?.error||'Unable to save FAQ content.')
+      const body=prepareSave({parent:{title,subtitle},items:sorted.map(({id,sort_order,question,answer,is_active,category_id,catalog_category_id})=>({id,sort_order,question,answer,is_active,category_id,catalog_category_id}))},sorted)
+      const res=await fetch('/api/cms/support/faq',{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${accessToken}`},body:JSON.stringify(body)})
+      const payload=await res.json().catch(()=>null); if(!res.ok) throw new Error(payload?.error||'Unable to save FAQ content.'); if(!payload?.items||!payload?.revision)throw new Error('Saved, but the updated FAQs could not be reloaded. Reload this page.'); setItems(payload.items.map((item:SupportFaqInitialData['items'][number])=>({clientId:`id-${item.id}`,...item})));acceptSave(payload.items,payload.revision)
       setConfirmOpen(false); setStatus('FAQ content saved'); toast({title:'Saved',description:'FAQ content updated successfully.'})
     } catch(error) { setStatus(error instanceof Error?error.message:'Unable to save FAQ content.') } finally { setIsSaving(false) }
   }
