@@ -7,9 +7,11 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/hooks/use-toast'
 import { slugify } from '@/lib/product-catalog'
+import { catalogMasterDeleteBody, catalogMasterSaveBody } from '@/lib/catalog-master-client'
 
 export type MaterialValueItem = {
   id: string
+  _revision?: string
   name: string
   slug: string
   cta_mode?: 'both' | 'enquire_only' | 'checkout_only'
@@ -87,14 +89,14 @@ export function MaterialValuesClient({ initialItems }: { initialItems: MaterialV
         authorization: `Bearer ${accessToken}`,
         'content-type': 'application/json',
       },
-      body: JSON.stringify({
+      body: catalogMasterSaveBody({
         name: formData.name,
         slug: formData.slug,
         cta_mode: formData.cta_mode,
         cta_label: formData.cta_label || null,
         display_order: formData.display_order,
         status: formData.status,
-      }),
+      }, editingId ? items.find((item) => item.id === editingId)?._revision : null),
     })
 
     const payload = await response.json().catch(() => null)
@@ -113,9 +115,12 @@ export function MaterialValuesClient({ initialItems }: { initialItems: MaterialV
     const accessToken = await getAccessToken()
     if (!accessToken) return
 
+    const revision = items.find((item) => item.id === id)?._revision
+    if (!revision) return
     const response = await fetch(`/api/catalog/material-values/${id}`, {
       method: 'DELETE',
-      headers: { authorization: `Bearer ${accessToken}` },
+      headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
+      body: catalogMasterDeleteBody(revision),
     })
 
     const payload = await response.json().catch(() => null)

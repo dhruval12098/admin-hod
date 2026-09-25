@@ -5,6 +5,7 @@ import { Edit2, Plus, Trash2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { supabase } from '@/lib/supabase'
 import type { CatalogGstSlab } from '@/lib/product-catalog'
+import { catalogMasterDeleteBody, catalogMasterSaveBody } from '@/lib/catalog-master-client'
 
 async function authedFetch(url: string, options: RequestInit = {}) {
   const { data } = await supabase.auth.getSession()
@@ -78,14 +79,14 @@ export function GstClient({ initialItems }: { initialItems: CatalogGstSlab[] }) 
     try {
       const response = await authedFetch(editingId ? `/api/catalog/gst-slabs/${editingId}` : '/api/catalog/gst-slabs', {
         method: editingId ? 'PATCH' : 'POST',
-        body: JSON.stringify({
+        body: catalogMasterSaveBody({
           name: form.name,
           code: form.code,
           percentage: Number(form.percentage || 0),
           description: form.description || null,
           display_order: Number(form.display_order || 0),
           status: form.status,
-        }),
+        }, editingId ? items.find((item) => item.id === editingId)?._revision : null),
       })
 
       if (response.ok) {
@@ -98,7 +99,9 @@ export function GstClient({ initialItems }: { initialItems: CatalogGstSlab[] }) 
   }
 
   async function deleteItem(id: string) {
-    const response = await authedFetch(`/api/catalog/gst-slabs/${id}`, { method: 'DELETE' })
+    const revision = items.find((item) => item.id === id)?._revision
+    if (!revision) return
+    const response = await authedFetch(`/api/catalog/gst-slabs/${id}`, { method: 'DELETE', body: catalogMasterDeleteBody(revision) })
     if (response.ok) await loadItems()
   }
 

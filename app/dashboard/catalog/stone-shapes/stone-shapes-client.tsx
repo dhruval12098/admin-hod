@@ -7,9 +7,11 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
 import { slugify } from '@/lib/product-catalog'
+import { catalogMasterDeleteBody, catalogMasterSaveBody } from '@/lib/catalog-master-client'
 
 export type StoneShape = {
   id: string
+  _revision?: string
   name: string
   slug: string
   svgName: string | null
@@ -53,8 +55,9 @@ export function StoneShapesClient({ initialShapes }: { initialShapes: StoneShape
       if (!response.ok || !payload?.items) return
 
       setShapes(
-        payload.items.map((item: { id: string; name: string; slug: string; svg_asset_url: string | null; display_order: number; status: 'active' | 'hidden' }) => ({
+        payload.items.map((item: { id: string; _revision: string; name: string; slug: string; svg_asset_url: string | null; display_order: number; status: 'active' | 'hidden' }) => ({
           id: item.id,
+          _revision: item._revision,
           name: item.name,
           slug: item.slug,
           svgName: item.svg_asset_url,
@@ -99,13 +102,13 @@ export function StoneShapesClient({ initialShapes }: { initialShapes: StoneShape
         authorization: `Bearer ${accessToken}`,
         'content-type': 'application/json',
       },
-      body: JSON.stringify({
+      body: catalogMasterSaveBody({
         name: formData.name,
         slug: formData.slug,
         svg_asset_url: formData.svgName || null,
         display_order: formData.displayOrder,
         status: formData.status === 'Hidden' ? 'hidden' : 'active',
-      }),
+      }, editingId ? shapes.find((shape) => shape.id === editingId)?._revision : null),
     })
 
     if (response.ok) {
@@ -126,9 +129,12 @@ export function StoneShapesClient({ initialShapes }: { initialShapes: StoneShape
     const accessToken = await getAccessToken()
     if (!accessToken) return
 
+    const revision = shapes.find((shape) => shape.id === id)?._revision
+    if (!revision) return
     const response = await fetch(`/api/catalog/stone-shapes/${id}`, {
       method: 'DELETE',
-      headers: { authorization: `Bearer ${accessToken}` },
+      headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
+      body: catalogMasterDeleteBody(revision),
     })
 
     if (response.ok) {

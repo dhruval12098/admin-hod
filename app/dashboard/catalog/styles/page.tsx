@@ -1,19 +1,13 @@
 import { createSupabaseAdminClient } from '@/lib/admin-supabase'
+import { loadCatalogMasterList } from '@/lib/catalog-master-save'
 import { StylesClient, type CatalogStyleItem } from './styles-client'
 
 async function getStyles(): Promise<CatalogStyleItem[]> {
   const adminClient = createSupabaseAdminClient()
-  const { data, error } = await adminClient
-    .from('catalog_styles')
-    .select('*')
-    .order('display_order', { ascending: true })
-
-  if (error) {
-    throw new Error(error.message)
-  }
-
-  return (data ?? []).map((item: any) => ({
+  const data = await loadCatalogMasterList(adminClient, 'style')
+  return data.map((item: any) => ({
     id: item.id,
+    _revision: item._revision,
     name: item.name,
     iconSvgPath: item.icon_svg_path ?? '',
     displayOrder: item.display_order,

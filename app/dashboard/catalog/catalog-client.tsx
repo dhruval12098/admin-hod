@@ -12,6 +12,7 @@ import { useToast } from '@/hooks/use-toast'
 import { CatalogImagePreview } from '@/components/catalog-image-preview'
 import type { CatalogCategory, CatalogNavbarItem, CatalogOption, CatalogSubcategory, ProductContentRule } from '@/lib/product-catalog'
 import { slugify } from '@/lib/product-catalog'
+import { catalogMasterDeleteBody, catalogMasterSaveBody } from '@/lib/catalog-master-client'
 
 type CatalogTab = 'categories' | 'policies'
 
@@ -970,7 +971,7 @@ function PoliciesPanel({
       selectedId ? `/api/catalog/product-content-rules/${selectedId}` : '/api/catalog/product-content-rules',
       {
         method: selectedId ? 'PATCH' : 'POST',
-        body: JSON.stringify({
+        body: catalogMasterSaveBody({
           kind: formData.kind,
           name: formData.name,
           slug: formData.slug,
@@ -978,7 +979,7 @@ function PoliciesPanel({
           body: formData.body,
           display_order: formData.displayOrder,
           status: formData.status === 'Hidden' ? 'hidden' : 'active',
-        }),
+        }, selectedId ? productContentRules.find((item) => item.id === selectedId)?._revision : null),
       }
     )
 
@@ -995,7 +996,9 @@ function PoliciesPanel({
   }
 
   const deleteItem = async (id: string) => {
-    const response = await authedFetch(`/api/catalog/product-content-rules/${id}`, { method: 'DELETE' })
+    const revision = productContentRules.find((item) => item.id === id)?._revision
+    if (!revision) return
+    const response = await authedFetch(`/api/catalog/product-content-rules/${id}`, { method: 'DELETE', body: catalogMasterDeleteBody(revision) })
     if (response.ok) {
       await onChange()
       setDeleteTarget(null)

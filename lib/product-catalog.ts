@@ -111,6 +111,7 @@ export type MetalCompositionPart = {
 
 export type CatalogMaterialValue = {
   id: string
+  _revision?: string
   name: string
   slug: string
   cta_mode?: 'both' | 'enquire_only' | 'checkout_only'
@@ -163,6 +164,7 @@ export type ProductMetalVariant = {
 
 export type CatalogStoneShape = {
   id: string
+  _revision?: string
   name: string
   slug: string
   svg_asset_url: string | null
@@ -172,6 +174,7 @@ export type CatalogStoneShape = {
 
 export type CatalogRingSize = {
   id: string
+  _revision?: string
   name: string
   slug: string
   display_order: number
@@ -198,6 +201,7 @@ export type CatalogRingCategorySize = {
 
 export type CatalogCertificate = {
   id: string
+  _revision?: string
   name: string
   code?: string | null
   slug?: string | null
@@ -207,6 +211,7 @@ export type CatalogCertificate = {
 
 export type CatalogStyle = {
   id: string
+  _revision?: string
   name: string
   icon_svg_path?: string | null
   display_order: number
@@ -215,6 +220,7 @@ export type CatalogStyle = {
 
 export type CatalogGstSlab = {
   id: string
+  _revision?: string
   name: string
   code: string
   percentage: number
@@ -225,6 +231,7 @@ export type CatalogGstSlab = {
 
 export type ProductContentRule = {
   id: string
+  _revision?: string
   kind: 'shipping' | 'care_warranty'
   name: string
   slug: string

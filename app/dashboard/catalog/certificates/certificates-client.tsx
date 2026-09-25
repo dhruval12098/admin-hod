@@ -6,9 +6,11 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/hooks/use-toast'
+import { catalogMasterDeleteBody, catalogMasterSaveBody } from '@/lib/catalog-master-client'
 
 export type CertificateItem = {
   id: string
+  _revision?: string
   name: string
   code: string | null
   slug: string
@@ -67,7 +69,7 @@ export function CertificatesClient({ initialItems }: { initialItems: Certificate
     const response = await fetch(editingId ? `/api/catalog/certificates/${editingId}` : '/api/catalog/certificates', {
       method: editingId ? 'PATCH' : 'POST',
       headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
-      body: JSON.stringify(formData),
+      body: catalogMasterSaveBody(formData, editingId ? items.find((item) => item.id === editingId)?._revision : null),
     })
     const payload = await response.json().catch(() => null)
     if (!response.ok) {
@@ -83,7 +85,9 @@ export function CertificatesClient({ initialItems }: { initialItems: Certificate
   const deleteItem = async (id: string) => {
     const accessToken = await getAccessToken()
     if (!accessToken) return
-    const response = await fetch(`/api/catalog/certificates/${id}`, { method: 'DELETE', headers: { authorization: `Bearer ${accessToken}` } })
+    const revision = items.find((item) => item.id === id)?._revision
+    if (!revision) return
+    const response = await fetch(`/api/catalog/certificates/${id}`, { method: 'DELETE', headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' }, body: catalogMasterDeleteBody(revision) })
     const payload = await response.json().catch(() => null)
     if (!response.ok) {
       toast({ title: 'Delete failed', description: payload?.error ?? 'Unable to delete certificate.', variant: 'destructive' })

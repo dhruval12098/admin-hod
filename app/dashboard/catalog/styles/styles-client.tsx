@@ -6,9 +6,11 @@ import { supabase } from '@/lib/supabase'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
+import { catalogMasterDeleteBody, catalogMasterSaveBody } from '@/lib/catalog-master-client'
 
 export type CatalogStyleItem = {
   id: string
+  _revision?: string
   name: string
   iconSvgPath: string
   displayOrder: number
@@ -84,8 +86,9 @@ export function StylesClient({ initialItems }: { initialItems: CatalogStyleItem[
       if (!response.ok || !payload?.items) return
 
       setItems(
-        payload.items.map((item: { id: string; name: string; icon_svg_path?: string | null; display_order: number; status: 'active' | 'hidden' }) => ({
+        payload.items.map((item: { id: string; _revision: string; name: string; icon_svg_path?: string | null; display_order: number; status: 'active' | 'hidden' }) => ({
           id: item.id,
+          _revision: item._revision,
           name: item.name,
           iconSvgPath: item.icon_svg_path ?? '',
           displayOrder: item.display_order,
@@ -136,12 +139,12 @@ export function StylesClient({ initialItems }: { initialItems: CatalogStyleItem[
         authorization: `Bearer ${accessToken}`,
         'content-type': 'application/json',
       },
-      body: JSON.stringify({
+      body: catalogMasterSaveBody({
         name: formData.name,
         icon_svg_path: formData.iconSvgPath || null,
         display_order: formData.displayOrder,
         status: formData.status === 'Hidden' ? 'hidden' : 'active',
-      }),
+      }, editingId ? items.find((item) => item.id === editingId)?._revision : null),
     })
 
     if (response.ok) {
@@ -162,9 +165,12 @@ export function StylesClient({ initialItems }: { initialItems: CatalogStyleItem[
     const accessToken = await getAccessToken()
     if (!accessToken) return
 
+    const revision = items.find((item) => item.id === id)?._revision
+    if (!revision) return
     const response = await fetch(`/api/catalog/styles/${id}`, {
       method: 'DELETE',
-      headers: { authorization: `Bearer ${accessToken}` },
+      headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
+      body: catalogMasterDeleteBody(revision),
     })
 
     if (response.ok) {

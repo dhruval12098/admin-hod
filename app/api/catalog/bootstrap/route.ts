@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { assertAdmin } from '@/lib/cms-auth'
+import { loadCatalogMasterList } from '@/lib/catalog-master-save'
 
 async function loadOptionalTable(adminClient: any, table: string, columns = '*') {
   const result = await adminClient.from(table).select(columns).order('display_order', { ascending: true })
@@ -31,7 +32,7 @@ export async function GET(request: Request) {
     includeAttributes ? loadOptionalTable(adminClient, 'catalog_ring_category_sizes', 'id, ring_category_id, size_label, size_value, display_order, status') : Promise.resolve([]),
     (includePricing || includeAttributes) ? loadOptionalTable(adminClient, 'catalog_certificates', 'id, name, code, slug, display_order, status') : Promise.resolve([]),
     includeBasics ? loadOptionalTable(adminClient, 'catalog_styles', 'id, name, icon_svg_path, display_order, status') : Promise.resolve([]),
-    includeContent ? loadOptionalTable(adminClient, 'product_content_rules', 'id, kind, name, slug, title, body, display_order, status') : Promise.resolve([]),
+    includeContent ? loadCatalogMasterList(adminClient, 'content_rule') : Promise.resolve([]),
     includePricing ? loadOptionalTable(adminClient, 'catalog_gst_slabs', 'id, name, code, percentage, description, display_order, status') : Promise.resolve([]),
     scope === 'all' ? adminClient.from('navbar_items').select('id, label, slug, item_type, linked_category_id, direct_link_url, status').order('display_order', { ascending: true }) : Promise.resolve({ data: [], error: null }),
   ])

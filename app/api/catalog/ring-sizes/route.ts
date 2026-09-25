@@ -1,46 +1,5 @@
-import { NextResponse } from 'next/server'
 import { assertAdmin } from '@/lib/cms-auth'
+import { listCatalogMasters, saveCatalogMaster } from '@/lib/catalog-master-save'
 
-type RingSizePayload = {
-  name: string
-  slug: string
-  display_order?: number
-  status?: string
-}
-
-export async function GET(request: Request) {
-  const access = await assertAdmin(request)
-  if ('error' in access) return access.error
-
-  const { data, error } = await access.adminClient
-    .from('catalog_ring_sizes')
-    .select('*')
-    .order('display_order', { ascending: true })
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ items: data ?? [] })
-}
-
-export async function POST(request: Request) {
-  const access = await assertAdmin(request)
-  if ('error' in access) return access.error
-
-  const body = (await request.json().catch(() => null)) as RingSizePayload | null
-  if (!body?.name?.trim() || !body?.slug?.trim()) {
-    return NextResponse.json({ error: 'Name and slug are required.' }, { status: 400 })
-  }
-
-  const { data, error } = await access.adminClient
-    .from('catalog_ring_sizes')
-    .insert({
-      name: body.name.trim(),
-      slug: body.slug.trim(),
-      display_order: Number(body.display_order ?? 0),
-      status: body.status || 'active',
-    })
-    .select('*')
-    .single()
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ item: data })
-}
+export async function GET(request: Request) { const access = await assertAdmin(request); if ('error' in access) return access.error; return listCatalogMasters(access, 'ring_size') }
+export async function POST(request: Request) { const access = await assertAdmin(request); if ('error' in access) return access.error; return saveCatalogMaster(access, 'ring_size', null, await request.json().catch(() => null)) }
