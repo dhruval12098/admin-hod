@@ -17,23 +17,26 @@ import {
   type NavbarSection,
   type NavbarSectionType,
 } from '@/lib/navbar'
+import { navbarSaveBody } from '@/lib/navbar-client'
 
-const SECTION_TYPE_OPTIONS: NavbarSectionType[] = ['Subcategory Options', 'Category Link', 'Metal Swatches', 'Stone Shapes', 'Certificates', 'Styles', 'Manual Links']
+const SECTION_TYPE_OPTIONS: NavbarSectionType[] = ['Subcategory Options', 'Category Link', 'Metal Swatches', 'Stone Shapes', 'Ring Sizes', 'Certificates', 'Styles', 'Manual Links']
 
 async function getAccessToken() {
   const { data } = await supabase.auth.getSession()
   return data.session?.access_token ?? null
 }
 
-type CatalogPayload = Omit<NavbarBuilderPayload, 'items'>
+type CatalogPayload = Omit<NavbarBuilderPayload, 'items' | 'revision'>
 
 type NavbarBuilderInitialData = {
+  revision: string
   items: NavbarItem[]
   categories: NavbarBuilderPayload['categories']
   subcategories: NavbarBuilderPayload['subcategories']
   options: NavbarBuilderPayload['options']
   metals: NavbarBuilderPayload['metals']
   stoneShapes: NavbarBuilderPayload['stoneShapes']
+  ringSizes: NavbarBuilderPayload['ringSizes']
   certificates: NonNullable<NavbarBuilderPayload['certificates']>
   styles: NonNullable<NavbarBuilderPayload['styles']>
 }
@@ -45,6 +48,7 @@ function defaultCatalog(): CatalogPayload {
     options: [],
     metals: [],
     stoneShapes: [],
+    ringSizes: [],
     certificates: [],
     styles: [],
   }
@@ -52,6 +56,8 @@ function defaultCatalog(): CatalogPayload {
 
 type NavbarBuilderState = {
   items: NavbarItem[]
+  originalItems: NavbarItem[]
+  revision: string
   catalog: CatalogPayload
   setItems: Dispatch<SetStateAction<NavbarItem[]>>
   reload: () => Promise<NavbarItem[]>
@@ -60,12 +66,15 @@ type NavbarBuilderState = {
 function useNavbarBuilderState(initialData: NavbarBuilderInitialData): NavbarBuilderState {
   const { toast } = useToast()
   const [items, setItems] = useState<NavbarItem[]>(initialData.items)
+  const [originalItems, setOriginalItems] = useState<NavbarItem[]>(initialData.items)
+  const [revision, setRevision] = useState(initialData.revision)
   const [catalog, setCatalog] = useState<CatalogPayload>({
     categories: initialData.categories,
     subcategories: initialData.subcategories,
     options: initialData.options,
     metals: initialData.metals,
     stoneShapes: initialData.stoneShapes,
+    ringSizes: initialData.ringSizes,
     certificates: initialData.certificates,
     styles: initialData.styles,
   })
@@ -86,12 +95,15 @@ function useNavbarBuilderState(initialData: NavbarBuilderInitialData): NavbarBui
       }
 
       setItems(payload.items)
+      setOriginalItems(payload.items)
+      setRevision(payload.revision)
       setCatalog({
         categories: payload.categories,
         subcategories: payload.subcategories,
         options: payload.options,
         metals: payload.metals,
         stoneShapes: payload.stoneShapes,
+        ringSizes: payload.ringSizes,
         certificates: payload.certificates ?? [],
         styles: payload.styles ?? [],
       })
@@ -108,6 +120,8 @@ function useNavbarBuilderState(initialData: NavbarBuilderInitialData): NavbarBui
 
   return {
     items,
+    originalItems,
+    revision,
     catalog,
     setItems,
     reload: loadNavbar,
@@ -151,6 +165,8 @@ function sectionSourceHint(type: NavbarSectionType) {
         ? 'This section pulls directly from the Metals master table.'
         : type === 'Stone Shapes'
           ? 'This section pulls directly from the Stone Shapes master table.'
+          : type === 'Ring Sizes'
+            ? 'This section pulls directly from the Ring Sizes master table.'
           : type === 'Certificates'
               ? 'This section pulls directly from the Certificates master table.'
               : type === 'Styles'
@@ -235,7 +251,7 @@ export function NavbarBuilderOverview({ initialData }: { initialData: NavbarBuil
 export function NavbarItemEditor({ itemId, initialData }: { itemId: string; initialData: NavbarBuilderInitialData }) {
   const router = useRouter()
   const { toast } = useToast()
-  const { items, catalog, setItems, reload } = useNavbarBuilderState(initialData)
+  const { items, originalItems, revision, catalog, setItems, reload } = useNavbarBuilderState(initialData)
   const [saving, setSaving] = useState(false)
   const [sectionSaving, setSectionSaving] = useState(false)
   const [featuredImageUploading, setFeaturedImageUploading] = useState(false)
@@ -279,6 +295,12 @@ export function NavbarItemEditor({ itemId, initialData }: { itemId: string; init
       return catalog.stoneShapes
         .sort((left, right) => left.display_order - right.display_order)
         .map((entry) => ({ id: entry.id, label: entry.name, kind: 'stone_shape' as const }))
+    }
+
+    if (sectionDraft.type === 'Ring Sizes') {
+      return catalog.ringSizes
+        .sort((left, right) => left.display_order - right.display_order)
+        .map((entry) => ({ id: entry.id, label: entry.name, kind: 'ring_size' as const }))
     }
 
     if (sectionDraft.type === 'Certificates') {
@@ -392,7 +414,7 @@ export function NavbarItemEditor({ itemId, initialData }: { itemId: string; init
           'content-type': 'application/json',
           authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({ items }),
+        body: navbarSaveBody(items, originalItems, revision),
       })
 
       const payload = await response.json().catch(() => null)
@@ -842,9 +864,9 @@ export function NavbarItemEditor({ itemId, initialData }: { itemId: string; init
                                 ? current.sourceLabel || firstCategory?.name || ''
                                 : '',
                           selectedSourceItems:
-                            nextType === 'Manual Links' || nextType === 'Category Link'
-                              ? []
-                              : current.selectedSourceItems ?? [],
+                            nextType === current.type && nextType !== 'Manual Links' && nextType !== 'Category Link'
+                              ? current.selectedSourceItems ?? []
+                              : [],
                         }
                       })
                     }

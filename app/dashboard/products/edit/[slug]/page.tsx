@@ -1,4 +1,7 @@
+import { notFound } from 'next/navigation'
 import { ProductForm } from '@/components/product-form'
+import { createSupabaseAdminClient } from '@/lib/admin-supabase'
+import { loadProductEditorItem } from '@/lib/product-editor-data'
 import { getProductFormBasicsBootstrap } from '../../product-form-bootstrap'
 
 export default async function EditProductBySlugPage({
@@ -7,7 +10,12 @@ export default async function EditProductBySlugPage({
   params: Promise<{ slug: string }>
 }) {
   const { slug } = await params
-  const initialBasicsBootstrap = await getProductFormBasicsBootstrap()
+  const [initialBasicsBootstrap, productResult] = await Promise.all([
+    getProductFormBasicsBootstrap(),
+    loadProductEditorItem(createSupabaseAdminClient(), slug),
+  ])
+  if (productResult.status === 'not_found') notFound()
+  if (productResult.status === 'error') throw new Error(productResult.message)
 
   return (
     <div className="p-8">
@@ -19,6 +27,7 @@ export default async function EditProductBySlugPage({
         pageTitle="Edit Product"
         pageDescription="Update the saved standard product and storefront details."
         initialBasicsBootstrap={initialBasicsBootstrap}
+        initialProduct={productResult.item}
       />
     </div>
   )

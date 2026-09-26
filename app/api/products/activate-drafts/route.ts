@@ -1,74 +1,23 @@
 import { NextResponse } from 'next/server'
 import { assertAdmin } from '@/lib/cms-auth'
-
-type Lane = 'standard' | 'hiphop' | 'collection'
-
-function isLane(value: unknown): value is Lane {
-  return value === 'standard' || value === 'hiphop' || value === 'collection'
-}
+import { activateDraftsSchema, productOperationError } from '@/lib/product-operations-validation'
 
 export async function POST(request: Request) {
   const access = await assertAdmin(request)
   if ('error' in access) return access.error
 
-  const body = await request.json().catch(() => null) as { lane?: unknown; ids?: unknown } | null
-  if (!body || !isLane(body.lane)) {
-    return NextResponse.json({ error: 'Invalid lane.' }, { status: 400 })
-  }
+  const input = activateDraftsSchema.safeParse(await request.json().catch(() => null))
+  if (!input.success) return NextResponse.json({ error: input.error.issues[0]?.message ?? 'Invalid draft activation request.' }, { status: 400 })
 
-  const selectedIds = Array.isArray(body.ids)
-    ? body.ids.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-    : []
-
-  const { adminClient } = access
-  const lane = body.lane
-
-  let draftsQuery = adminClient
-    .from('products')
-    .select('id')
-    .eq('product_lane', lane)
-    .eq('status', 'draft')
-    .order('created_at', { ascending: true })
-
-  if (selectedIds.length > 0) {
-    draftsQuery = draftsQuery.in('id', selectedIds)
-  }
-
-  const { data: drafts, error: draftsError } = await draftsQuery
-
-  if (draftsError) {
-    return NextResponse.json({ error: draftsError.message }, { status: 500 })
-  }
-
-  let activatedCount = 0
-
-  for (const draft of drafts ?? []) {
-    const { error } = await adminClient
-      .from('products')
-      .update({ status: 'active' })
-      .eq('id', draft.id)
-      .eq('status', 'draft')
-
-    if (error) {
-      return NextResponse.json(
-        {
-          error: error.message,
-          activatedCount,
-        },
-        { status: 500 }
-      )
-    }
-
-    activatedCount += 1
-  }
-
-  return NextResponse.json({
-    activatedCount,
-    message:
-      activatedCount > 0
-        ? `Activated ${activatedCount} draft product${activatedCount === 1 ? '' : 's'}.`
-        : selectedIds.length > 0
-          ? 'No selected draft products were eligible for activation.'
-          : 'No draft products were found for this section.',
+  const { data, error } = await access.adminClient.rpc('admin_product_activate_drafts_v1', {
+    p_actor_id: access.user.id,
+    p_request_id: input.data.requestId,
+    p_lane: input.data.lane,
+    p_ids: input.data.ids,
   })
+  if (error) {
+    const safe = productOperationError(error, 'activate')
+    return NextResponse.json({ error: safe.message }, { status: safe.status })
+  }
+  return NextResponse.json(data, { headers: { 'Cache-Control': 'no-store' } })
 }

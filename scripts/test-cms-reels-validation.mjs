@@ -9,16 +9,16 @@ import ts from 'typescript'
 
 // Compile pure validation modules in memory; no build output or API/database calls.
 function loadTs(path) {
-  const module = { exports: {} }
+  const moduleRecord = { exports: {} }
   const nodeRequire = createRequire(path)
   const output = ts.transpileModule(readFileSync(path, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText
   runInNewContext(output, {
-    module, exports: module.exports, URL,
+    module: moduleRecord, exports: moduleRecord.exports, URL,
     require: (name) => name.startsWith('.') ? loadTs(resolve(dirname(path), `${name}.ts`)) : nodeRequire(name),
   })
-  return module.exports
+  return moduleRecord.exports
 }
 const { reelsSaveSchema, reelsSaveError } = loadTs(fileURLToPath(new URL('../lib/cms-reels-save.ts', import.meta.url)))
 const valid = () => ({

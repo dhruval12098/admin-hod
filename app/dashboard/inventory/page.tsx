@@ -24,7 +24,7 @@ async function getInventoryItems(): Promise<InventoryItem[]> {
     .order('updated_at', { ascending: false })
 
   if (error) {
-    throw new Error(error.message)
+    throw new Error('Unable to load inventory products.')
   }
 
   const categoryIds = [...new Set((products ?? []).map((item: any) => item.main_category_id).filter(Boolean))]

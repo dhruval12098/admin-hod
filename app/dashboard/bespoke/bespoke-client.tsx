@@ -10,6 +10,10 @@ import { TablePagination } from '@/components/table-pagination'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { slugify } from '@/lib/product-catalog'
+import { bespokeHeroSaveBody } from '@/lib/bespoke-hero-client'
+import { bespokeFormSaveBody } from '@/lib/bespoke-form-client'
+import type { BespokeFormRow, BespokeFormSnapshot } from '@/lib/bespoke-form-save'
+import { useUnsavedChanges } from '@/hooks/use-unsaved-changes'
 
 export type BespokeTab = 'hero' | 'portfolio-categories' | 'portfolio-items' | 'process' | 'form' | 'submissions'
 
@@ -46,7 +50,7 @@ export type BespokeHero = {
   slider_enabled?: boolean
   status?: 'active' | 'hidden'
   items?: Array<{
-    id?: number
+    id?: string
     clientId?: string
     sort_order: number
     image_path: string
@@ -58,6 +62,7 @@ export type BespokeHero = {
 
 export type PortfolioCategory = {
   id: string
+  updated_at: string
   name: string
   slug: string
   display_order: number
@@ -66,6 +71,7 @@ export type PortfolioCategory = {
 
 export type PortfolioItem = {
   id: string
+  updated_at: string
   title: string
   tag: string
   category_id: string
@@ -89,26 +95,9 @@ export type BespokeProcessItem = {
   description: string
 }
 
-export type SimpleRow = {
-  id?: string
-  label: string
-  display_order: number
-  status: 'active' | 'hidden'
-}
-
-export type FormConfig = {
-  settings?: {
-    intro_heading?: string | null
-    intro_subtitle?: string | null
-    footer_note?: string | null
-    status?: 'active' | 'hidden'
-  } | null
-  guarantees: SimpleRow[]
-  pieceTypes: SimpleRow[]
-  stoneOptions: SimpleRow[]
-  caratOptions: SimpleRow[]
-  metalOptions: SimpleRow[]
-}
+export type SimpleRow = BespokeFormRow
+export type FormConfig = BespokeFormSnapshot
+type FormListKey = 'guarantees' | 'pieceTypes' | 'stoneOptions' | 'caratOptions' | 'metalOptions'
 
 export type BespokeSubmission = {
   id: string
@@ -127,6 +116,7 @@ export type BespokeSubmission = {
 
 export type BespokePageData = {
   hero: BespokeHero
+  heroRevision: string
   categories: PortfolioCategory[]
   items: PortfolioItem[]
   processItems: BespokeProcessItem[]
@@ -152,6 +142,7 @@ async function authedFetch(url: string, options: RequestInit = {}) {
 function emptyPortfolioCategory(nextOrder: number): PortfolioCategory {
   return {
     id: '',
+    updated_at: '',
     name: '',
     slug: '',
     display_order: nextOrder,
@@ -162,6 +153,7 @@ function emptyPortfolioCategory(nextOrder: number): PortfolioCategory {
 function emptyPortfolioItem(categoryId: string, nextOrder: number): PortfolioItem {
   return {
     id: '',
+    updated_at: '',
     title: '',
     tag: '',
     category_id: categoryId,
@@ -188,7 +180,7 @@ function emptyProcessItem(nextOrder: number): BespokeProcessItem {
 }
 
 function emptySimpleRow(nextOrder: number): SimpleRow {
-  return { id: '', label: '', display_order: nextOrder, status: 'active' }
+  return { label: '', display_order: nextOrder, status: 'active' }
 }
 
 export function BespokeClient({ initialData }: { initialData: BespokePageData }) {
@@ -196,12 +188,15 @@ export function BespokeClient({ initialData }: { initialData: BespokePageData })
   const [activeTab, setActiveTab] = useState<BespokeTab>('hero')
   const [loading, setLoading] = useState(false)
   const [hero, setHero] = useState<BespokeHero>(initialData.hero)
+  const [heroRevision, setHeroRevision] = useState(initialData.heroRevision)
+  const [originalHeroItems, setOriginalHeroItems] = useState(initialData.hero.items ?? [])
   const [categories, setCategories] = useState<PortfolioCategory[]>(initialData.categories)
   const [items, setItems] = useState<PortfolioItem[]>(initialData.items)
   const [processItems, setProcessItems] = useState<BespokeProcessItem[]>(
     initialData.processItems.map((item) => ({ ...item, clientId: item.clientId ?? `id-${item.id}` }))
   )
   const [formConfig, setFormConfig] = useState<FormConfig>(initialData.formConfig)
+  const [originalFormConfig, setOriginalFormConfig] = useState<FormConfig>(initialData.formConfig)
   const [submissions, setSubmissions] = useState<BespokeSubmission[]>(initialData.submissions)
 
   const loadData = async () => {
@@ -226,21 +221,29 @@ export function BespokeClient({ initialData }: { initialData: BespokePageData })
       ])
 
       if (submissionsRes.ok) setSubmissions(submissionsPayload?.items ?? [])
-      if (heroRes.ok && heroPayload?.item) setHero({ ...heroPayload.item, items: heroPayload.items ?? [] })
+      if (heroRes.ok && heroPayload?.item) {
+        const nextItems = heroPayload.items ?? []
+        setHero({ ...heroPayload.item, items: nextItems })
+        setOriginalHeroItems(nextItems)
+        setHeroRevision(heroPayload.revision)
+      }
       if (categoryRes.ok) setCategories(categoryPayload?.items ?? [])
       if (itemRes.ok) setItems(itemPayload?.items ?? [])
       if (processRes.ok) {
         setProcessItems((processPayload?.items ?? []).map((item: BespokeProcessItem) => ({ ...item, clientId: item.clientId ?? `id-${item.id}` })))
       }
       if (formRes.ok && formPayload) {
-        setFormConfig({
+        const nextFormConfig: FormConfig = {
           settings: formPayload.settings ?? { intro_heading: '', intro_subtitle: '', footer_note: '', status: 'active' },
           guarantees: formPayload.guarantees ?? [],
           pieceTypes: formPayload.pieceTypes ?? [],
           stoneOptions: formPayload.stoneOptions ?? [],
           caratOptions: formPayload.caratOptions ?? [],
           metalOptions: formPayload.metalOptions ?? [],
-        })
+          revision: formPayload.revision,
+        }
+        setFormConfig(nextFormConfig)
+        setOriginalFormConfig(nextFormConfig)
       }
     } finally {
       setLoading(false)
@@ -278,11 +281,11 @@ export function BespokeClient({ initialData }: { initialData: BespokePageData })
 
       {loading ? <div className="rounded-lg border border-border bg-white px-6 py-12 text-sm text-muted-foreground">Updating bespoke data...</div> : null}
 
-      {!loading && activeTab === 'hero' ? <HeroPanel hero={hero} setHero={setHero} onReload={loadData} /> : null}
+      {!loading && activeTab === 'hero' ? <HeroPanel hero={hero} setHero={setHero} revision={heroRevision} originalItems={originalHeroItems} onReload={loadData} /> : null}
       {!loading && activeTab === 'portfolio-categories' ? <PortfolioCategoriesPanel categories={categories} onReload={loadData} /> : null}
       {!loading && activeTab === 'portfolio-items' ? <PortfolioItemsPanel categories={categories} items={items} onReload={loadData} /> : null}
       {!loading && activeTab === 'process' ? <ProcessStepsPanel items={processItems} setItems={setProcessItems} onReload={loadData} /> : null}
-      {!loading && activeTab === 'form' ? <FormPanel formConfig={formConfig} setFormConfig={setFormConfig} onReload={loadData} /> : null}
+      {!loading && activeTab === 'form' ? <FormPanel formConfig={formConfig} originalFormConfig={originalFormConfig} setFormConfig={setFormConfig} onReload={loadData} /> : null}
       {!loading && activeTab === 'submissions' ? <SubmissionSummaryPanel submissions={submissions} /> : null}
     </div>
   )
@@ -331,9 +334,10 @@ function SubmissionSummaryPanel({ submissions }: { submissions: BespokeSubmissio
   )
 }
 
-function HeroPanel({ hero, setHero, onReload }: { hero: BespokeHero; setHero: (value: BespokeHero) => void; onReload: () => Promise<void> }) {
+function HeroPanel({ hero, setHero, revision, originalItems, onReload }: { hero: BespokeHero; setHero: (value: BespokeHero) => void; revision: string; originalItems: NonNullable<BespokeHero['items']>; onReload: () => Promise<void> }) {
   const { toast } = useToast()
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
   const [desktopUploadState, setDesktopUploadState] = useState<'idle' | 'uploading'>('idle')
   const [mobileUploadState, setMobileUploadState] = useState<'idle' | 'uploading'>('idle')
@@ -442,17 +446,20 @@ function HeroPanel({ hero, setHero, onReload }: { hero: BespokeHero; setHero: (v
   }
 
   const save = async () => {
-    const response = await authedFetch('/api/bespoke/hero', {
-      method: 'PUT',
-      body: JSON.stringify({ ...hero, items: resequenceSlides(sortedSlides) }),
-    })
-    const payload = await response.json().catch(() => null)
-    if (response.ok) {
+    setSaving(true)
+    try {
+      const { items: _items, ...item } = hero
+      const slides = resequenceSlides(sortedSlides)
+      const response = await authedFetch('/api/bespoke/hero', { method: 'PUT', body: bespokeHeroSaveBody(item, slides, originalItems, revision) })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(payload?.error ?? 'Unable to save hero.')
       setConfirmOpen(false)
       await onReload()
       toast({ title: 'Hero saved', description: 'Bespoke hero content was updated.' })
-    } else {
-      toast({ title: 'Save failed', description: payload?.error ?? 'Unable to save hero.', variant: 'destructive' })
+    } catch (error) {
+      toast({ title: 'Save failed', description: error instanceof Error ? error.message : 'Unable to save hero.', variant: 'destructive' })
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -555,8 +562,8 @@ function HeroPanel({ hero, setHero, onReload }: { hero: BespokeHero; setHero: (v
         </section>
       ) : null}
 
-      <div className="flex justify-end"><button type="button" onClick={() => setConfirmOpen(true)} className={primaryButtonClassName}>Save Hero</button></div>
-      <ConfirmDialog isOpen={confirmOpen} title="Save hero changes?" description="This will update the live Bespoke hero section." confirmText="Save" onConfirm={() => void save()} onCancel={() => setConfirmOpen(false)} />
+      <div className="flex justify-end"><button type="button" disabled={saving} onClick={() => setConfirmOpen(true)} className={primaryButtonClassName}>{saving ? 'Saving...' : 'Save Hero'}</button></div>
+      <ConfirmDialog isOpen={confirmOpen} title="Save hero changes?" description="This will update the live Bespoke hero section." confirmText="Save" isLoading={saving} onConfirm={() => void save()} onCancel={() => setConfirmOpen(false)} />
       <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
@@ -763,45 +770,78 @@ function PortfolioCategoriesPanel({ categories, onReload }: { categories: Portfo
   const [deleteTarget, setDeleteTarget] = useState<PortfolioCategory | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [form, setForm] = useState<PortfolioCategory>(emptyPortfolioCategory(categories.length + 1))
+  const [originalForm, setOriginalForm] = useState<PortfolioCategory>(form)
+  const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const categoryHasChanges = dialogOpen && JSON.stringify(form) !== JSON.stringify(originalForm)
+  const categoryUnsaved = useUnsavedChanges(categoryHasChanges)
+  const closeCategoryEditor = () => categoryUnsaved.confirmNavigation(() => {
+    setDialogOpen(false)
+    setConfirmOpen(false)
+  })
 
   const openNew = () => {
+    const next = emptyPortfolioCategory(categories.length + 1)
     setSelectedId(null)
-    setForm(emptyPortfolioCategory(categories.length + 1))
+    setForm(next)
+    setOriginalForm(next)
     setDialogOpen(true)
   }
   const openEdit = (item: PortfolioCategory) => {
     setSelectedId(item.id)
-    setForm(item)
+    setForm({ ...item })
+    setOriginalForm({ ...item })
     setDialogOpen(true)
   }
   const save = async () => {
-    const response = await authedFetch(selectedId ? `/api/bespoke/portfolio-categories/${selectedId}` : '/api/bespoke/portfolio-categories', {
-      method: selectedId ? 'PATCH' : 'POST',
-      body: JSON.stringify({
-        ...form,
-        slug: form.slug || slugify(form.name),
-      }),
-    })
-    const payload = await response.json().catch(() => null)
-    if (response.ok) {
+    if (saving) return
+    setSaving(true)
+    try {
+      const response = await authedFetch(selectedId ? `/api/bespoke/portfolio-categories/${selectedId}` : '/api/bespoke/portfolio-categories', {
+        method: selectedId ? 'PATCH' : 'POST',
+        body: JSON.stringify({
+          name: form.name,
+          slug: form.slug || slugify(form.name),
+          display_order: form.display_order,
+          status: form.status,
+          ...(selectedId ? { expected_updated_at: form.updated_at } : {}),
+        }),
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok) {
+        toast({ title: 'Save failed', description: payload?.error ?? 'Unable to save category.', variant: 'destructive' })
+        return
+      }
+      setOriginalForm(payload.item)
+      setForm(payload.item)
       setDialogOpen(false)
       setConfirmOpen(false)
       await onReload()
       toast({ title: 'Portfolio category saved', description: `${form.name} was updated successfully.` })
-    } else {
-      toast({ title: 'Save failed', description: payload?.error ?? 'Unable to save category.', variant: 'destructive' })
+    } catch {
+      toast({ title: 'Save failed', description: 'A network error prevented the category from being saved. Your changes are still in the form.', variant: 'destructive' })
+    } finally {
+      setSaving(false)
     }
   }
   const remove = async () => {
-    if (!deleteTarget) return
-    const response = await authedFetch(`/api/bespoke/portfolio-categories/${deleteTarget.id}`, { method: 'DELETE' })
-    const payload = await response.json().catch(() => null)
-    if (response.ok) {
+    if (!deleteTarget || deleting) return
+    setDeleting(true)
+    try {
+      const revision = encodeURIComponent(deleteTarget.updated_at)
+      const response = await authedFetch(`/api/bespoke/portfolio-categories/${deleteTarget.id}?expected_updated_at=${revision}`, { method: 'DELETE' })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok) {
+        toast({ title: 'Delete failed', description: payload?.error ?? 'Unable to delete category.', variant: 'destructive' })
+        return
+      }
       setDeleteTarget(null)
       await onReload()
       toast({ title: 'Portfolio category deleted', description: 'Bespoke portfolio category removed.' })
-    } else {
-      toast({ title: 'Delete failed', description: payload?.error ?? 'Unable to delete category.', variant: 'destructive' })
+    } catch {
+      toast({ title: 'Delete failed', description: 'A network error prevented the category from being deleted.', variant: 'destructive' })
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -822,15 +862,16 @@ function PortfolioCategoriesPanel({ categories, onReload }: { categories: Portfo
           ],
         }))}
       />
-      <FormDialog open={dialogOpen} onOpenChange={setDialogOpen} title={selectedId ? 'Edit Portfolio Category' : 'Add Portfolio Category'} description="Manage Bespoke portfolio filter categories.">
+      <FormDialog open={dialogOpen} onOpenChange={(open) => { if (open) setDialogOpen(true); else if (!saving) closeCategoryEditor() }} title={selectedId ? 'Edit Portfolio Category' : 'Add Portfolio Category'} description="Manage Bespoke portfolio filter categories.">
         <Field label="Name"><input value={form.name} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value, slug: prev.slug || slugify(e.target.value) }))} className={inputClassName} /></Field>
         <Field label="Slug"><input value={form.slug} onChange={(e) => setForm((prev) => ({ ...prev, slug: e.target.value }))} className={inputClassName} /></Field>
         <Field label="Display Order"><input type="number" value={form.display_order} onChange={(e) => setForm((prev) => ({ ...prev, display_order: Number(e.target.value) || 0 }))} className={inputClassName} /></Field>
         <Field label="Status"><ToggleRow options={['Active', 'Hidden']} value={form.status === 'hidden' ? 'Hidden' : 'Active'} onChange={(value) => setForm((prev) => ({ ...prev, status: value === 'Hidden' ? 'hidden' : 'active' }))} /></Field>
-        <Actions onSave={() => setConfirmOpen(true)} onCancel={() => setDialogOpen(false)} />
+        <Actions onSave={() => setConfirmOpen(true)} onCancel={closeCategoryEditor} disabled={saving} />
       </FormDialog>
-      <ConfirmDialog isOpen={confirmOpen} title={selectedId ? 'Update category?' : 'Create category?'} description="This will save the portfolio category." confirmText="Save" onConfirm={() => void save()} onCancel={() => setConfirmOpen(false)} />
-      <ConfirmDialog isOpen={Boolean(deleteTarget)} title="Delete category?" description={`Are you sure you want to delete "${deleteTarget?.name ?? ''}"?`} confirmText="Delete" type="delete" onConfirm={() => void remove()} onCancel={() => setDeleteTarget(null)} />
+      <ConfirmDialog isOpen={confirmOpen} title={selectedId ? 'Update category?' : 'Create category?'} description="This will save the portfolio category." confirmText="Save" isLoading={saving} onConfirm={save} onCancel={() => setConfirmOpen(false)} />
+      <ConfirmDialog isOpen={Boolean(deleteTarget)} title="Delete category?" description={`Are you sure you want to delete "${deleteTarget?.name ?? ''}"?`} confirmText="Delete" type="delete" isLoading={deleting} onConfirm={remove} onCancel={() => setDeleteTarget(null)} />
+      <ConfirmDialog isOpen={categoryUnsaved.showWarning} title="Discard unsaved category changes?" description="Your edits have not been saved." confirmText="Discard" type="warning" onConfirm={categoryUnsaved.handleDiscard} onCancel={() => categoryUnsaved.setShowWarning(false)} />
     </section>
   )
 }
@@ -842,18 +883,31 @@ function PortfolioItemsPanel({ categories, items, onReload }: { categories: Port
   const [deleteTarget, setDeleteTarget] = useState<PortfolioItem | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [form, setForm] = useState<PortfolioItem>(emptyPortfolioItem(categories[0]?.id ?? '', items.length + 1))
+  const [originalForm, setOriginalForm] = useState<PortfolioItem>(form)
+  const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [imageUploadState, setImageUploadState] = useState<'idle' | 'uploading'>('idle')
   const [thumbnailUploadState, setThumbnailUploadState] = useState<'idle' | 'uploading'>('idle')
+  const busy = saving || deleting || imageUploadState === 'uploading' || thumbnailUploadState === 'uploading'
+  const itemHasChanges = dialogOpen && JSON.stringify(form) !== JSON.stringify(originalForm)
+  const itemUnsaved = useUnsavedChanges(itemHasChanges)
+  const closeItemEditor = () => itemUnsaved.confirmNavigation(() => {
+    setDialogOpen(false)
+    setConfirmOpen(false)
+  })
   const categoryName = (id: string) => categories.find((item) => item.id === id)?.name ?? ''
 
   const openNew = () => {
+    const next = emptyPortfolioItem(categories[0]?.id ?? '', items.length + 1)
     setSelectedId(null)
-    setForm(emptyPortfolioItem(categories[0]?.id ?? '', items.length + 1))
+    setForm(next)
+    setOriginalForm(next)
     setDialogOpen(true)
   }
   const openEdit = (item: PortfolioItem) => {
     setSelectedId(item.id)
-    setForm(item)
+    setForm({ ...item })
+    setOriginalForm({ ...item })
     setDialogOpen(true)
   }
   const uploadMedia = async (file: File) => {
@@ -868,7 +922,6 @@ function PortfolioItemsPanel({ categories, items, onReload }: { categories: Port
       if (accessToken) xhr.setRequestHeader('authorization', `Bearer ${accessToken}`)
 
       xhr.onerror = () => {
-        setImageUploadState('idle')
         reject(new Error('Network error while uploading media.'))
       }
 
@@ -894,30 +947,62 @@ function PortfolioItemsPanel({ categories, items, onReload }: { categories: Port
   }
   const isVideoMedia = form.media_type === 'video'
   const save = async () => {
-    const response = await authedFetch(selectedId ? `/api/bespoke/portfolio-items/${selectedId}` : '/api/bespoke/portfolio-items', {
-      method: selectedId ? 'PATCH' : 'POST',
-      body: JSON.stringify(form),
-    })
-    const payload = await response.json().catch(() => null)
-    if (response.ok) {
+    if (saving || imageUploadState === 'uploading' || thumbnailUploadState === 'uploading') return
+    setSaving(true)
+    try {
+      const response = await authedFetch(selectedId ? `/api/bespoke/portfolio-items/${selectedId}` : '/api/bespoke/portfolio-items', {
+        method: selectedId ? 'PATCH' : 'POST',
+        body: JSON.stringify({
+          title: form.title,
+          tag: form.tag,
+          category_id: form.category_id,
+          media_type: form.media_type,
+          media_path: form.media_path ?? null,
+          thumbnail_path: form.thumbnail_path ?? null,
+          gem_style: form.gem_style ?? null,
+          gem_color: form.gem_color ?? null,
+          dark_theme: form.dark_theme,
+          short_description: form.short_description ?? null,
+          display_order: form.display_order,
+          status: form.status,
+          ...(selectedId ? { expected_updated_at: form.updated_at } : {}),
+        }),
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok) {
+        toast({ title: 'Save failed', description: payload?.error ?? 'Unable to save item.', variant: 'destructive' })
+        return
+      }
+      setOriginalForm(payload.item)
+      setForm(payload.item)
       setDialogOpen(false)
       setConfirmOpen(false)
       await onReload()
       toast({ title: 'Portfolio item saved', description: `${form.title} was updated successfully.` })
-    } else {
-      toast({ title: 'Save failed', description: payload?.error ?? 'Unable to save item.', variant: 'destructive' })
+    } catch {
+      toast({ title: 'Save failed', description: 'A network error prevented the item from being saved. Your changes are still in the form.', variant: 'destructive' })
+    } finally {
+      setSaving(false)
     }
   }
   const remove = async () => {
-    if (!deleteTarget) return
-    const response = await authedFetch(`/api/bespoke/portfolio-items/${deleteTarget.id}`, { method: 'DELETE' })
-    const payload = await response.json().catch(() => null)
-    if (response.ok) {
+    if (!deleteTarget || deleting) return
+    setDeleting(true)
+    try {
+      const revision = encodeURIComponent(deleteTarget.updated_at)
+      const response = await authedFetch(`/api/bespoke/portfolio-items/${deleteTarget.id}?expected_updated_at=${revision}`, { method: 'DELETE' })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok) {
+        toast({ title: 'Delete failed', description: payload?.error ?? 'Unable to delete item.', variant: 'destructive' })
+        return
+      }
       setDeleteTarget(null)
       await onReload()
       toast({ title: 'Portfolio item deleted', description: 'Bespoke portfolio item removed.' })
-    } else {
-      toast({ title: 'Delete failed', description: payload?.error ?? 'Unable to delete item.', variant: 'destructive' })
+    } catch {
+      toast({ title: 'Delete failed', description: 'A network error prevented the item from being deleted.', variant: 'destructive' })
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -939,7 +1024,7 @@ function PortfolioItemsPanel({ categories, items, onReload }: { categories: Port
           ],
         }))}
       />
-      <FormDialog open={dialogOpen} onOpenChange={setDialogOpen} title={selectedId ? 'Edit Portfolio Item' : 'Add Portfolio Item'} description="Manage Bespoke showcase items.">
+      <FormDialog open={dialogOpen} onOpenChange={(open) => { if (open) setDialogOpen(true); else if (!busy) closeItemEditor() }} title={selectedId ? 'Edit Portfolio Item' : 'Add Portfolio Item'} description="Manage Bespoke showcase items.">
         <div className="grid gap-4 md:grid-cols-2">
           <Field label="Title"><input value={form.title} onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))} className={inputClassName} /></Field>
           <Field label="Tag"><input value={form.tag} onChange={(e) => setForm((prev) => ({ ...prev, tag: e.target.value }))} className={inputClassName} /></Field>
@@ -974,7 +1059,7 @@ function PortfolioItemsPanel({ categories, items, onReload }: { categories: Port
               className={inputClassName}
             />
             <p className="mt-2 text-xs text-muted-foreground">
-              {isVideoMedia ? 'Paste a direct public video URL. Video file upload is disabled for this section.' : 'Paste a public image URL, or upload a JPG, PNG, WebP, AVIF, or SVG below.'}
+              {isVideoMedia ? 'Paste a direct public HTTPS video URL. Video file upload is disabled for this section.' : 'Paste a public HTTPS image URL, or upload a JPG, PNG, WebP, or AVIF below.'}
             </p>
             {!isVideoMedia ? (
               <label className={`mt-3 flex cursor-pointer items-center gap-2 rounded-lg border border-border px-4 py-3 text-sm font-medium transition-colors ${imageUploadState === 'uploading' ? 'bg-secondary/30 text-muted-foreground' : 'bg-secondary/20 text-foreground hover:bg-secondary/30'}`}>
@@ -982,7 +1067,7 @@ function PortfolioItemsPanel({ categories, items, onReload }: { categories: Port
                 <span>{imageUploadState === 'uploading' ? 'Uploading image...' : 'Upload Image'}</span>
                 <input
                   type="file"
-                  accept="image/jpeg,image/png,image/webp,image/avif,image/svg+xml"
+                  accept="image/jpeg,image/png,image/webp,image/avif"
                   className="hidden"
                   disabled={imageUploadState === 'uploading'}
                   onChange={async (e) => {
@@ -1023,7 +1108,7 @@ function PortfolioItemsPanel({ categories, items, onReload }: { categories: Port
               <span>{thumbnailUploadState === 'uploading' ? 'Uploading thumbnail...' : 'Upload Thumbnail'}</span>
               <input
                 type="file"
-                accept="image/jpeg,image/png,image/webp,image/avif,image/svg+xml"
+                accept="image/jpeg,image/png,image/webp,image/avif"
                 className="hidden"
                 disabled={thumbnailUploadState === 'uploading'}
                 onChange={async (e) => {
@@ -1047,33 +1132,43 @@ function PortfolioItemsPanel({ categories, items, onReload }: { categories: Port
             {form.thumbnail_path ? <p className="mt-2 text-xs text-muted-foreground">{form.thumbnail_path}</p> : null}
           </Field>
         </div>
-        <Actions onSave={() => setConfirmOpen(true)} onCancel={() => setDialogOpen(false)} />
+        <Actions onSave={() => setConfirmOpen(true)} onCancel={closeItemEditor} disabled={busy} />
       </FormDialog>
-      <ConfirmDialog isOpen={confirmOpen} title={selectedId ? 'Update item?' : 'Create item?'} description="This will save the portfolio item." confirmText="Save" onConfirm={() => void save()} onCancel={() => setConfirmOpen(false)} />
-      <ConfirmDialog isOpen={Boolean(deleteTarget)} title="Delete item?" description={`Are you sure you want to delete "${deleteTarget?.title ?? ''}"?`} confirmText="Delete" type="delete" onConfirm={() => void remove()} onCancel={() => setDeleteTarget(null)} />
+      <ConfirmDialog isOpen={confirmOpen} title={selectedId ? 'Update item?' : 'Create item?'} description="This will save the portfolio item." confirmText="Save" isLoading={saving} onConfirm={save} onCancel={() => setConfirmOpen(false)} />
+      <ConfirmDialog isOpen={Boolean(deleteTarget)} title="Delete item?" description={`Are you sure you want to delete "${deleteTarget?.title ?? ''}"?`} confirmText="Delete" type="delete" isLoading={deleting} onConfirm={remove} onCancel={() => setDeleteTarget(null)} />
+      <ConfirmDialog isOpen={itemUnsaved.showWarning} title="Discard unsaved item changes?" description="Your edits and uploaded media paths have not been saved." confirmText="Discard" type="warning" onConfirm={itemUnsaved.handleDiscard} onCancel={() => itemUnsaved.setShowWarning(false)} />
     </section>
   )
 }
 
-function FormPanel({ formConfig, setFormConfig, onReload }: { formConfig: FormConfig; setFormConfig: (value: FormConfig) => void; onReload: () => Promise<void> }) {
+function FormPanel({ formConfig, originalFormConfig, setFormConfig, onReload }: { formConfig: FormConfig; originalFormConfig: FormConfig; setFormConfig: (value: FormConfig) => void; onReload: () => Promise<void> }) {
   const { toast } = useToast()
   const [confirmOpen, setConfirmOpen] = useState(false)
-  const updateList = (key: keyof Omit<FormConfig, 'settings'>, updater: (rows: SimpleRow[]) => SimpleRow[]) => {
+  const [saving, setSaving] = useState(false)
+  const hasChanges = useMemo(() => JSON.stringify(formConfig) !== JSON.stringify(originalFormConfig), [formConfig, originalFormConfig])
+  useUnsavedChanges(hasChanges)
+  const updateList = (key: FormListKey, updater: (rows: SimpleRow[]) => SimpleRow[]) => {
     setFormConfig({ ...formConfig, [key]: updater(formConfig[key]) } as FormConfig)
   }
 
   const save = async () => {
-    const response = await authedFetch('/api/bespoke/form-config', {
-      method: 'PUT',
-      body: JSON.stringify(formConfig),
-    })
-    const payload = await response.json().catch(() => null)
-    if (response.ok) {
-      setConfirmOpen(false)
-      await onReload()
-      toast({ title: 'Form settings saved', description: 'Bespoke form content was updated.' })
-    } else {
-      toast({ title: 'Save failed', description: payload?.error ?? 'Unable to save form settings.', variant: 'destructive' })
+    if (saving) return
+    setSaving(true)
+    try {
+      const response = await authedFetch('/api/bespoke/form-config', {
+        method: 'PUT',
+        body: bespokeFormSaveBody(formConfig, originalFormConfig),
+      })
+      const payload = await response.json().catch(() => null)
+      if (response.ok) {
+        setConfirmOpen(false)
+        await onReload()
+        toast({ title: 'Form settings saved', description: 'Bespoke form content was updated.' })
+      } else {
+        toast({ title: 'Save failed', description: payload?.error ?? 'Unable to save form settings.', variant: 'destructive' })
+      }
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -1089,8 +1184,8 @@ function FormPanel({ formConfig, setFormConfig, onReload }: { formConfig: FormCo
       <RepeatableListSection title="Stone Options" items={formConfig.stoneOptions} onChange={(rows) => updateList('stoneOptions', () => rows)} />
       <RepeatableListSection title="Carat Options" items={formConfig.caratOptions} onChange={(rows) => updateList('caratOptions', () => rows)} />
       <RepeatableListSection title="Metal Options" items={formConfig.metalOptions} onChange={(rows) => updateList('metalOptions', () => rows)} />
-      <div className="flex justify-end"><button type="button" onClick={() => setConfirmOpen(true)} className={primaryButtonClassName}>Save Form Settings</button></div>
-      <ConfirmDialog isOpen={confirmOpen} title="Save form settings?" description="This will update the live Bespoke enquiry form." confirmText="Save" onConfirm={() => void save()} onCancel={() => setConfirmOpen(false)} />
+      <div className="flex justify-end"><button type="button" onClick={() => setConfirmOpen(true)} disabled={saving || !hasChanges} className={primaryButtonClassName}>{saving ? 'Saving...' : 'Save Form Settings'}</button></div>
+      <ConfirmDialog isOpen={confirmOpen} title="Save form settings?" description="This will update the live Bespoke enquiry form." confirmText="Save" isLoading={saving} onConfirm={() => void save()} onCancel={() => setConfirmOpen(false)} />
     </div>
   )
 }
@@ -1171,11 +1266,11 @@ function ToggleRow({ options, value, onChange }: { options: readonly string[]; v
   )
 }
 
-function Actions({ onSave, onCancel }: { onSave: () => void; onCancel: () => void }) {
+function Actions({ onSave, onCancel, disabled = false }: { onSave: () => void; onCancel: () => void; disabled?: boolean }) {
   return (
     <div className="flex gap-3">
-      <button type="button" onClick={onSave} className={primaryButtonClassName}>Save</button>
-      <button type="button" onClick={onCancel} className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary">Cancel</button>
+      <button type="button" onClick={onSave} disabled={disabled} className={`${primaryButtonClassName} disabled:cursor-not-allowed disabled:opacity-50`}>Save</button>
+      <button type="button" onClick={onCancel} disabled={disabled} className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50">Cancel</button>
     </div>
   )
 }

@@ -1,31 +1,23 @@
 import { NextResponse } from 'next/server'
 import { assertAdmin } from '@/lib/cms-auth'
+import { bulkDeleteSchema, productOperationError } from '@/lib/product-operations-validation'
 
 export async function POST(request: Request) {
   const access = await assertAdmin(request)
   if ('error' in access) return access.error
 
-  const body = await request.json().catch(() => null)
-  const ids = Array.isArray(body?.ids)
-    ? body.ids.filter((value: unknown): value is string => typeof value === 'string' && value.trim().length > 0)
-    : []
+  const input = bulkDeleteSchema.safeParse(await request.json().catch(() => null))
+  if (!input.success) return NextResponse.json({ error: input.error.issues[0]?.message ?? 'Invalid bulk deletion request.' }, { status: 400 })
 
-  if (ids.length === 0) {
-    return NextResponse.json({ error: 'No product ids provided.' }, { status: 400 })
-  }
-
-  const { error } = await access.adminClient.from('products').delete().in('id', ids)
+  const { data, error } = await access.adminClient.rpc('admin_product_bulk_delete_v1', {
+    p_actor_id: access.user.id,
+    p_request_id: input.data.requestId,
+    p_lane: input.data.lane,
+    p_ids: input.data.ids,
+  })
   if (error) {
-    const blockedByReservation = error.code === '23503' && error.message.includes('inventory_reservations')
-    return NextResponse.json(
-      {
-        error: blockedByReservation
-          ? 'One or more selected products have active inventory reservations. Apply the product reservation deletion migration, then try again.'
-          : error.message,
-      },
-      { status: blockedByReservation ? 409 : 500 },
-    )
+    const safe = productOperationError(error, 'delete')
+    return NextResponse.json({ error: safe.message }, { status: safe.status })
   }
-
-  return NextResponse.json({ ok: true, deletedCount: ids.length })
+  return NextResponse.json(data, { headers: { 'Cache-Control': 'no-store' } })
 }

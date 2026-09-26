@@ -42,9 +42,6 @@ const securityHeaders = [
 
 const nextConfig = {
   productionBrowserSourceMaps: false,
-  typescript: {
-    ignoreBuildErrors: true,
-  },
   experimental: {
     proxyClientMaxBodySize: '50mb',
   },

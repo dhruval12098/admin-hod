@@ -54,6 +54,11 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { deleteCachedQueryData, fetchCachedQuery, getCachedQueryData, setCachedQueryData } from '@/lib/query-cache'
 import type { ProductCustomDropdown } from '@/lib/product-custom-dropdowns'
 import { validateProductCustomDropdowns } from '@/lib/product-custom-dropdowns'
+import {
+  getProductEditorCacheKey,
+  normalizeProductEditorItem,
+  type ProductEditorItem,
+} from '@/lib/product-editor'
 
 export type BootstrapPayload = {
   categories?: CatalogCategory[]
@@ -195,7 +200,7 @@ function applyBootstrapPayload(
 }
 
 function applyProductPayload(
-  item: ProductResponse['item'] | null | undefined,
+  item: ProductEditorItem | null | undefined,
   setters: {
     setName: Dispatch<SetStateAction<string>>
     setSku: Dispatch<SetStateAction<string>>
@@ -273,121 +278,81 @@ function applyProductPayload(
   }
 ) {
   if (!item) return
+  const normalized = normalizeProductEditorItem(item)
 
-  setters.setName(item.name ?? '')
-  setters.setSku(item.sku ?? '')
-  setters.setProductLane(item.product_lane ?? 'standard')
-  setters.setDetailTemplate(item.detail_template ?? 'standard')
-  setters.setFeatured(Boolean(item.featured))
-  setters.setBasePrice(item.base_price?.toString() ?? '')
-  setters.setDiscountPrice(item.discount_price?.toString() ?? '')
-  setters.setGstSlabId(item.gst_slab_id ?? '')
-  setters.setStockQuantity(String(item.stock_quantity ?? 0))
-  setters.setAllowCheckout(Boolean(item.allow_checkout))
-  setters.setDescription(item.description ?? '')
-  setters.setTagLine(item.tag_line ?? '')
-  setters.setSeoTitle(item.seo_title ?? '')
-  setters.setSeoDescription(item.seo_description ?? '')
-  setters.setH1Title(item.h1_title ?? '')
-  setters.setMainCategoryId(item.main_category_id ?? '')
-  setters.setSubcategoryId(item.subcategory_id ?? '')
-  setters.setOptionId(item.option_id ?? '')
-  setters.setLinkedSubcategoryIds(item.linked_subcategory_ids ?? [])
-  setters.setLinkedOptionIds(item.linked_option_ids ?? [])
-  setters.setStyleId(item.style_id ?? '')
-  setters.setSelectedMetalIds(
-    item.metal_variants?.length
-      ? item.metal_variants.map((entry) => entry.metal_id)
-      : (item.metal_ids ?? [])
-  )
-  setters.setSelectedPurities(item.purity_values ?? [])
-  setters.setPurityPrices(
-    item.purity_prices?.length
-      ? item.purity_prices
-      : (item.purity_values ?? []).map((value, index) => ({
-          id: `legacy-${index}-${value.toLowerCase().replace(/\s+/g, '-')}`,
-          purity_label: value,
-          price: 0,
-          compare_at_price: null,
-          sort_order: index + 1,
-        }))
-  )
-  setters.setDefaultPurityPriceId(item.default_purity_price_id ?? '')
-  setters.setMetalMedia(item.metal_media ?? [])
-  setters.setMetalVariants(item.metal_variants ?? [])
-  setters.setDefaultVariantMediaItems(item.default_variant_media_items ?? [])
-  setters.setSelectedCertificateIds(item.certificate_ids ?? [])
-  setters.setRingSizesEnabled(Boolean(item.ring_enabled))
-  setters.setRingCategoryId(item.ring_category_id ?? '')
-  setters.setFitLabel(item.fit_label ?? 'Fit')
-  setters.setFitOptions(item.fit_options ?? [])
-  setters.setFitEnabled((item.fit_options ?? []).length > 0)
-  setters.setGemstoneLabel(item.gemstone_label ?? '')
-  setters.setGemstoneValues(
-    item.gemstone_value
-      ? item.gemstone_value
-          .split(',')
-          .map((value) => value.trim())
-          .filter(Boolean)
-      : []
-  )
-  setters.setSelectedMaterialValueIds(item.material_value_ids ?? [])
-  setters.setShapesEnabled(Boolean(item.shapes_enabled))
-  setters.setSelectedShapeIds(item.shape_ids ?? [])
-  setters.setEngravingEnabled(Boolean(item.engraving_enabled))
-  setters.setEngravingLabel(item.engraving_label ?? 'Complimentary Engraving')
-  setters.setCustomDropdownsEnabled(Boolean(item.custom_dropdowns_enabled))
-  setters.setCustomDropdowns(item.custom_dropdowns ?? [])
-  setters.setShippingEnabled(item.shipping_enabled ?? true)
-  setters.setCareWarrantyEnabled(item.care_warranty_enabled ?? true)
-  setters.setShippingOverrideEnabled(Boolean(item.shipping_override_enabled))
-  setters.setCareWarrantyOverrideEnabled(Boolean(item.care_warranty_override_enabled))
-  setters.setShippingRuleId(item.shipping_rule_id ?? '')
-  setters.setCareWarrantyRuleId(item.care_warranty_rule_id ?? '')
-  setters.setShippingTitleOverride(item.shipping_title_override ?? '')
-  setters.setShippingBodyOverride(item.shipping_body_override ?? '')
-  setters.setCareWarrantyTitleOverride(item.care_warranty_title_override ?? '')
-  setters.setCareWarrantyBodyOverride(item.care_warranty_body_override ?? '')
-  setters.setFeatures(item.features ?? [])
-  setters.setSpecifications(item.specifications?.length ? item.specifications : [emptyRow()])
-  setters.setProductDetails(item.product_details?.length ? item.product_details : [emptyRow()])
-  setters.setDetailSections(item.detail_sections?.length ? item.detail_sections : [emptySection()])
-  setters.setFaqItems(item.faq_items?.length ? item.faq_items : [])
-  setters.setImagePaths([
-    item.image_1_path ?? null,
-    item.image_2_path ?? null,
-    item.image_3_path ?? null,
-    item.image_4_path ?? null,
-  ])
-  setters.setImageSlots([
-    item.image_1_path ?? '',
-    item.image_2_path ?? '',
-    item.image_3_path ?? '',
-    item.image_4_path ?? '',
-  ])
-  setters.setImageAlts([
-    item.image_1_alt ?? '',
-    item.image_2_alt ?? '',
-    item.image_3_alt ?? '',
-    item.image_4_alt ?? '',
-  ])
-  setters.setVideoPath(item.video_path ?? null)
-  setters.setModel3dUrl(item.model_3d_url ?? '')
-  setters.setShowImageSlots([
-    item.show_image_1 ?? true,
-    item.show_image_2 ?? true,
-    item.show_image_3 ?? true,
-    item.show_image_4 ?? true,
-  ])
-  setters.setShowVideo(item.show_video ?? true)
-  setters.setCustomOrderEnabled(Boolean(item.custom_order_enabled))
-  setters.setReadyToShip(Boolean(item.ready_to_ship))
-  setters.setHiphopBadges(item.hiphop_badges ?? [])
-  setters.setChainLengthOptions(item.chain_length_options ?? [])
-  setters.setHiphopCaratLabel(item.hiphop_carat_label ?? 'Diamond Carat')
-  setters.setHiphopCaratValues(item.hiphop_carat_values ?? [])
-  setters.setGramWeightLabel(item.gram_weight_label ?? 'Gram Weight')
-  setters.setGramWeightValue(item.gram_weight_value ?? '')
+  setters.setName(normalized.name)
+  setters.setSku(normalized.sku)
+  setters.setProductLane(normalized.productLane)
+  setters.setDetailTemplate(normalized.detailTemplate)
+  setters.setFeatured(normalized.featured)
+  setters.setBasePrice(normalized.basePrice)
+  setters.setDiscountPrice(normalized.discountPrice)
+  setters.setGstSlabId(normalized.gstSlabId)
+  setters.setStockQuantity(normalized.stockQuantity)
+  setters.setAllowCheckout(normalized.allowCheckout)
+  setters.setDescription(normalized.description)
+  setters.setTagLine(normalized.tagLine)
+  setters.setSeoTitle(normalized.seoTitle)
+  setters.setSeoDescription(normalized.seoDescription)
+  setters.setH1Title(normalized.h1Title)
+  setters.setMainCategoryId(normalized.mainCategoryId)
+  setters.setSubcategoryId(normalized.subcategoryId)
+  setters.setOptionId(normalized.optionId)
+  setters.setLinkedSubcategoryIds(normalized.linkedSubcategoryIds)
+  setters.setLinkedOptionIds(normalized.linkedOptionIds)
+  setters.setStyleId(normalized.styleId)
+  setters.setSelectedMetalIds(normalized.selectedMetalIds)
+  setters.setSelectedPurities(normalized.selectedPurities)
+  setters.setPurityPrices(normalized.purityPrices)
+  setters.setDefaultPurityPriceId(normalized.defaultPurityPriceId)
+  setters.setMetalMedia(normalized.metalMedia)
+  setters.setMetalVariants(normalized.metalVariants)
+  setters.setDefaultVariantMediaItems(normalized.defaultVariantMediaItems)
+  setters.setSelectedCertificateIds(normalized.selectedCertificateIds)
+  setters.setRingSizesEnabled(normalized.ringSizesEnabled)
+  setters.setRingCategoryId(normalized.ringCategoryId)
+  setters.setFitLabel(normalized.fitLabel)
+  setters.setFitOptions(normalized.fitOptions)
+  setters.setFitEnabled(normalized.fitEnabled)
+  setters.setGemstoneLabel(normalized.gemstoneLabel)
+  setters.setGemstoneValues(normalized.gemstoneValues)
+  setters.setSelectedMaterialValueIds(normalized.selectedMaterialValueIds)
+  setters.setShapesEnabled(normalized.shapesEnabled)
+  setters.setSelectedShapeIds(normalized.selectedShapeIds)
+  setters.setEngravingEnabled(normalized.engravingEnabled)
+  setters.setEngravingLabel(normalized.engravingLabel)
+  setters.setCustomDropdownsEnabled(normalized.customDropdownsEnabled)
+  setters.setCustomDropdowns(normalized.customDropdowns)
+  setters.setShippingEnabled(normalized.shippingEnabled)
+  setters.setCareWarrantyEnabled(normalized.careWarrantyEnabled)
+  setters.setShippingOverrideEnabled(normalized.shippingOverrideEnabled)
+  setters.setCareWarrantyOverrideEnabled(normalized.careWarrantyOverrideEnabled)
+  setters.setShippingRuleId(normalized.shippingRuleId)
+  setters.setCareWarrantyRuleId(normalized.careWarrantyRuleId)
+  setters.setShippingTitleOverride(normalized.shippingTitleOverride)
+  setters.setShippingBodyOverride(normalized.shippingBodyOverride)
+  setters.setCareWarrantyTitleOverride(normalized.careWarrantyTitleOverride)
+  setters.setCareWarrantyBodyOverride(normalized.careWarrantyBodyOverride)
+  setters.setFeatures(normalized.features)
+  setters.setSpecifications(normalized.specifications)
+  setters.setProductDetails(normalized.productDetails)
+  setters.setDetailSections(normalized.detailSections)
+  setters.setFaqItems(normalized.faqItems)
+  setters.setImagePaths(normalized.imagePaths)
+  setters.setImageSlots(normalized.imageSlots)
+  setters.setImageAlts(normalized.imageAlts)
+  setters.setVideoPath(normalized.videoPath)
+  setters.setModel3dUrl(normalized.model3dUrl)
+  setters.setShowImageSlots(normalized.showImageSlots)
+  setters.setShowVideo(normalized.showVideo)
+  setters.setCustomOrderEnabled(normalized.customOrderEnabled)
+  setters.setReadyToShip(normalized.readyToShip)
+  setters.setHiphopBadges(normalized.hiphopBadges)
+  setters.setChainLengthOptions(normalized.chainLengthOptions)
+  setters.setHiphopCaratLabel(normalized.hiphopCaratLabel)
+  setters.setHiphopCaratValues(normalized.hiphopCaratValues)
+  setters.setGramWeightLabel(normalized.gramWeightLabel)
+  setters.setGramWeightValue(normalized.gramWeightValue)
 }
 
 const emptyRow = (): ProductKeyValue => ({ key: '', value: '' })
@@ -484,6 +449,7 @@ export function ProductForm({
   pageTitle,
   pageDescription,
   initialBasicsBootstrap,
+  initialProduct,
 }: {
   productId?: number | string
   productSlug?: string
@@ -494,6 +460,7 @@ export function ProductForm({
   pageTitle?: string
   pageDescription?: string
   initialBasicsBootstrap?: BootstrapPayload
+  initialProduct?: ProductEditorItem
 }) {
   const { toast } = useToast()
   const router = useRouter()
@@ -502,12 +469,14 @@ export function ProductForm({
     : productId
       ? `/api/products/${productId}`
       : null
-  const productCacheKey = productLookupUrl ? `product-edit:${productLookupUrl}` : null
+  const productCacheKey = productLookupUrl ? getProductEditorCacheKey(productLookupUrl) : null
+  const initialProductState = normalizeProductEditorItem(initialProduct)
   const [loading, setLoading] = useState(() => {
+    if (initialProduct) return false
     if (!productCacheKey) return !initialBasicsBootstrap
-    return !getCachedQueryData<ProductResponse['item']>(productCacheKey, PRODUCT_EDIT_CACHE_TTL_MS)
+    return !getCachedQueryData<ProductEditorItem>(productCacheKey, PRODUCT_EDIT_CACHE_TTL_MS)
   })
-  const [productHydrated, setProductHydrated] = useState(() => !productLookupUrl)
+  const [productHydrated, setProductHydrated] = useState(() => Boolean(initialProduct) || !productLookupUrl)
   const [saving, setSaving] = useState(false)
   const [redirecting, setRedirecting] = useState(false)
   const [categories, setCategories] = useState<CatalogCategory[]>(initialBasicsBootstrap?.categories ?? [])
@@ -524,74 +493,74 @@ export function ProductForm({
   const [shippingRules, setShippingRules] = useState<ProductContentRule[]>([])
   const [careWarrantyRules, setCareWarrantyRules] = useState<ProductContentRule[]>([])
   const [activeStep, setActiveStep] = useState<ProductFormStepId>('basics')
-  const [name, setName] = useState('')
-  const [sku, setSku] = useState('')
-  const [productLane, setProductLane] = useState<'standard' | 'hiphop' | 'collection'>(forcedLane ?? 'standard')
-  const [detailTemplate, setDetailTemplate] = useState<'standard' | 'hiphop'>('standard')
-  const [featured, setFeatured] = useState(false)
-  const [basePrice, setBasePrice] = useState('')
-  const [discountPrice, setDiscountPrice] = useState('')
-  const [gstSlabId, setGstSlabId] = useState('')
-  const [stockQuantity, setStockQuantity] = useState('0')
-  const [allowCheckout, setAllowCheckout] = useState(false)
-  const [description, setDescription] = useState('')
-  const [tagLine, setTagLine] = useState('')
-  const [seoTitle, setSeoTitle] = useState('')
-  const [seoDescription, setSeoDescription] = useState('')
-  const [h1Title, setH1Title] = useState('')
-  const [mainCategoryId, setMainCategoryId] = useState('')
-  const [subcategoryId, setSubcategoryId] = useState('')
-  const [optionId, setOptionId] = useState('')
-  const [linkedSubcategoryIds, setLinkedSubcategoryIds] = useState<string[]>([])
-  const [linkedOptionIds, setLinkedOptionIds] = useState<string[]>([])
-  const [styleId, setStyleId] = useState('')
-  const [selectedMetalIds, setSelectedMetalIds] = useState<string[]>([])
-  const [selectedPurities, setSelectedPurities] = useState<string[]>([])
-  const [purityPrices, setPurityPrices] = useState<ProductPurityPrice[]>([])
-  const [defaultPurityPriceId, setDefaultPurityPriceId] = useState('')
-  const [metalMedia, setMetalMedia] = useState<ProductMetalMedia[]>([])
-  const [metalVariants, setMetalVariants] = useState<ProductMetalVariant[]>([])
-  const [defaultVariantMediaItems, setDefaultVariantMediaItems] = useState<ProductVariantMediaItem[]>([])
-  const [selectedCertificateIds, setSelectedCertificateIds] = useState<string[]>([])
-  const [ringSizesEnabled, setRingSizesEnabled] = useState(false)
-  const [ringCategoryId, setRingCategoryId] = useState('')
-  const [fitLabel, setFitLabel] = useState('Fit')
-  const [fitOptions, setFitOptions] = useState<string[]>([])
+  const [name, setName] = useState(initialProductState.name)
+  const [sku, setSku] = useState(initialProductState.sku)
+  const [productLane, setProductLane] = useState<'standard' | 'hiphop' | 'collection'>(forcedLane ?? initialProductState.productLane)
+  const [detailTemplate, setDetailTemplate] = useState<'standard' | 'hiphop'>(forcedTemplate ?? initialProductState.detailTemplate)
+  const [featured, setFeatured] = useState(initialProductState.featured)
+  const [basePrice, setBasePrice] = useState(initialProductState.basePrice)
+  const [discountPrice, setDiscountPrice] = useState(initialProductState.discountPrice)
+  const [gstSlabId, setGstSlabId] = useState(initialProductState.gstSlabId)
+  const [stockQuantity, setStockQuantity] = useState(initialProductState.stockQuantity)
+  const [allowCheckout, setAllowCheckout] = useState(initialProductState.allowCheckout)
+  const [description, setDescription] = useState(initialProductState.description)
+  const [tagLine, setTagLine] = useState(initialProductState.tagLine)
+  const [seoTitle, setSeoTitle] = useState(initialProductState.seoTitle)
+  const [seoDescription, setSeoDescription] = useState(initialProductState.seoDescription)
+  const [h1Title, setH1Title] = useState(initialProductState.h1Title)
+  const [mainCategoryId, setMainCategoryId] = useState(initialProductState.mainCategoryId)
+  const [subcategoryId, setSubcategoryId] = useState(initialProductState.subcategoryId)
+  const [optionId, setOptionId] = useState(initialProductState.optionId)
+  const [linkedSubcategoryIds, setLinkedSubcategoryIds] = useState<string[]>(initialProductState.linkedSubcategoryIds)
+  const [linkedOptionIds, setLinkedOptionIds] = useState<string[]>(initialProductState.linkedOptionIds)
+  const [styleId, setStyleId] = useState(initialProductState.styleId)
+  const [selectedMetalIds, setSelectedMetalIds] = useState<string[]>(initialProductState.selectedMetalIds)
+  const [selectedPurities, setSelectedPurities] = useState<string[]>(initialProductState.selectedPurities)
+  const [purityPrices, setPurityPrices] = useState<ProductPurityPrice[]>(initialProductState.purityPrices)
+  const [defaultPurityPriceId, setDefaultPurityPriceId] = useState(initialProductState.defaultPurityPriceId)
+  const [metalMedia, setMetalMedia] = useState<ProductMetalMedia[]>(initialProductState.metalMedia)
+  const [metalVariants, setMetalVariants] = useState<ProductMetalVariant[]>(initialProductState.metalVariants)
+  const [defaultVariantMediaItems, setDefaultVariantMediaItems] = useState<ProductVariantMediaItem[]>(initialProductState.defaultVariantMediaItems)
+  const [selectedCertificateIds, setSelectedCertificateIds] = useState<string[]>(initialProductState.selectedCertificateIds)
+  const [ringSizesEnabled, setRingSizesEnabled] = useState(initialProductState.ringSizesEnabled)
+  const [ringCategoryId, setRingCategoryId] = useState(initialProductState.ringCategoryId)
+  const [fitLabel, setFitLabel] = useState(initialProductState.fitLabel)
+  const [fitOptions, setFitOptions] = useState<string[]>(initialProductState.fitOptions)
   const [fitInput, setFitInput] = useState('')
-  const [fitEnabled, setFitEnabled] = useState(false)
-  const [gemstoneLabel, setGemstoneLabel] = useState('')
-  const [gemstoneValues, setGemstoneValues] = useState<string[]>([])
-  const [selectedMaterialValueIds, setSelectedMaterialValueIds] = useState<string[]>([])
-  const [shapesEnabled, setShapesEnabled] = useState(false)
-  const [selectedShapeIds, setSelectedShapeIds] = useState<string[]>([])
-  const [engravingEnabled, setEngravingEnabled] = useState(false)
-  const [engravingLabel, setEngravingLabel] = useState('Complimentary Engraving')
-  const [customDropdownsEnabled, setCustomDropdownsEnabled] = useState(false)
-  const [customDropdowns, setCustomDropdowns] = useState<ProductCustomDropdown[]>([])
-  const [shippingEnabled, setShippingEnabled] = useState(true)
-  const [careWarrantyEnabled, setCareWarrantyEnabled] = useState(true)
-  const [shippingOverrideEnabled, setShippingOverrideEnabled] = useState(false)
-  const [careWarrantyOverrideEnabled, setCareWarrantyOverrideEnabled] = useState(false)
-  const [shippingRuleId, setShippingRuleId] = useState('')
-  const [careWarrantyRuleId, setCareWarrantyRuleId] = useState('')
-  const [shippingTitleOverride, setShippingTitleOverride] = useState('')
-  const [shippingBodyOverride, setShippingBodyOverride] = useState('')
-  const [careWarrantyTitleOverride, setCareWarrantyTitleOverride] = useState('')
-  const [careWarrantyBodyOverride, setCareWarrantyBodyOverride] = useState('')
-  const [features, setFeatures] = useState<string[]>([])
+  const [fitEnabled, setFitEnabled] = useState(initialProductState.fitEnabled)
+  const [gemstoneLabel, setGemstoneLabel] = useState(initialProductState.gemstoneLabel)
+  const [gemstoneValues, setGemstoneValues] = useState<string[]>(initialProductState.gemstoneValues)
+  const [selectedMaterialValueIds, setSelectedMaterialValueIds] = useState<string[]>(initialProductState.selectedMaterialValueIds)
+  const [shapesEnabled, setShapesEnabled] = useState(initialProductState.shapesEnabled)
+  const [selectedShapeIds, setSelectedShapeIds] = useState<string[]>(initialProductState.selectedShapeIds)
+  const [engravingEnabled, setEngravingEnabled] = useState(initialProductState.engravingEnabled)
+  const [engravingLabel, setEngravingLabel] = useState(initialProductState.engravingLabel)
+  const [customDropdownsEnabled, setCustomDropdownsEnabled] = useState(initialProductState.customDropdownsEnabled)
+  const [customDropdowns, setCustomDropdowns] = useState<ProductCustomDropdown[]>(initialProductState.customDropdowns)
+  const [shippingEnabled, setShippingEnabled] = useState(initialProductState.shippingEnabled)
+  const [careWarrantyEnabled, setCareWarrantyEnabled] = useState(initialProductState.careWarrantyEnabled)
+  const [shippingOverrideEnabled, setShippingOverrideEnabled] = useState(initialProductState.shippingOverrideEnabled)
+  const [careWarrantyOverrideEnabled, setCareWarrantyOverrideEnabled] = useState(initialProductState.careWarrantyOverrideEnabled)
+  const [shippingRuleId, setShippingRuleId] = useState(initialProductState.shippingRuleId)
+  const [careWarrantyRuleId, setCareWarrantyRuleId] = useState(initialProductState.careWarrantyRuleId)
+  const [shippingTitleOverride, setShippingTitleOverride] = useState(initialProductState.shippingTitleOverride)
+  const [shippingBodyOverride, setShippingBodyOverride] = useState(initialProductState.shippingBodyOverride)
+  const [careWarrantyTitleOverride, setCareWarrantyTitleOverride] = useState(initialProductState.careWarrantyTitleOverride)
+  const [careWarrantyBodyOverride, setCareWarrantyBodyOverride] = useState(initialProductState.careWarrantyBodyOverride)
+  const [features, setFeatures] = useState<string[]>(initialProductState.features)
   const [featureInput, setFeatureInput] = useState('')
-  const [specifications, setSpecifications] = useState<ProductKeyValue[]>([emptyRow()])
-  const [productDetails, setProductDetails] = useState<ProductKeyValue[]>([emptyRow()])
-  const [detailSections, setDetailSections] = useState<ProductDetailSection[]>([emptySection()])
-  const [faqItems, setFaqItems] = useState<ProductFaqItem[]>([])
+  const [specifications, setSpecifications] = useState<ProductKeyValue[]>(initialProductState.specifications)
+  const [productDetails, setProductDetails] = useState<ProductKeyValue[]>(initialProductState.productDetails)
+  const [detailSections, setDetailSections] = useState<ProductDetailSection[]>(initialProductState.detailSections)
+  const [faqItems, setFaqItems] = useState<ProductFaqItem[]>(initialProductState.faqItems)
   const [loadedBootstrapScopes, setLoadedBootstrapScopes] = useState<Set<CatalogBootstrapScope>>(() => new Set(initialBasicsBootstrap ? ['basics'] : []))
-  const [imageSlots, setImageSlots] = useState<string[]>(['', '', '', ''])
-  const [imagePaths, setImagePaths] = useState<(string | null)[]>([null, null, null, null])
-  const [imageAlts, setImageAlts] = useState<string[]>(['', '', '', ''])
-  const [videoPath, setVideoPath] = useState<string | null>(null)
-  const [model3dUrl, setModel3dUrl] = useState('')
-  const [showImageSlots, setShowImageSlots] = useState([true, true, true, true])
-  const [showVideo, setShowVideo] = useState(true)
+  const [imageSlots, setImageSlots] = useState<string[]>(initialProductState.imageSlots)
+  const [imagePaths, setImagePaths] = useState<(string | null)[]>(initialProductState.imagePaths)
+  const [imageAlts, setImageAlts] = useState<string[]>(initialProductState.imageAlts)
+  const [videoPath, setVideoPath] = useState<string | null>(initialProductState.videoPath)
+  const [model3dUrl, setModel3dUrl] = useState(initialProductState.model3dUrl)
+  const [showImageSlots, setShowImageSlots] = useState(initialProductState.showImageSlots)
+  const [showVideo, setShowVideo] = useState(initialProductState.showVideo)
   const [activeMetalMediaId, setActiveMetalMediaId] = useState('')
   const [activeVariantMediaKey, setActiveVariantMediaKey] = useState<string>('default')
   const [activeVariantMediaIndex, setActiveVariantMediaIndex] = useState<number | null>(null)
@@ -605,17 +574,17 @@ export function ProductForm({
     metalId: string | null
     itemIndex: number
   } | null>(null)
-  const [customOrderEnabled, setCustomOrderEnabled] = useState(false)
-  const [readyToShip, setReadyToShip] = useState(false)
-  const [hiphopBadges, setHiphopBadges] = useState<string[]>([])
+  const [customOrderEnabled, setCustomOrderEnabled] = useState(initialProductState.customOrderEnabled)
+  const [readyToShip, setReadyToShip] = useState(initialProductState.readyToShip)
+  const [hiphopBadges, setHiphopBadges] = useState<string[]>(initialProductState.hiphopBadges)
   const [hiphopBadgeInput, setHiphopBadgeInput] = useState('')
-  const [chainLengthOptions, setChainLengthOptions] = useState<string[]>([])
+  const [chainLengthOptions, setChainLengthOptions] = useState<string[]>(initialProductState.chainLengthOptions)
   const [chainLengthInput, setChainLengthInput] = useState('')
-  const [hiphopCaratLabel, setHiphopCaratLabel] = useState('Diamond Carat')
-  const [hiphopCaratValues, setHiphopCaratValues] = useState<string[]>([])
+  const [hiphopCaratLabel, setHiphopCaratLabel] = useState(initialProductState.hiphopCaratLabel)
+  const [hiphopCaratValues, setHiphopCaratValues] = useState<string[]>(initialProductState.hiphopCaratValues)
   const [hiphopCaratInput, setHiphopCaratInput] = useState('')
-  const [gramWeightLabel, setGramWeightLabel] = useState('Gram Weight')
-  const [gramWeightValue, setGramWeightValue] = useState('')
+  const [gramWeightLabel, setGramWeightLabel] = useState(initialProductState.gramWeightLabel)
+  const [gramWeightValue, setGramWeightValue] = useState(initialProductState.gramWeightValue)
 
   const applyBootstrap = (payload: BootstrapPayload | null | undefined) =>
     applyBootstrapPayload(payload, {
@@ -634,7 +603,7 @@ export function ProductForm({
       setCareWarrantyRules,
     })
 
-  const applyProduct = (item: ProductResponse['item'] | null | undefined) =>
+  const applyProduct = (item: ProductEditorItem | null | undefined) =>
     applyProductPayload(item, {
       setName,
       setSku,
@@ -749,6 +718,14 @@ export function ProductForm({
 
   const loadData = async () => {
     try {
+      if (initialProduct) {
+        if (productCacheKey) setCachedQueryData(productCacheKey, initialProduct)
+        await loadBootstrapScope('basics')
+        setProductHydrated(true)
+        setLoading(false)
+        return
+      }
+
       if (!productLookupUrl && initialBasicsBootstrap) {
         setProductHydrated(true)
         setLoading(false)
@@ -757,7 +734,7 @@ export function ProductForm({
 
       if (productLookupUrl) setProductHydrated(false)
       const cachedProduct = productCacheKey
-        ? getCachedQueryData<ProductResponse['item']>(productCacheKey, PRODUCT_EDIT_CACHE_TTL_MS)
+        ? getCachedQueryData<ProductEditorItem>(productCacheKey, PRODUCT_EDIT_CACHE_TTL_MS)
         : null
       setLoading(!cachedProduct)
       const loadStartedAt = performance.now()
@@ -774,12 +751,12 @@ export function ProductForm({
       const productPromise = productLookupUrl && productCacheKey
         ? (() => {
             const startedAt = performance.now()
-            return fetchCachedQuery<ProductResponse['item']>({
+            return fetchCachedQuery<ProductEditorItem>({
               key: productCacheKey,
               staleTimeMs: PRODUCT_EDIT_CACHE_TTL_MS,
               fetcher: async () => {
                 const response = await authedFetch(productLookupUrl)
-                const payload = (await response.json().catch(() => null)) as ProductResponse | null
+                const payload = (await response.json().catch(() => null)) as { item?: ProductEditorItem } | null
                 productFormDebug('product fetched', startedAt)
                 return response.ok && payload?.item ? payload.item : null
               },
@@ -813,7 +790,6 @@ export function ProductForm({
   }, [activeStep, loadedBootstrapScopes])
 
   const prepareDirectImageUpload = async (file: File) => {
-    if (file.type === 'image/svg+xml') return file
     if (!['image/jpeg', 'image/png', 'image/webp', 'image/avif'].includes(file.type)) {
       throw new Error('Unsupported image type.')
     }
@@ -855,29 +831,14 @@ export function ProductForm({
       throw new Error(signed?.error ?? 'Unable to prepare direct image upload.')
     }
 
-    if (signed.provider === 'r2') {
-      if (!signed.uploadUrl) throw new Error('Cloudflare upload URL was not returned.')
-      const uploadResponse = await fetch(signed.uploadUrl, {
-        method: 'PUT',
-        headers: { 'content-type': preparedFile.type },
-        body: preparedFile,
-      })
-      if (!uploadResponse.ok) throw new Error('Cloudflare image upload failed.')
-      return { path: signed.url as string, provider: 'r2' as const }
-    }
-
-    if (!signed.bucket || !signed.token) {
-      throw new Error('Supabase upload credentials were not returned.')
-    }
-
-    const { error } = await supabase.storage
-      .from(signed.bucket)
-      .uploadToSignedUrl(signed.path, signed.token, preparedFile, {
-        contentType: preparedFile.type,
-        upsert: false,
-      })
-    if (error) throw new Error(error.message)
-    return { path: signed.path as string, provider: 'supabase' as const }
+    if (signed.provider !== 'r2' || !signed.uploadUrl) throw new Error('Direct upload credentials were not returned.')
+    const uploadResponse = await fetch(signed.uploadUrl, {
+      method: 'PUT',
+      headers: { 'content-type': preparedFile.type },
+      body: preparedFile,
+    })
+    if (!uploadResponse.ok) throw new Error('Cloudflare image upload failed.')
+    return { path: signed.url as string, provider: 'r2' as const }
   }
 
   const uploadMediaThroughServer = async (file: File, kind: 'image' | 'video', folder: 'products' | 'hiphop') => {
@@ -1531,7 +1492,7 @@ export function ProductForm({
         // The save response contains only the products row. Relation-backed fields
         // (shapes, materials, variants, links, FAQs, and pricing) are loaded by GET,
         // so never cache the partial PATCH response as a complete editor record.
-        deleteCachedQueryData(`product-edit:${saveUrl}`)
+        deleteCachedQueryData(getProductEditorCacheKey(saveUrl))
       }
 
       toast({
@@ -1658,7 +1619,7 @@ export function ProductForm({
             />
 
             <ProductExperienceCard
-              forcedLane={forcedLane}
+              forcedLane={forcedLane ?? null}
               detailTemplate={detailTemplate}
               setDetailTemplate={setDetailTemplate}
               isHiphopProduct={isHiphopProduct}
@@ -2069,7 +2030,7 @@ export function ProductForm({
                               <input
                                 id={inputId}
                                 type="file"
-                                accept={item.media_type === 'video' ? 'video/*' : 'image/*'}
+                                accept={item.media_type === 'video' ? 'video/mp4,video/quicktime,video/webm' : 'image/jpeg,image/png,image/webp,image/avif'}
                                 className="hidden"
                                 onChange={async (event) => {
                                   const input = event.currentTarget
@@ -2257,7 +2218,7 @@ export function ProductForm({
                                       Upload
                                       <input
                                         type="file"
-                                        accept={activeItem.media_type === 'video' ? 'video/*' : 'image/*'}
+                                        accept={activeItem.media_type === 'video' ? 'video/mp4,video/quicktime,video/webm' : 'image/jpeg,image/png,image/webp,image/avif'}
                                         className="hidden"
                                         onChange={async (event) => {
                                           const input = event.currentTarget
@@ -2432,7 +2393,7 @@ function MediaThumbnailSlot({
       <input
         id={inputId}
         type="file"
-        accept="image/*"
+        accept="image/jpeg,image/png,image/webp,image/avif"
         className="hidden"
         onChange={(event) => {
           const input = event.currentTarget

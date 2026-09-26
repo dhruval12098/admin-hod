@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import { Eye, EyeOff, KeyRound, MessageCircle, Save, ShieldAlert } from 'lucide-react'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { useToast } from '@/hooks/use-toast'
+import { useUnsavedChanges } from '@/hooks/use-unsaved-changes'
 import { supabase } from '@/lib/supabase'
 import type { CatalogGstSlab } from '@/lib/product-catalog'
 
@@ -106,6 +107,24 @@ export function SettingsClient({ initialData }: { initialData: SettingsPageData 
   const [settingsConfirmOpen, setSettingsConfirmOpen] = useState(false)
   const [passwordConfirmOpen, setPasswordConfirmOpen] = useState(false)
 
+  const settingsFingerprint = useMemo(() => JSON.stringify({
+    whatsapp_number: buildStoredWhatsappNumber(whatsappForm),
+    default_gst_slab_id: defaultGstSlabId,
+    maintenance_mode_enabled: maintenanceModeEnabled,
+    maintenance_mode_message: maintenanceModeMessage.trim(),
+  }), [defaultGstSlabId, maintenanceModeEnabled, maintenanceModeMessage, whatsappForm])
+  const initialSettingsFingerprint = useMemo(() => JSON.stringify({
+    whatsapp_number: normalizeWhatsappNumber(initialData.settings.whatsapp_number ?? ''),
+    default_gst_slab_id: initialData.settings.default_gst_slab_id ?? '',
+    maintenance_mode_enabled: Boolean(initialData.settings.maintenance_mode_enabled),
+    maintenance_mode_message: (initialData.settings.maintenance_mode_message ?? 'Our atelier is receiving a careful polish. House of Diams will be back online shortly.').trim(),
+  }), [initialData.settings])
+  const [savedSettingsFingerprint, setSavedSettingsFingerprint] = useState(initialSettingsFingerprint)
+  const settingsChanged = settingsFingerprint !== savedSettingsFingerprint
+  const passwordChanged = Object.values(passwordForm).some(Boolean)
+  const passwordReady = Boolean(passwordForm.currentPassword && passwordForm.newPassword.length >= 8 && passwordForm.newPassword === passwordForm.confirmPassword && passwordForm.newPassword !== passwordForm.currentPassword)
+  useUnsavedChanges(settingsChanged || passwordChanged)
+
   const whatsappPreviewLink = useMemo(() => {
     const digits = normalizeWhatsappNumber(buildStoredWhatsappNumber(whatsappForm))
     return digits
@@ -168,6 +187,7 @@ export function SettingsClient({ initialData }: { initialData: SettingsPageData 
         maintenance_mode_enabled: nextSettings.maintenance_mode_enabled,
         maintenance_mode_message: nextSettings.maintenance_mode_message,
       })
+      setSavedSettingsFingerprint(settingsFingerprint)
 
       toast({
         title: 'Saved',
@@ -366,7 +386,7 @@ export function SettingsClient({ initialData }: { initialData: SettingsPageData 
             <button
               type="button"
               onClick={() => setSettingsConfirmOpen(true)}
-              disabled={savingSettings}
+              disabled={savingSettings || !settingsChanged}
               className="mt-6 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <Save size={16} />
@@ -414,7 +434,7 @@ export function SettingsClient({ initialData }: { initialData: SettingsPageData 
             <button
               type="button"
               onClick={() => setPasswordConfirmOpen(true)}
-              disabled={changingPassword}
+              disabled={changingPassword || !passwordReady}
               className="mt-6 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <KeyRound size={16} />

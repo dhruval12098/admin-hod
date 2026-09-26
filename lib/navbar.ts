@@ -4,6 +4,7 @@ import {
   type CatalogCertificate,
   type CatalogMetal,
   type CatalogOption,
+  type CatalogRingSize,
   type CatalogStoneShape,
   type CatalogStyle,
   type CatalogSubcategory,
@@ -15,18 +16,21 @@ export type NavbarSectionType =
   | 'Manual Links'
   | 'Metal Swatches'
   | 'Stone Shapes'
+  | 'Ring Sizes'
   | 'Certificates'
   | 'Styles'
   | 'Category Link'
 
 export type NavbarManualLink = {
+  id?: string
   label: string
   url: string
 }
 
-export type NavbarSectionSourceKind = 'subcategory_option' | 'metal' | 'stone_shape' | 'certificate' | 'style'
+export type NavbarSectionSourceKind = 'subcategory_option' | 'metal' | 'stone_shape' | 'ring_size' | 'certificate' | 'style'
 
 export type NavbarSectionSourceItem = {
+  id?: string
   sourceKind: NavbarSectionSourceKind
   sourceItemId: string
   label: string
@@ -61,6 +65,7 @@ export type NavbarItem = {
   columns?: number
   sections?: NavbarSection[]
   featuredImage?: {
+    id?: string
     enabled: boolean
     imageUrl: string
     buttonLabel: string
@@ -70,12 +75,14 @@ export type NavbarItem = {
 }
 
 export type NavbarBuilderPayload = {
+  revision: string
   items: NavbarItem[]
   categories: CatalogCategory[]
   subcategories: CatalogSubcategory[]
   options: CatalogOption[]
   metals: CatalogMetal[]
   stoneShapes: CatalogStoneShape[]
+  ringSizes: CatalogRingSize[]
   certificates: CatalogCertificate[]
   styles: CatalogStyle[]
 }
@@ -119,7 +126,7 @@ type RawNavbarSection = {
   navbar_item_id: string
   title: string
   icon_svg_path?: string | null
-  section_type: 'category_list' | 'manual_links' | 'metal_swatches' | 'stone_shapes' | 'certificates' | 'styles' | 'category_link'
+  section_type: 'category_list' | 'manual_links' | 'metal_swatches' | 'stone_shapes' | 'ring_sizes' | 'certificates' | 'styles' | 'category_link'
   source_subcategory_id: string | null
   source_category_slug?: string | null
   enable_category_link?: boolean | null
@@ -131,6 +138,7 @@ type RawNavbarSection = {
 }
 
 type RawNavbarSectionSourceItem = {
+  id: number | string
   section_id: string
   source_kind: NavbarSectionSourceKind
   source_item_id: string
@@ -148,6 +156,7 @@ type RawNavbarSectionLink = {
 }
 
 type RawNavbarFeaturedCard = {
+  id: string
   navbar_item_id: string
   image_path: string | null
   image_alt: string | null
@@ -160,6 +169,7 @@ export function mapSectionTypeFromDb(type: RawNavbarSection['section_type']): Na
   if (type === 'category_list') return 'Subcategory Options'
   if (type === 'manual_links') return 'Manual Links'
   if (type === 'metal_swatches') return 'Metal Swatches'
+  if (type === 'ring_sizes') return 'Ring Sizes'
   if (type === 'certificates') return 'Certificates'
   if (type === 'styles') return 'Styles'
   if (type === 'category_link') return 'Category Link'
@@ -170,6 +180,7 @@ export function mapSectionTypeToDb(type: NavbarSectionType): RawNavbarSection['s
   if (type === 'Subcategory Options') return 'category_list'
   if (type === 'Manual Links') return 'manual_links'
   if (type === 'Metal Swatches') return 'metal_swatches'
+  if (type === 'Ring Sizes') return 'ring_sizes'
   if (type === 'Certificates') return 'certificates'
   if (type === 'Styles') return 'styles'
   if (type === 'Category Link') return 'category_link'
@@ -241,6 +252,7 @@ export function buildNavbarItemsFromRows(args: {
   subcategories: CatalogSubcategory[]
   metals: CatalogMetal[]
   stoneShapes: CatalogStoneShape[]
+  ringSizes?: CatalogRingSize[]
   certificates?: CatalogCertificate[]
   styles?: CatalogStyle[]
   options?: CatalogOption[]
@@ -255,6 +267,7 @@ export function buildNavbarItemsFromRows(args: {
     subcategories,
     metals,
     stoneShapes,
+    ringSizes = [],
     certificates = [],
     styles = [],
     options = [],
@@ -265,6 +278,7 @@ export function buildNavbarItemsFromRows(args: {
     subcategory_option: new Map(options.map((entry) => [entry.id, entry.name])),
     metal: new Map(metals.map((entry) => [entry.id, entry.name])),
     stone_shape: new Map(stoneShapes.map((entry) => [entry.id, entry.name])),
+    ring_size: new Map(ringSizes.map((entry) => [entry.id, entry.name])),
     certificate: new Map(certificates.map((entry) => [entry.id, entry.name])),
     style: new Map(styles.map((entry) => [entry.id, entry.name])),
   } as const
@@ -293,6 +307,7 @@ export function buildNavbarItemsFromRows(args: {
               .filter((entry) => entry.section_id === section.id)
               .sort((left, right) => left.sort_order - right.sort_order)
               .map((entry) => ({
+                id: String(entry.id),
                 sourceKind: entry.source_kind,
                 sourceItemId: entry.source_item_id,
                 label: labelMaps[entry.source_kind].get(entry.source_item_id) ?? entry.source_item_id,
@@ -303,6 +318,7 @@ export function buildNavbarItemsFromRows(args: {
               .filter((entry) => entry.section_id === section.id)
               .sort((left, right) => left.display_order - right.display_order)
               .map((entry) => ({
+                id: entry.id,
                 label: entry.label,
                 url: entry.url,
               })),
@@ -322,6 +338,7 @@ export function buildNavbarItemsFromRows(args: {
         columns: itemSections.reduce((max, section) => Math.max(max, section.column), 1),
         sections: itemSections,
         featuredImage: {
+          id: featuredCard?.id,
           enabled: featuredCard?.enabled ?? false,
           imageUrl: featuredCard?.image_path ?? '',
           buttonLabel: featuredCard?.button_label ?? '',
@@ -339,10 +356,11 @@ export function buildSectionPreviewItems(args: {
   options: CatalogOption[]
   metals: CatalogMetal[]
   stoneShapes: CatalogStoneShape[]
+  ringSizes?: CatalogRingSize[]
   certificates?: CatalogCertificate[]
   styles?: CatalogStyle[]
 }): string[] {
-  const { section, categories, options, metals, stoneShapes, certificates = [], styles = [] } = args
+  const { section, categories, options, metals, stoneShapes, ringSizes = [], certificates = [], styles = [] } = args
 
   const selectedIds = new Set((section.selectedSourceItems ?? []).filter((entry) => entry.isActive).map((entry) => entry.sourceItemId))
 
@@ -372,6 +390,13 @@ export function buildSectionPreviewItems(args: {
     }
 
     return shapeItems
+  }
+
+  if (section.type === 'Ring Sizes') {
+    return ringSizes
+      .filter((entry) => selectedIds.size === 0 || selectedIds.has(entry.id))
+      .sort((left, right) => left.display_order - right.display_order)
+      .map((entry) => entry.name)
   }
 
   if (section.type === 'Certificates') {

@@ -25,7 +25,6 @@ import {
   BadgeAlert,
   SwatchBook,
   Inbox,
-  Files,
 } from 'lucide-react'
 
 const NAVIGATION_GROUPS = [
@@ -46,7 +45,6 @@ const NAVIGATION_GROUPS = [
     label: 'Products',
     items: [
       { name: 'Products', href: '/dashboard/products', icon: Package },
-      { name: 'Bulk Imports', href: '/dashboard/product-imports', icon: Files },
       { name: 'Inventory', href: '/dashboard/inventory', icon: Package },
       { name: 'Collection Products', href: '/dashboard/collection-products', icon: Package },
       { name: 'Bespoke Products', href: '/dashboard/bespoke', icon: Sparkles },

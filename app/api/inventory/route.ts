@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import { assertAdmin } from '@/lib/cms-auth'
 
 function buildDisplayCategoryPath(args: {
@@ -20,14 +21,16 @@ export async function GET(request: Request) {
   if ('error' in access) return access.error
 
   const { searchParams } = new URL(request.url)
-  const query = (searchParams.get('q') || '').trim().toLowerCase()
+  const parsedQuery = z.string().max(200).safeParse(searchParams.get('q') ?? '')
+  if (!parsedQuery.success) return NextResponse.json({ error: 'Search query is too long.' }, { status: 400 })
+  const query = parsedQuery.data.trim().toLowerCase()
 
   const { data: products, error } = await access.adminClient
     .from('products')
     .select('id, name, slug, sku, stock_quantity, updated_at, main_category_id, subcategory_id, option_id')
     .order('updated_at', { ascending: false })
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) return NextResponse.json({ error: 'Unable to load inventory.' }, { status: 500 })
 
   const categoryIds = [...new Set((products ?? []).map((item: any) => item.main_category_id).filter(Boolean))]
   const subcategoryIds = [...new Set((products ?? []).map((item: any) => item.subcategory_id).filter(Boolean))]
@@ -40,6 +43,11 @@ export async function GET(request: Request) {
     products?.length ? access.adminClient.from('product_subcategory_links').select('product_id, subcategory_id, is_primary').in('product_id', products.map((item: any) => item.id)) : Promise.resolve({ data: [] }),
     products?.length ? access.adminClient.from('product_option_links').select('product_id, option_id, is_primary').in('product_id', products.map((item: any) => item.id)) : Promise.resolve({ data: [] }),
   ])
+
+  const relatedResults = [categoriesResult, subcategoriesResult, optionsResult, subcategoryLinksResult, optionLinksResult]
+  if (relatedResults.some((result) => 'error' in result && result.error)) {
+    return NextResponse.json({ error: 'Unable to load inventory catalog details.' }, { status: 500 })
+  }
 
   const categoryMap = new Map((categoriesResult.data ?? []).map((item: any) => [item.id, item.name]))
   const subcategoryMap = new Map((subcategoriesResult.data ?? []).map((item: any) => [item.id, item.name]))
@@ -85,5 +93,5 @@ export async function GET(request: Request) {
     })
     .filter((item) => !query || `${item.name} ${item.sku} ${item.categoryPath}`.toLowerCase().includes(query))
 
-  return NextResponse.json({ items })
+  return NextResponse.json({ items }, { headers: { 'Cache-Control': 'no-store' } })
 }

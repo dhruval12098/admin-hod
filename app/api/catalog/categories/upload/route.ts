@@ -1,57 +1,21 @@
-import { NextResponse } from 'next/server'
 import { assertAdmin } from '@/lib/cms-auth'
-import sharp from 'sharp'
+import { handleAdminImageUpload } from '@/lib/admin-image-upload'
 
 const bucket = process.env.SUPABASE_COLLECTION_BUCKET ?? 'hod'
-const allowedMimeTypes = new Set(['image/svg+xml', 'image/jpeg', 'image/png', 'image/webp', 'image/avif'])
-const maxFileSizeBytes = 6 * 1024 * 1024
-
-function normalizeSlug(value: string) {
-  return value
-    .toLowerCase()
-    .trim()
-    .replace(/[^\w\s-]/g, '')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-}
+const normalizeSlug = (value: string) => value.toLowerCase().trim().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
 
 export async function POST(request: Request) {
   const access = await assertAdmin(request)
   if ('error' in access) return access.error
-
-  const formData = await request.formData().catch(() => null)
-  const file = formData?.get('file')
-  const slug = typeof formData?.get('slug') === 'string' ? String(formData.get('slug')) : ''
-  const variant = typeof formData?.get('variant') === 'string' ? String(formData.get('variant')) : 'desktop'
-
-  if (!(file instanceof File)) return NextResponse.json({ error: 'Missing file.' }, { status: 400 })
-  if (!allowedMimeTypes.has(file.type)) return NextResponse.json({ error: 'Invalid file type. Use SVG, JPG, PNG, WebP, or AVIF.' }, { status: 400 })
-  if (file.size > maxFileSizeBytes) return NextResponse.json({ error: 'File too large. Max size is 6MB.' }, { status: 400 })
-  if (!slug.trim()) return NextResponse.json({ error: 'Missing category slug.' }, { status: 400 })
-
-  const buffer = Buffer.from(await file.arrayBuffer())
-  const safeSlug = normalizeSlug(slug) || 'category'
-  const safeVariant = variant === 'mobile' ? 'mobile' : 'desktop'
-  const isSvg = file.type === 'image/svg+xml'
-  const fileName = `category-banners/${safeSlug}/${safeVariant}-${crypto.randomUUID()}.${isSvg ? 'svg' : 'webp'}`
-  const uploadBuffer = isSvg
-    ? buffer
-    : await sharp(buffer)
-        .rotate()
-        .resize({ width: safeVariant === 'mobile' ? 1400 : 2400, withoutEnlargement: true })
-        .webp({ quality: 84 })
-        .toBuffer()
-  const contentType = isSvg ? 'image/svg+xml' : 'image/webp'
-
-  const { adminClient } = access
-  const { error: uploadError } = await adminClient.storage.from(bucket).upload(fileName, uploadBuffer, {
-    contentType,
-    upsert: false,
+  return handleAdminImageUpload(request, access, {
+    bucket, maxBytes: 6 * 1024 * 1024, rasterWidth: (form) => form.get('variant') === 'mobile' ? 1400 : 2400, allowSvg: true,
+    validateForm: (form) => {
+      const slug = form.get('slug')
+      const variant = form.get('variant')
+      if (typeof slug !== 'string' || !normalizeSlug(slug) || normalizeSlug(slug).length > 120) return 'A valid category slug is required.'
+      if (variant !== 'desktop' && variant !== 'mobile') return 'A valid banner variant is required.'
+      return null
+    },
+    buildPath: (extension, form) => `category-banners/${normalizeSlug(String(form.get('slug')))}/${form.get('variant')}-${crypto.randomUUID()}.${extension}`,
   })
-  if (uploadError) return NextResponse.json({ error: uploadError.message }, { status: 500 })
-
-  const { data } = adminClient.storage.from(bucket).getPublicUrl(fileName)
-  if (!data?.publicUrl) return NextResponse.json({ error: 'Failed to generate public URL.' }, { status: 500 })
-
-  return NextResponse.json({ path: fileName, url: data.publicUrl })
 }

@@ -14,7 +14,7 @@ export async function POST(request: Request) {
   if (![...rasterTypes, 'image/svg+xml'].includes(file.type)) return NextResponse.json({ error: 'Use SVG, PNG, JPG, or WebP.' }, { status: 400 })
   if (file.size > 5 * 1024 * 1024) return NextResponse.json({ error: 'File too large. Max size is 5MB.' }, { status: 400 })
   const input = Buffer.from(await file.arrayBuffer())
-  let output = input
+  let output: Buffer<ArrayBufferLike> = input
   let extension = 'svg'
   let contentType = 'image/svg+xml'
   if (file.type === 'image/svg+xml') {

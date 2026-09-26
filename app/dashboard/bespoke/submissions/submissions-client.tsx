@@ -40,37 +40,34 @@ export function BespokeSubmissionsClient({ initialItems }: { initialItems: Bespo
 
   const loadSubmissions = async (filters?: { from?: string; to?: string; q?: string }) => {
     setLoading(true)
+    try {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const accessToken = sessionData.session?.access_token
+      if (!accessToken) {
+        setStatus('You are not signed in.')
+        return
+      }
 
-    const { data: sessionData } = await supabase.auth.getSession()
-    const accessToken = sessionData.session?.access_token
-    if (!accessToken) {
-      setStatus('You are not signed in.')
+      const params = new URLSearchParams()
+      if (filters?.from) params.set('from', filters.from)
+      if (filters?.to) params.set('to', filters.to)
+      if (filters?.q) params.set('q', filters.q)
+      const response = await fetch(`/api/bespoke/submissions${params.size ? `?${params.toString()}` : ''}`, { headers: { authorization: `Bearer ${accessToken}` } })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok) {
+        setStatus(payload?.error ?? 'Unable to load submissions. Existing results were kept.')
+        return
+      }
+
+      const nextItems = Array.isArray(payload?.items) ? payload.items : []
+      setItems(nextItems)
+      setPage(1)
+      setStatus(nextItems.length ? `${nextItems.length} submission(s) found.` : 'No submissions found for the selected filter.')
+    } catch {
+      setStatus('Unable to reach the server. Existing results were kept.')
+    } finally {
       setLoading(false)
-      return
     }
-
-    const params = new URLSearchParams()
-    if (filters?.from) params.set('from', filters.from)
-    if (filters?.to) params.set('to', filters.to)
-    if (filters?.q) params.set('q', filters.q)
-
-    const response = await fetch(`/api/bespoke/submissions${params.size ? `?${params.toString()}` : ''}`, {
-      headers: { authorization: `Bearer ${accessToken}` },
-    })
-    const payload = await response.json().catch(() => null)
-
-    if (!response.ok) {
-      setItems([])
-      setStatus(payload?.error ?? 'Unable to load submissions.')
-      setLoading(false)
-      return
-    }
-
-    const nextItems = Array.isArray(payload?.items) ? payload.items : []
-    setItems(nextItems)
-    setPage(1)
-    setStatus(nextItems.length ? `${nextItems.length} submission(s) found.` : 'No submissions found for the selected filter.')
-    setLoading(false)
   }
 
   return (
@@ -105,6 +102,7 @@ export function BespokeSubmissionsClient({ initialItems }: { initialItems: Bespo
           <button
             type="button"
             onClick={() => void loadSubmissions({ from: fromDate, to: toDate, q: search.trim() })}
+            disabled={loading}
             className={primaryButtonClassName}
           >
             <Search size={14} />
@@ -112,6 +110,7 @@ export function BespokeSubmissionsClient({ initialItems }: { initialItems: Bespo
           </button>
           <button
             type="button"
+            disabled={loading}
             onClick={() => {
               setFromDate('')
               setToDate('')

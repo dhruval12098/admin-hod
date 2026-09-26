@@ -29,6 +29,7 @@ export function BulkPriceDialog({ open, products, allProducts, lane, onClose, on
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [scope, setScope] = useState<'selected' | 'all'>('selected')
+  const [requestId, setRequestId] = useState<string | null>(null)
   const effectiveProducts = scope === 'all' ? allProducts : products
   const value = Number(rawValue)
   const invalidPriceCount = effectiveProducts.filter((product) => product.price == null || !Number.isFinite(product.price) || product.price <= 0).length
@@ -44,10 +45,11 @@ export function BulkPriceDialog({ open, products, allProducts, lane, onClose, on
     setConfirmed(false)
     setError('')
     setLoading(false)
+    setRequestId(crypto.randomUUID())
   }, [open, products.length])
 
   const apply = async () => {
-    if (loading || !confirmed || !valueIsValid || invalidPriceCount || hasInvalidResult || !effectiveProducts.length) return
+    if (loading || !requestId || !confirmed || !valueIsValid || invalidPriceCount || hasInvalidResult || !effectiveProducts.length) return
     setLoading(true)
     setError('')
     try {
@@ -57,7 +59,7 @@ export function BulkPriceDialog({ open, products, allProducts, lane, onClose, on
       const response = await fetch('/api/products/bulk-price', {
         method: 'POST',
         headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ ids: effectiveProducts.map((product) => product.id), expectedPrices: effectiveProducts.map((product) => ({ id: product.id, price: product.price })), lane, operation, value, confirmation: 'ADJUST_BASE_PRICES' }),
+        body: JSON.stringify({ requestId, ids: effectiveProducts.map((product) => product.id), expectedPrices: effectiveProducts.map((product) => ({ id: product.id, price: product.price })), lane, operation, value, confirmation: 'ADJUST_BASE_PRICES' }),
       })
       const payload = await response.json().catch(() => null)
       if (!response.ok) throw new Error(payload?.error || 'Unable to update the selected prices.')

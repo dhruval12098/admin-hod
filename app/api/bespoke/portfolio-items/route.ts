@@ -1,47 +1,33 @@
 import { NextResponse } from 'next/server'
 import { assertAdmin } from '@/lib/cms-auth'
+import { portfolioItemCreateSchema, portfolioMutationError } from '@/lib/bespoke-portfolio-validation'
+
+const itemColumns = 'id, title, tag, category_id, media_type, media_path, thumbnail_path, gem_style, gem_color, dark_theme, short_description, display_order, status, created_at, updated_at'
 
 export async function GET(request: Request) {
   const access = await assertAdmin(request)
   if ('error' in access) return access.error
 
-  const { data, error } = await access.adminClient
-    .from('bespoke_portfolio_items')
-    .select('*')
-    .order('display_order', { ascending: true })
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ items: data ?? [] })
+  const { data, error } = await access.adminClient.from('bespoke_portfolio_items').select(itemColumns).order('display_order', { ascending: true })
+  if (error) return NextResponse.json({ error: 'Unable to load portfolio items.' }, { status: 500 })
+  return NextResponse.json({ items: data ?? [] }, { headers: { 'Cache-Control': 'no-store' } })
 }
 
 export async function POST(request: Request) {
   const access = await assertAdmin(request)
   if ('error' in access) return access.error
 
-  const body = await request.json().catch(() => null)
-  if (!body?.title || !body?.tag || !body?.category_id) {
-    return NextResponse.json({ error: 'Invalid payload.' }, { status: 400 })
+  const parsed = portfolioItemCreateSchema.safeParse(await request.json().catch(() => null))
+  if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message ?? 'Invalid portfolio item.' }, { status: 400 })
+
+  const { data: category, error: categoryError } = await access.adminClient.from('bespoke_portfolio_categories').select('id').eq('id', parsed.data.category_id).maybeSingle()
+  if (categoryError) return NextResponse.json({ error: 'Unable to validate the selected portfolio category.' }, { status: 500 })
+  if (!category) return NextResponse.json({ error: 'The selected portfolio category was not found.' }, { status: 404 })
+
+  const { data, error } = await access.adminClient.from('bespoke_portfolio_items').insert(parsed.data).select(itemColumns).single()
+  if (error) {
+    const safe = portfolioMutationError(error, 'item', 'save')
+    return NextResponse.json({ error: safe.message }, { status: safe.status })
   }
-
-  const { data, error } = await access.adminClient
-    .from('bespoke_portfolio_items')
-    .insert({
-      title: body.title,
-      tag: body.tag,
-      category_id: body.category_id,
-      media_type: body.media_type ?? 'image',
-      media_path: body.media_path ?? null,
-      thumbnail_path: body.thumbnail_path ?? null,
-      gem_style: body.gem_style ?? null,
-      gem_color: body.gem_color ?? null,
-      dark_theme: body.dark_theme ?? false,
-      short_description: body.short_description ?? null,
-      display_order: body.display_order ?? 0,
-      status: body.status ?? 'active',
-    })
-    .select('*')
-    .single()
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ item: data })
+  return NextResponse.json({ item: data }, { status: 201, headers: { 'Cache-Control': 'no-store' } })
 }

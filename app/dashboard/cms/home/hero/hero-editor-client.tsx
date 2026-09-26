@@ -280,7 +280,7 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
 
         <div className="mb-10">
           <h1 className="font-jakarta text-3xl font-semibold text-foreground">Hero Section</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Manage the image slider and edit each slide's content individually.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Manage the image slider and edit each slide’s content individually.</p>
           <p className="mt-2 text-xs text-muted-foreground">{status}</p>
         </div>
 
@@ -333,7 +333,7 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
             <div className="mb-4 flex items-center justify-between gap-4">
               <div>
                 <h2 className="text-xl font-semibold text-foreground">Hero Slides</h2>
-                <p className="text-sm text-muted-foreground">Edit each slide's image, heading, paragraph, button, and destination.</p>
+                <p className="text-sm text-muted-foreground">Edit each slide’s image, heading, paragraph, button, and destination.</p>
               </div>
               <button
                 type="button"
@@ -458,7 +458,7 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
           <DialogContent className="sm:max-w-2xl">
             <DialogHeader>
               <DialogTitle>Add Hero Slide</DialogTitle>
-              <DialogDescription>Add the slide's images, heading, paragraph, and call to action. Save the hero list to publish it.</DialogDescription>
+              <DialogDescription>Add the slide’s images, heading, paragraph, and call to action. Save the hero list to publish it.</DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4">

@@ -1,16 +1,16 @@
 import { NextResponse } from 'next/server'
 import { assertAdmin } from '@/lib/cms-auth'
-import type { ProductDetailSection, ProductFaqItem, ProductKeyValue, ProductMetalMedia, ProductPurityPrice, ProductRecord } from '@/lib/product-catalog'
-import { loadProductLinkSelections, replaceProductOptionLinks, replaceProductSubcategoryLinks } from '@/lib/product-catalog-links'
+import type { ProductDetailSection, ProductFaqItem, ProductKeyValue, ProductMetalMedia, ProductPurityPrice } from '@/lib/product-catalog'
+import { replaceProductOptionLinks, replaceProductSubcategoryLinks } from '@/lib/product-catalog-links'
 import {
   type ProductMetalVariant,
   type ProductVariantMediaItem,
-  loadProductMetalVariantBundle,
   replaceProductMetalVariants,
   replaceProductVariantMediaItems,
 } from '@/lib/product-metal-variants'
-import { loadProductFaqItems, replaceProductFaqItems } from '@/lib/product-faqs'
-import { loadProductCustomDropdowns, syncProductCustomDropdowns, validateProductCustomDropdowns, type ProductCustomDropdown } from '@/lib/product-custom-dropdowns'
+import { replaceProductFaqItems } from '@/lib/product-faqs'
+import { syncProductCustomDropdowns, validateProductCustomDropdowns, type ProductCustomDropdown } from '@/lib/product-custom-dropdowns'
+import { loadProductEditorItem } from '@/lib/product-editor-data'
 import { validateProductMasterReferences } from '@/lib/product-master-validation'
 
 function isMissingRelation(error: { message?: string | null } | null | undefined, table: string) {
@@ -270,53 +270,14 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
   if ('error' in access) return access.error
 
   const { slug } = await params
-  const { adminClient } = access
-  const productIdResult = await getProductIdBySlug(adminClient, slug)
-
-  if (productIdResult.error || !productIdResult.data?.id) {
-    return NextResponse.json({ error: productIdResult.error?.message ?? 'Product not found.' }, { status: 404 })
+  const result = await loadProductEditorItem(access.adminClient, slug)
+  if (result.status === 'not_found') {
+    return NextResponse.json({ error: 'Product not found.' }, { status: 404 })
   }
-
-  const id = productIdResult.data.id
-  const [productResult, metalsResult, materialValuesResult, purityPricesResult, metalMediaResult, linkSelections, metalVariantBundle, faqItems] = await Promise.all([
-    adminClient.from('products').select('*').eq('id', id).single(),
-    adminClient.from('product_metal_selections').select('metal_id').eq('product_id', id).order('sort_order', { ascending: true }),
-    adminClient.from('product_material_value_selections').select('material_value_id').eq('product_id', id).order('sort_order', { ascending: true }),
-    adminClient.from('product_purity_prices').select('*').eq('product_id', id).order('sort_order', { ascending: true }),
-    adminClient.from('product_metal_media').select('*').eq('product_id', id),
-    loadProductLinkSelections(adminClient, id),
-    loadProductMetalVariantBundle(adminClient, id),
-    loadProductFaqItems(adminClient, id),
-  ])
-
-  if (productResult.error) return NextResponse.json({ error: productResult.error.message }, { status: 500 })
-
-  const shapeResult = await adminClient.from('product_stone_shapes').select('shape_id').eq('product_id', id)
-  const shapeIds = shapeResult.error && isMissingRelation(shapeResult.error, 'product_stone_shapes')
-    ? []
-    : (shapeResult.data ?? []).map((item) => item.shape_id)
-
-  const customDropdowns = await loadProductCustomDropdowns(adminClient, id)
-  if (customDropdowns.error) return NextResponse.json({ error: customDropdowns.error }, { status: 500 })
-  return NextResponse.json({
-    item: {
-      ...(productResult.data as ProductRecord),
-      metal_ids: (metalsResult.data ?? []).map((item) => item.metal_id),
-      linked_subcategory_ids: linkSelections.linkedSubcategoryIds,
-      linked_option_ids: linkSelections.linkedOptionIds,
-      material_value_ids:
-        materialValuesResult.error && isMissingRelation(materialValuesResult.error, 'product_material_value_selections')
-          ? []
-          : (materialValuesResult.data ?? []).map((item) => item.material_value_id),
-      shape_ids: shapeIds,
-      purity_prices: purityPricesResult.error && isMissingRelation(purityPricesResult.error, 'product_purity_prices') ? [] : (purityPricesResult.data ?? []),
-      metal_media: metalMediaResult.error && isMissingRelation(metalMediaResult.error, 'product_metal_media') ? [] : (metalMediaResult.data ?? []),
-      metal_variants: metalVariantBundle.metalVariants,
-      default_variant_media_items: metalVariantBundle.defaultVariantMediaItems,
-      faq_items: faqItems,
-      custom_dropdowns: customDropdowns.data ?? [],
-    },
-  })
+  if (result.status === 'error') {
+    return NextResponse.json({ error: result.message }, { status: 500 })
+  }
+  return NextResponse.json({ item: result.item })
 }
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ slug: string }> }) {

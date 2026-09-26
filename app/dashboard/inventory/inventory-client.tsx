@@ -4,6 +4,9 @@ import { useMemo, useState } from 'react'
 import { Search, Edit2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { TablePagination } from '@/components/table-pagination'
+import { ConfirmDialog } from '@/components/confirm-dialog'
+import { useToast } from '@/hooks/use-toast'
+import { useUnsavedChanges } from '@/hooks/use-unsaved-changes'
 
 export type InventoryItem = {
   id: string
@@ -26,37 +29,48 @@ async function authedFetch(url: string, options: RequestInit = {}) {
 const PAGE_SIZE = 20
 
 export function InventoryClient({ initialItems }: { initialItems: InventoryItem[] }) {
+  const { toast } = useToast()
   const [items, setItems] = useState<InventoryItem[]>(initialItems)
   const [search, setSearch] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draftStock, setDraftStock] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [savingId, setSavingId] = useState<string | null>(null)
+  const [confirmTarget, setConfirmTarget] = useState<InventoryItem | null>(null)
   const [page, setPage] = useState(1)
+  const editingItem = items.find((item) => item.id === editingId)
+  useUnsavedChanges(Boolean(editingItem && draftStock !== String(editingItem.stockQuantity)))
 
-  async function loadItems(query = '') {
-    setLoading(true)
-    try {
-      const response = await authedFetch(`/api/inventory${query ? `?q=${encodeURIComponent(query)}` : ''}`)
-      const payload = await response.json().catch(() => null)
-      if (response.ok) setItems(payload?.items ?? [])
-      setPage(1)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function handleStockUpdate(id: string) {
+  async function handleStockUpdate(item: InventoryItem) {
     const nextStock = Number(draftStock)
-    if (Number.isNaN(nextStock) || nextStock < 0) return
-
-    const response = await authedFetch(`/api/inventory/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ stock_quantity: nextStock }),
-    })
-    if (response.ok) {
-      await loadItems(search)
+    if (!Number.isInteger(nextStock) || nextStock < 0) {
+      toast({ title: 'Invalid stock', description: 'Stock must be a whole number of zero or greater.', variant: 'destructive' })
+      return
+    }
+    setSavingId(item.id)
+    try {
+      const response = await authedFetch(`/api/inventory/${item.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ stock_quantity: nextStock, expected_stock: item.stockQuantity, notes: 'Stock updated from inventory admin.' }),
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok) {
+        toast({ title: 'Stock update failed', description: payload?.error ?? 'Unable to update stock.', variant: 'destructive' })
+        return
+      }
+      setItems((current) => current.map((entry) => entry.id === item.id ? {
+        ...entry,
+        stockQuantity: Number(payload?.item?.stock_quantity ?? nextStock),
+        updatedAt: payload?.item?.updated_at ?? new Date().toISOString(),
+        status: nextStock <= 0 ? 'out-of-stock' : nextStock <= 5 ? 'low-stock' : 'in-stock',
+      } : entry))
       setEditingId(null)
       setDraftStock('')
+      setConfirmTarget(null)
+      toast({ title: 'Stock updated', description: `${item.name} now has ${nextStock} in stock.` })
+    } catch {
+      toast({ title: 'Stock update failed', description: 'Unable to reach the server. Your stock edit is still available.', variant: 'destructive' })
+    } finally {
+      setSavingId(null)
     }
   }
 
@@ -138,7 +152,7 @@ export function InventoryClient({ initialItems }: { initialItems: InventoryItem[
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') {
                             e.preventDefault()
-                            void handleStockUpdate(item.id)
+                            setConfirmTarget(item)
                           }
                           if (e.key === 'Escape') {
                             setEditingId(null)
@@ -169,8 +183,8 @@ export function InventoryClient({ initialItems }: { initialItems: InventoryItem[
                     <div className="flex items-center gap-2">
                       {editingId === item.id ? (
                         <div className="flex items-center gap-2">
-                          <button onClick={() => void handleStockUpdate(item.id)} className="rounded-md border border-border px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-secondary">
-                            Update
+                          <button disabled={savingId === item.id || draftStock === String(item.stockQuantity)} onClick={() => setConfirmTarget(item)} className="rounded-md border border-border px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60">
+                            {savingId === item.id ? 'Updating...' : 'Update'}
                           </button>
                           <button
                             onClick={() => {
@@ -203,10 +217,6 @@ export function InventoryClient({ initialItems }: { initialItems: InventoryItem[
         </div>
       </div>
 
-      {loading ? (
-        <div className="mt-8 text-sm text-muted-foreground">Updating inventory...</div>
-      ) : null}
-
       {filteredItems.length === 0 && (
         <div className="mt-12 text-center">
           <p className="text-sm text-muted-foreground">No products found.</p>
@@ -215,6 +225,7 @@ export function InventoryClient({ initialItems }: { initialItems: InventoryItem[
       {filteredItems.length > PAGE_SIZE ? (
         <TablePagination page={page} totalItems={filteredItems.length} pageSize={PAGE_SIZE} onPageChange={setPage} />
       ) : null}
+      <ConfirmDialog isOpen={Boolean(confirmTarget)} title="Update product stock?" description={confirmTarget ? `Change ${confirmTarget.name} from ${confirmTarget.stockQuantity} to ${draftStock}? The adjustment will be recorded.` : undefined} confirmText="Update stock" isLoading={Boolean(savingId)} onConfirm={() => { if (confirmTarget) void handleStockUpdate(confirmTarget) }} onCancel={() => { if (!savingId) setConfirmTarget(null) }} />
     </div>
   )
 }

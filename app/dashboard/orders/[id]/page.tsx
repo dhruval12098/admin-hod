@@ -3,6 +3,8 @@
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { useToast } from '@/hooks/use-toast'
+import { useUnsavedChanges } from '@/hooks/use-unsaved-changes'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { supabase } from '@/lib/supabase'
 
@@ -131,6 +133,7 @@ export default function OrderDetailPage({ params }: OrderDetailPageProps) {
   const [id, setId] = useState('')
   const [loading, setLoading] = useState(true)
   const [savingStatus, setSavingStatus] = useState(false)
+  const [statusConfirmOpen, setStatusConfirmOpen] = useState(false)
   const [order, setOrder] = useState<OrderDetail | null>(null)
   const [items, setItems] = useState<OrderItem[]>([])
   const [loveLetter, setLoveLetter] = useState<OrderLoveLetter | null>(null)
@@ -139,32 +142,36 @@ export default function OrderDetailPage({ params }: OrderDetailPageProps) {
   const [courierAwbNumber, setCourierAwbNumber] = useState('')
   const [showLetterPreview, setShowLetterPreview] = useState(false)
 
+  const hasStatusChanges = Boolean(order) && (
+    status !== order?.status || courierName.trim() !== (order?.courier_name ?? '') || courierAwbNumber.trim() !== (order?.courier_awb_number ?? '')
+  )
+  const { showWarning, setShowWarning, confirmNavigation, handleDiscard } = useUnsavedChanges(hasStatusChanges)
+
   useEffect(() => {
     void params.then((resolved) => setId(resolved.id))
   }, [params])
 
   useEffect(() => {
     if (!id) return
-    void loadOrder(id)
-  }, [id])
-
-  const loadOrder = async (orderId: string) => {
-    setLoading(true)
-    try {
-      const response = await authedFetch(`/api/orders/${orderId}`)
-      const payload = await response.json().catch(() => null)
-      if (response.ok && payload) {
-        setOrder(payload.order)
-        setItems(payload.items ?? [])
-        setLoveLetter(payload.loveLetter ?? null)
-        setStatus(payload.order.status)
-        setCourierName(payload.order.courier_name ?? '')
-        setCourierAwbNumber(payload.order.courier_awb_number ?? '')
+    const loadOrder = async () => {
+      setLoading(true)
+      try {
+        const response = await authedFetch(`/api/orders/${id}`)
+        const payload = await response.json().catch(() => null)
+        if (response.ok && payload) {
+          setOrder(payload.order)
+          setItems(payload.items ?? [])
+          setLoveLetter(payload.loveLetter ?? null)
+          setStatus(payload.order.status)
+          setCourierName(payload.order.courier_name ?? '')
+          setCourierAwbNumber(payload.order.courier_awb_number ?? '')
+        }
+      } finally {
+        setLoading(false)
       }
-    } finally {
-      setLoading(false)
     }
-  }
+    void loadOrder()
+  }, [id])
 
   const saveStatus = async () => {
     if (!order) return
@@ -192,6 +199,9 @@ export default function OrderDetailPage({ params }: OrderDetailPageProps) {
         method: 'PATCH',
         body: JSON.stringify({
           status,
+          expected_status: order.status,
+          expected_courier_name: order.courier_name ?? null,
+          expected_courier_awb_number: order.courier_awb_number ?? null,
           courier_name: courierName.trim() || null,
           courier_awb_number: courierAwbNumber.trim() || null,
         }),
@@ -209,7 +219,11 @@ export default function OrderDetailPage({ params }: OrderDetailPageProps) {
         } else {
           toast({ title: 'Status updated', description: 'Order status updated successfully.' })
         }
-        await loadOrder(order.id)
+        setOrder((current) => current ? { ...current, ...payload.item } : current)
+        setStatus(payload.item.status)
+        setCourierName(payload.item.courier_name ?? '')
+        setCourierAwbNumber(payload.item.courier_awb_number ?? '')
+        setStatusConfirmOpen(false)
       } else {
         toast({
           title: 'Status update failed',
@@ -217,6 +231,8 @@ export default function OrderDetailPage({ params }: OrderDetailPageProps) {
           variant: 'destructive',
         })
       }
+    } catch {
+      toast({ title: 'Status update failed', description: 'Unable to reach the server. Your edits are still available.', variant: 'destructive' })
     } finally {
       setSavingStatus(false)
     }
@@ -319,7 +335,7 @@ export default function OrderDetailPage({ params }: OrderDetailPageProps) {
     <div className="p-8">
       <div className="mb-8 flex items-center justify-between gap-4">
         <div>
-          <Link href="/dashboard/orders" className="text-sm font-semibold text-primary hover:text-primary/80">Back to Orders</Link>
+          <Link href="/dashboard/orders" onClick={(event) => { if (hasStatusChanges) { event.preventDefault(); confirmNavigation(() => window.location.assign('/dashboard/orders')) } }} className="text-sm font-semibold text-primary hover:text-primary/80">Back to Orders</Link>
           <h1 className="mt-3 font-jakarta text-3xl font-semibold text-foreground">{order.order_number}</h1>
           <p className="mt-1 text-sm text-muted-foreground">Placed on {new Date(order.created_at).toLocaleString()}</p>
         </div>
@@ -336,7 +352,7 @@ export default function OrderDetailPage({ params }: OrderDetailPageProps) {
               <SelectItem value="cancelled">Cancelled</SelectItem>
             </SelectContent>
           </Select>
-          <button onClick={() => void saveStatus()} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-60" disabled={savingStatus}>
+          <button onClick={() => setStatusConfirmOpen(true)} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-60" disabled={savingStatus || !hasStatusChanges}>
             {savingStatus ? 'Saving...' : 'Update Status'}
           </button>
         </div>
@@ -663,6 +679,8 @@ export default function OrderDetailPage({ params }: OrderDetailPageProps) {
           </div>
         </div>
       </div>
+      <ConfirmDialog isOpen={statusConfirmOpen} title="Update order status?" description="This will update the order and notify the customer when the status changes." confirmText="Update status" isLoading={savingStatus} onConfirm={saveStatus} onCancel={() => { if (!savingStatus) setStatusConfirmOpen(false) }} />
+      <ConfirmDialog isOpen={showWarning} title="Discard unsaved order changes?" description="Your status or shipping edits have not been saved." confirmText="Discard changes" cancelText="Keep editing" type="warning" onConfirm={handleDiscard} onCancel={() => setShowWarning(false)} />
     </div>
   )
 }

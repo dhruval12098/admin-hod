@@ -92,9 +92,11 @@ export function ProductsClient({
   const [page, setPage] = useState(1)
   const [activatingDrafts, setActivatingDrafts] = useState(false)
   const [activateDialogOpen, setActivateDialogOpen] = useState(false)
+  const [activateRequestId, setActivateRequestId] = useState<string | null>(null)
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([])
   const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false)
   const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false)
+  const [bulkDeleteRequestId, setBulkDeleteRequestId] = useState<string | null>(null)
   const [bulkPriceDialogOpen, setBulkPriceDialogOpen] = useState(false)
 
   const loadProducts = async () => {
@@ -130,14 +132,6 @@ export function ProductsClient({
     const start = (page - 1) * PAGE_SIZE
     return filteredProducts.slice(start, start + PAGE_SIZE)
   }, [filteredProducts, page])
-  const draftCount = useMemo(
-    () => products.filter((product) => product.status === 'draft').length,
-    [products]
-  )
-  const visibleDraftProducts = useMemo(
-    () => visibleProducts.filter((product) => product.status === 'draft'),
-    [visibleProducts]
-  )
   const selectedProducts = useMemo(
     () => products.filter((product) => selectedProductIds.includes(product.id)),
     [products, selectedProductIds]
@@ -260,7 +254,7 @@ export function ProductsClient({
           authorization: `Bearer ${accessToken}`,
           'content-type': 'application/json',
         },
-        body: JSON.stringify({ status: 'draft' }),
+        body: JSON.stringify({ status: 'draft', expected_status: draftTarget.status }),
       })
       const payload = await response.json().catch(() => null)
 
@@ -285,9 +279,11 @@ export function ProductsClient({
   }
 
   const deleteSelectedProducts = async () => {
+    if (bulkDeleteLoading || !bulkDeleteRequestId || selectedProductIds.length === 0) return
     setBulkDeleteLoading(true)
     const accessToken = await getAccessToken()
     if (!accessToken) {
+      toast({ title: 'Not signed in', description: 'Please sign in again before deleting products.', variant: 'destructive' })
       setBulkDeleteLoading(false)
       return
     }
@@ -299,13 +295,14 @@ export function ProductsClient({
           authorization: `Bearer ${accessToken}`,
           'content-type': 'application/json',
         },
-        body: JSON.stringify({ ids: selectedProductIds }),
+        body: JSON.stringify({ requestId: bulkDeleteRequestId, ids: selectedProductIds, lane, confirmation: 'DELETE_PRODUCTS' }),
       })
       const payload = await response.json().catch(() => null)
 
       if (response.ok) {
         const deletedCount = selectedProductIds.length
         setBulkDeleteDialogOpen(false)
+        setBulkDeleteRequestId(null)
         setSelectedProductIds([])
         await loadProducts()
         toast({
@@ -327,9 +324,11 @@ export function ProductsClient({
   }
 
   const activateDraftProducts = async () => {
+    if (activatingDrafts || !activateRequestId || selectedDraftIds.length === 0) return
     setActivatingDrafts(true)
     const accessToken = await getAccessToken()
     if (!accessToken) {
+      toast({ title: 'Not signed in', description: 'Please sign in again before activating drafts.', variant: 'destructive' })
       setActivatingDrafts(false)
       return
     }
@@ -341,14 +340,20 @@ export function ProductsClient({
           authorization: `Bearer ${accessToken}`,
           'content-type': 'application/json',
         },
-        body: JSON.stringify({ lane, ids: selectedDraftIds }),
+        body: JSON.stringify({ requestId: activateRequestId, lane, ids: selectedDraftIds, confirmation: 'ACTIVATE_DRAFTS' }),
       })
-
-      if (response.ok) {
-        setActivateDialogOpen(false)
-        setSelectedProductIds((current) => current.filter((id) => !selectedDraftIds.includes(id)))
-        await loadProducts()
+      const payload = await response.json().catch(() => null)
+      if (!response.ok) {
+        toast({ title: 'Activation failed', description: payload?.error ?? 'Unable to activate the selected drafts.', variant: 'destructive' })
+        return
       }
+      setActivateDialogOpen(false)
+      setActivateRequestId(null)
+      setSelectedProductIds((current) => current.filter((id) => !selectedDraftIds.includes(id)))
+      await loadProducts()
+      toast({ title: 'Drafts activated', description: `${payload?.activatedCount ?? selectedDraftIds.length} product${selectedDraftIds.length === 1 ? '' : 's'} published successfully.` })
+    } catch (error) {
+      toast({ title: 'Activation failed', description: error instanceof Error ? error.message : 'Unable to activate the selected drafts.', variant: 'destructive' })
     } finally {
       setActivatingDrafts(false)
     }
@@ -386,7 +391,7 @@ export function ProductsClient({
           </button>
           <button
             type="button"
-            onClick={() => setBulkDeleteDialogOpen(true)}
+            onClick={() => { setBulkDeleteRequestId(crypto.randomUUID()); setBulkDeleteDialogOpen(true) }}
             disabled={selectedProductIds.length === 0 || bulkDeleteLoading}
             className="flex items-center gap-2 rounded-lg border border-red-200 bg-white px-4 py-2.5 text-sm font-semibold text-red-600 transition-colors duration-200 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
@@ -395,7 +400,7 @@ export function ProductsClient({
           </button>
           <button
             type="button"
-            onClick={() => setActivateDialogOpen(true)}
+            onClick={() => { setActivateRequestId(crypto.randomUUID()); setActivateDialogOpen(true) }}
             disabled={selectedDraftCount === 0 || activatingDrafts}
             className="flex items-center gap-2 rounded-lg border border-border bg-white px-4 py-2.5 text-sm font-semibold text-foreground transition-colors duration-200 hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
           >
@@ -563,7 +568,7 @@ export function ProductsClient({
         isLoading={activatingDrafts}
         onConfirm={() => void activateDraftProducts()}
         onCancel={() => {
-          if (!activatingDrafts) setActivateDialogOpen(false)
+          if (!activatingDrafts) { setActivateDialogOpen(false); setActivateRequestId(null) }
         }}
       />
 
@@ -581,7 +586,7 @@ export function ProductsClient({
         isLoading={bulkDeleteLoading}
         onConfirm={() => void deleteSelectedProducts()}
         onCancel={() => {
-          if (!bulkDeleteLoading) setBulkDeleteDialogOpen(false)
+          if (!bulkDeleteLoading) { setBulkDeleteDialogOpen(false); setBulkDeleteRequestId(null) }
         }}
       />
 

@@ -76,17 +76,19 @@ export async function createPresignedProductImageUpload({
   folder,
   productKey,
   contentType,
+  declaredSize,
 }: {
   folder: 'products' | 'hiphop'
   productKey?: string | null
-  contentType: 'image/webp' | 'image/svg+xml'
+  contentType: 'image/webp'
+  declaredSize: number
 }) {
-  const extension = contentType === 'image/svg+xml' ? 'svg' : 'webp'
-  const objectKey = `${folder}/${normalizeObjectSegment(productKey)}/images/${crypto.randomUUID()}.${extension}`
+  const objectKey = `${folder}/${normalizeObjectSegment(productKey)}/images/${crypto.randomUUID()}.webp`
   const command = new PutObjectCommand({
     Bucket: r2Bucket,
     Key: objectKey,
     ContentType: contentType,
+    ContentLength: declaredSize,
   })
   const uploadUrl = await getSignedUrl(getR2Client(), command, { expiresIn: 300 })
 

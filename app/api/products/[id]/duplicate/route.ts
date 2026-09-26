@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import { assertAdmin } from '@/lib/cms-auth'
+import { duplicateProductSchema, productOperationError } from '@/lib/product-operations-validation'
 
 type DuplicateProductResult = {
   product_id: string
@@ -7,36 +9,29 @@ type DuplicateProductResult = {
   lane: 'standard' | 'hiphop' | 'collection'
 }
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const access = await assertAdmin(request)
   if ('error' in access) return access.error
 
-  const { id } = await params
-  const body = await request.json().catch(() => null) as { requestId?: unknown } | null
-  const requestId = typeof body?.requestId === 'string' ? body.requestId.trim() : ''
+  const id = z.string().uuid().safeParse((await params).id)
+  if (!id.success) return NextResponse.json({ error: 'Invalid source product ID.' }, { status: 400 })
+  const input = duplicateProductSchema.safeParse(await request.json().catch(() => null))
+  if (!input.success) return NextResponse.json({ error: input.error.issues[0]?.message ?? 'Invalid product duplication request.' }, { status: 400 })
 
-  if (!UUID_PATTERN.test(id) || !UUID_PATTERN.test(requestId)) {
-    return NextResponse.json({ error: 'A valid product and duplication request are required.' }, { status: 400 })
-  }
+  const { data: source, error: sourceError } = await access.adminClient.from('products').select('id, product_lane').eq('id', id.data).maybeSingle()
+  if (sourceError) return NextResponse.json({ error: 'Unable to validate the source product.' }, { status: 500 })
+  if (!source) return NextResponse.json({ error: 'Source product not found.' }, { status: 404 })
+  if (!['standard', 'hiphop', 'collection'].includes(source.product_lane ?? 'standard')) return NextResponse.json({ error: 'The source product is not eligible for duplication.' }, { status: 409 })
 
   const { data, error } = await access.adminClient.rpc('duplicate_product', {
-    p_source_product_id: id,
-    p_request_id: requestId,
+    p_source_product_id: id.data,
+    p_request_id: input.data.requestId,
     p_admin_id: access.user.id,
   })
 
   if (error) {
-    const missingFunction = error.code === 'PGRST202' || error.message.includes('duplicate_product') && error.message.includes('schema cache')
-    return NextResponse.json(
-      {
-        error: missingFunction
-          ? 'Product duplication is not installed in the database yet.'
-          : error.message || 'Unable to duplicate this product.',
-      },
-      { status: missingFunction ? 503 : 500 }
-    )
+    const safe = productOperationError(error, 'duplicate')
+    return NextResponse.json({ error: safe.message }, { status: safe.status })
   }
 
   const item = (Array.isArray(data) ? data[0] : data) as DuplicateProductResult | null
@@ -44,5 +39,5 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: 'The database did not return the duplicated product.' }, { status: 500 })
   }
 
-  return NextResponse.json({ item })
+  return NextResponse.json({ item }, { status: 201, headers: { 'Cache-Control': 'no-store' } })
 }

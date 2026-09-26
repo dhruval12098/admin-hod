@@ -1,37 +1,29 @@
 import { NextResponse } from 'next/server'
 import { assertAdmin } from '@/lib/cms-auth'
 import { getNotificationsPageData } from '@/lib/notifications'
-
-function isMissingRelationError(error: { code?: string; message?: string } | null) {
-  return error?.code === 'PGRST205' || error?.message?.includes('schema cache') || error?.message?.includes('does not exist')
-}
+import { notificationWriteError } from '@/lib/admin-read-validation'
 
 export async function POST(request: Request) {
   const access = await assertAdmin(request)
   if ('error' in access) return access.error
 
-  const data = await getNotificationsPageData(access.user.id)
-  const unread = data.items.filter((item) => !item.read)
-
-  if (unread.length === 0) {
-    return NextResponse.json({ ok: true, count: 0 })
+  let unread
+  try {
+    const data = await getNotificationsPageData(access.user.id)
+    unread = data.items.filter((item) => !item.read)
+  } catch {
+    return NextResponse.json({ error: 'Unable to load current notifications.' }, { status: 500 })
   }
+  if (unread.length === 0) return NextResponse.json({ ok: true, count: 0 }, { headers: { 'Cache-Control': 'no-store' } })
 
+  const readAt = new Date().toISOString()
   const { error } = await access.adminClient.from('admin_notification_reads').upsert(
-    unread.map((item) => ({
-      admin_user_id: access.user.id,
-      notification_key: item.notificationKey,
-      read_at: new Date().toISOString(),
-    })),
+    unread.map((item) => ({ admin_user_id: access.user.id, notification_key: item.notificationKey, read_at: readAt })),
     { onConflict: 'admin_user_id,notification_key' },
   )
-
   if (error) {
-    if (isMissingRelationError(error)) {
-      return NextResponse.json({ error: 'Notification read-tracking is not enabled yet.' }, { status: 503 })
-    }
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    const safe = notificationWriteError(error)
+    return NextResponse.json({ error: safe.message }, { status: safe.status })
   }
-
-  return NextResponse.json({ ok: true, count: unread.length })
+  return NextResponse.json({ ok: true, count: unread.length }, { headers: { 'Cache-Control': 'no-store' } })
 }
