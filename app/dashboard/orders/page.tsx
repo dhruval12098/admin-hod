@@ -35,10 +35,9 @@ async function getOrdersPage(page: number): Promise<OrdersResponse> {
     adminClient
       .from('orders')
       .select('id, order_number, customer_first_name, customer_last_name, customer_email, total_amount, status, created_at')
-      .eq('payment_status', 'paid')
       .order('created_at', { ascending: false })
       .range(from, to),
-    adminClient.from('orders').select('id', { count: 'exact', head: true }).eq('payment_status', 'paid'),
+    adminClient.from('orders').select('id', { count: 'exact', head: true }),
   ])
 
   if (ordersResult.error) {
