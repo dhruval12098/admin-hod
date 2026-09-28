@@ -1,12 +1,15 @@
 ﻿'use client'
 
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useMemo, useRef, useState } from 'react'
 import { ArrowDown, ArrowLeft, ArrowUp, ExternalLink, Plus, Trash2, X } from 'lucide-react'
 import { CmsSaveAction } from '@/components/cms-save-action'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
 import { canonicalizeInstagramUrl } from '@/lib/instagram-url'
+import { ConfirmDialog } from '@/components/confirm-dialog'
+import { useUnsavedChanges } from '@/hooks/use-unsaved-changes'
 
 type Reel = {
   clientId: string
@@ -60,6 +63,7 @@ function saveState(data: Omit<ReelsInitialData, 'revision'>) {
 
 export function ReelsEditorClient({ initialData }: { initialData: ReelsInitialData }) {
   const { toast } = useToast()
+  const router = useRouter()
   const [heading, setHeading] = useState(initialData.heading)
   const [subtitle, setSubtitle] = useState(initialData.subtitle)
   const [enabled, setEnabled] = useState(initialData.is_enabled)
@@ -79,6 +83,7 @@ export function ReelsEditorClient({ initialData }: { initialData: ReelsInitialDa
   const pendingRequest = useRef<{ fingerprint: string; id: string } | null>(null)
   const currentState = saveState({ heading, subtitle, is_enabled: enabled, marquee_duration_seconds: duration, pause_on_hover: pauseOnHover, items: ordered })
   const dirty = JSON.stringify(currentState) !== JSON.stringify(savedState)
+  const unsaved = useUnsavedChanges(dirty)
 
   const update = (clientId: string, patch: Partial<Reel>) => {
     setItems((current) => current.map((item) => item.clientId === clientId ? { ...item, ...patch } : item))
@@ -171,7 +176,7 @@ export function ReelsEditorClient({ initialData }: { initialData: ReelsInitialDa
   }
 
   return <main className="p-8">
-    <div className="mb-8 flex items-center justify-between gap-4"><Link href="/dashboard/cms/home" className="inline-flex items-center gap-2 text-sm font-semibold text-primary"><ArrowLeft size={16}/>Back to Home</Link><CmsSaveAction onClick={save} isSaving={saving} disabled={!dirty || !revision || conflict} position="inline"/></div>
+    <div className="mb-8 flex items-center justify-between gap-4"><Link href="/dashboard/cms/home" onClick={(event) => { event.preventDefault(); unsaved.confirmNavigation(() => router.push('/dashboard/cms/home')) }} className="inline-flex items-center gap-2 text-sm font-semibold text-primary"><ArrowLeft size={16}/>Back to Home</Link><CmsSaveAction onClick={save} isSaving={saving} disabled={!dirty || !revision || conflict} position="inline"/></div>
     <header className="mb-8"><p className="text-xs font-semibold uppercase tracking-[.2em] text-primary">Homepage / Social</p><h1 className="mt-2 font-jakarta text-3xl font-semibold">Instagram Reels</h1><p className="mt-1 text-sm text-muted-foreground">Curate up to 30 public Instagram posts for the homepage marquee. Each card displays the reel frame directly from Instagram.</p></header>
     {error ? <div role="alert" className="mb-6 max-w-6xl rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
     {!revision ? <p role="status" className="mb-6 text-sm text-amber-800">Reels are available to view. Saving will be enabled after the database update is installed and this page is reloaded.</p> : null}
@@ -235,5 +240,6 @@ export function ReelsEditorClient({ initialData }: { initialData: ReelsInitialDa
       </div>
     </div> : null}
     </fieldset>
+    <ConfirmDialog isOpen={unsaved.showWarning} title="Discard unsaved Instagram Reels changes?" description="Your changes have not been saved." confirmText="Discard changes" cancelText="Keep editing" type="warning" onConfirm={unsaved.handleDiscard} onCancel={() => unsaved.setShowWarning(false)}/>
   </main>
 }

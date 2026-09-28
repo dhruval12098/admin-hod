@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { ArrowDown, ArrowUp, Edit2, Eye, ImageIcon, Loader2, Plus, Trash2, Upload } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/hooks/use-toast'
@@ -14,6 +14,7 @@ import { bespokeHeroSaveBody } from '@/lib/bespoke-hero-client'
 import { bespokeFormSaveBody } from '@/lib/bespoke-form-client'
 import type { BespokeFormRow, BespokeFormSnapshot } from '@/lib/bespoke-form-save'
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes'
+import { useCmsAtomicListSave } from '@/hooks/use-cms-atomic-list-save'
 
 export type BespokeTab = 'hero' | 'portfolio-categories' | 'portfolio-items' | 'process' | 'form' | 'submissions'
 
@@ -65,6 +66,7 @@ export type PortfolioCategory = {
   updated_at: string
   name: string
   slug: string
+  image_path?: string | null
   display_order: number
   status: 'active' | 'hidden'
 }
@@ -120,6 +122,7 @@ export type BespokePageData = {
   categories: PortfolioCategory[]
   items: PortfolioItem[]
   processItems: BespokeProcessItem[]
+  processRevision: string
   formConfig: FormConfig
   submissions: BespokeSubmission[]
 }
@@ -145,6 +148,7 @@ function emptyPortfolioCategory(nextOrder: number): PortfolioCategory {
     updated_at: '',
     name: '',
     slug: '',
+    image_path: null,
     display_order: nextOrder,
     status: 'active',
   }
@@ -184,7 +188,6 @@ function emptySimpleRow(nextOrder: number): SimpleRow {
 }
 
 export function BespokeClient({ initialData }: { initialData: BespokePageData }) {
-  const { toast } = useToast()
   const [activeTab, setActiveTab] = useState<BespokeTab>('hero')
   const [loading, setLoading] = useState(false)
   const [hero, setHero] = useState<BespokeHero>(initialData.hero)
@@ -195,6 +198,7 @@ export function BespokeClient({ initialData }: { initialData: BespokePageData })
   const [processItems, setProcessItems] = useState<BespokeProcessItem[]>(
     initialData.processItems.map((item) => ({ ...item, clientId: item.clientId ?? `id-${item.id}` }))
   )
+  const [processRevision, setProcessRevision] = useState(initialData.processRevision)
   const [formConfig, setFormConfig] = useState<FormConfig>(initialData.formConfig)
   const [originalFormConfig, setOriginalFormConfig] = useState<FormConfig>(initialData.formConfig)
   const [submissions, setSubmissions] = useState<BespokeSubmission[]>(initialData.submissions)
@@ -231,6 +235,7 @@ export function BespokeClient({ initialData }: { initialData: BespokePageData })
       if (itemRes.ok) setItems(itemPayload?.items ?? [])
       if (processRes.ok) {
         setProcessItems((processPayload?.items ?? []).map((item: BespokeProcessItem) => ({ ...item, clientId: item.clientId ?? `id-${item.id}` })))
+        if (typeof processPayload?.revision === 'string') setProcessRevision(processPayload.revision)
       }
       if (formRes.ok && formPayload) {
         const nextFormConfig: FormConfig = {
@@ -254,12 +259,12 @@ export function BespokeClient({ initialData }: { initialData: BespokePageData })
     <div className="p-8">
       <div className="mb-10">
         <h1 className="font-jakarta text-3xl font-semibold text-foreground">Bespoke</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Manage Bespoke hero, portfolio filters/items, and enquiry form settings.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Manage the Bespoke collection rail, portfolio filters/items, and enquiry form settings.</p>
       </div>
 
       <div className="mb-8 flex gap-2 border-b border-border overflow-x-auto">
         {[
-          { id: 'hero' as const, label: 'Hero' },
+          { id: 'hero' as const, label: 'Fallback Rail' },
           { id: 'portfolio-categories' as const, label: 'Portfolio Categories' },
           { id: 'portfolio-items' as const, label: 'Portfolio Items' },
           { id: 'process' as const, label: 'Process Steps' },
@@ -284,7 +289,7 @@ export function BespokeClient({ initialData }: { initialData: BespokePageData })
       {!loading && activeTab === 'hero' ? <HeroPanel hero={hero} setHero={setHero} revision={heroRevision} originalItems={originalHeroItems} onReload={loadData} /> : null}
       {!loading && activeTab === 'portfolio-categories' ? <PortfolioCategoriesPanel categories={categories} onReload={loadData} /> : null}
       {!loading && activeTab === 'portfolio-items' ? <PortfolioItemsPanel categories={categories} items={items} onReload={loadData} /> : null}
-      {!loading && activeTab === 'process' ? <ProcessStepsPanel items={processItems} setItems={setProcessItems} onReload={loadData} /> : null}
+      {!loading && activeTab === 'process' ? <ProcessStepsPanel items={processItems} setItems={setProcessItems} revision={processRevision} setRevision={setProcessRevision} /> : null}
       {!loading && activeTab === 'form' ? <FormPanel formConfig={formConfig} originalFormConfig={originalFormConfig} setFormConfig={setFormConfig} onReload={loadData} /> : null}
       {!loading && activeTab === 'submissions' ? <SubmissionSummaryPanel submissions={submissions} /> : null}
     </div>
@@ -382,7 +387,7 @@ function HeroPanel({ hero, setHero, revision, originalItems, onReload }: { hero:
         const signResponse = await authedFetch('/api/cms/uploads/bespoke-hero/sign', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ contentType: preparedFile.type }),
+        body: JSON.stringify({ contentType: preparedFile.type, declaredSize: preparedFile.size }),
         })
         const signed = await signResponse.json().catch(() => null) as { bucket?: string; path?: string; token?: string; error?: string } | null
         if (!signResponse.ok || !signed?.bucket || !signed.path || !signed.token) throw new Error(signed?.error ?? 'Unable to prepare upload.')
@@ -448,7 +453,7 @@ function HeroPanel({ hero, setHero, revision, originalItems, onReload }: { hero:
   const save = async () => {
     setSaving(true)
     try {
-      const { items: _items, ...item } = hero
+      const item = { ...hero, items: undefined }
       const slides = resequenceSlides(sortedSlides)
       const response = await authedFetch('/api/bespoke/hero', { method: 'PUT', body: bespokeHeroSaveBody(item, slides, originalItems, revision) })
       const payload = await response.json().catch(() => null)
@@ -465,25 +470,11 @@ function HeroPanel({ hero, setHero, revision, originalItems, onReload }: { hero:
 
   return (
     <div className="rounded-lg border border-border bg-white p-6 shadow-xs space-y-5">
-      <Field label="Badge Text"><input value={hero.badge_text ?? ''} onChange={(e) => setHero({ ...hero, badge_text: e.target.value })} className={inputClassName} /></Field>
-      <Field label="Eyebrow"><input value={hero.eyebrow ?? ''} onChange={(e) => setHero({ ...hero, eyebrow: e.target.value })} className={inputClassName} /></Field>
-      <Field label="Heading Line 1"><input value={hero.heading_line_1 ?? ''} onChange={(e) => setHero({ ...hero, heading_line_1: e.target.value })} className={inputClassName} /></Field>
-      <Field label="Heading Line 2"><input value={hero.heading_line_2 ?? ''} onChange={(e) => setHero({ ...hero, heading_line_2: e.target.value })} className={inputClassName} /></Field>
-      <Field label="Subtitle"><textarea value={hero.subtitle ?? ''} onChange={(e) => setHero({ ...hero, subtitle: e.target.value })} rows={5} className={inputClassName} /></Field>
-      <div className="grid gap-4 md:grid-cols-2">
-        <Field label="Primary CTA Label"><input value={hero.primary_cta_label ?? ''} onChange={(e) => setHero({ ...hero, primary_cta_label: e.target.value })} className={inputClassName} /></Field>
-        <Field label="Primary CTA Action"><input value={hero.primary_cta_action ?? ''} onChange={(e) => setHero({ ...hero, primary_cta_action: e.target.value })} className={inputClassName} /></Field>
-        <Field label="Secondary CTA Label"><input value={hero.secondary_cta_label ?? ''} onChange={(e) => setHero({ ...hero, secondary_cta_label: e.target.value })} className={inputClassName} /></Field>
-        <Field label="Secondary CTA Action"><input value={hero.secondary_cta_action ?? ''} onChange={(e) => setHero({ ...hero, secondary_cta_action: e.target.value })} className={inputClassName} /></Field>
-      </div>
-      <Field label="Hero Mode"><ToggleRow options={['Text', 'Image Slider']} value={hero.slider_enabled ? 'Image Slider' : 'Text'} onChange={(value) => setHero({ ...hero, slider_enabled: value === 'Image Slider' })} /></Field>
-      <Field label="Status"><ToggleRow options={['Active', 'Hidden']} value={hero.status === 'hidden' ? 'Hidden' : 'Active'} onChange={(value) => setHero({ ...hero, status: value === 'Hidden' ? 'hidden' : 'active' })} /></Field>
-      {hero.slider_enabled ? (
-        <section className="mt-4 max-w-5xl">
+      <section className="max-w-5xl">
           <div className="mb-4 flex items-center justify-between gap-4">
             <div>
-              <h3 className="text-xl font-semibold text-foreground">Hero Slides</h3>
-              <p className="text-sm text-muted-foreground">Each slide needs an image, optional mobile image, button text, and destination link.</p>
+              <h3 className="text-xl font-semibold text-foreground">Fallback Collection Rail</h3>
+              <p className="text-sm text-muted-foreground">These cards appear only until Bespoke portfolio categories have rail images. Manage the live category cards in Portfolio Categories.</p>
             </div>
             <button type="button" onClick={openNewSlide} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary/90">
               <Plus size={16} />
@@ -559,11 +550,10 @@ function HeroPanel({ hero, setHero, revision, originalItems, onReload }: { hero:
               </tbody>
             </table>
           </div>
-        </section>
-      ) : null}
+      </section>
 
-      <div className="flex justify-end"><button type="button" disabled={saving} onClick={() => setConfirmOpen(true)} className={primaryButtonClassName}>{saving ? 'Saving...' : 'Save Hero'}</button></div>
-      <ConfirmDialog isOpen={confirmOpen} title="Save hero changes?" description="This will update the live Bespoke hero section." confirmText="Save" isLoading={saving} onConfirm={() => void save()} onCancel={() => setConfirmOpen(false)} />
+      <div className="flex justify-end"><button type="button" disabled={saving} onClick={() => setConfirmOpen(true)} className={primaryButtonClassName}>{saving ? 'Saving...' : 'Save Fallback Rail'}</button></div>
+      <ConfirmDialog isOpen={confirmOpen} title="Save fallback rail changes?" description="This will update the fallback Bespoke collection rail." confirmText="Save" isLoading={saving} onConfirm={() => void save()} onCancel={() => setConfirmOpen(false)} />
       <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
@@ -643,17 +633,25 @@ function HeroPanel({ hero, setHero, revision, originalItems, onReload }: { hero:
 function ProcessStepsPanel({
   items,
   setItems,
-  onReload,
+  revision,
+  setRevision,
 }: {
   items: BespokeProcessItem[]
   setItems: (items: BespokeProcessItem[]) => void
-  onReload: () => Promise<void>
+  revision: string
+  setRevision: (revision: string) => void
 }) {
   const { toast } = useToast()
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [editorItem, setEditorItem] = useState<BespokeProcessItem>(emptyProcessItem(1))
   const sorted = [...items].sort((left, right) => left.sort_order - right.sort_order || String(left.clientId).localeCompare(String(right.clientId)))
+  const saveItems = sorted.map(({ id, eyebrow, title, description }) => ({ ...(id ? { id } : {}), eyebrow, title, description }))
+  const [savedState, setSavedState] = useState(() => JSON.stringify(saveItems))
+  const dirty = JSON.stringify(saveItems) !== savedState
+  useUnsavedChanges(dirty || dialogOpen)
+  const { prepareSave, acceptSave } = useCmsAtomicListSave(items, revision)
   const nextOrder = Math.max(...items.map((item) => item.sort_order), 0) + 1
 
   const openNew = () => {
@@ -690,27 +688,24 @@ function ProcessStepsPanel({
   }
 
   const saveAll = async () => {
-    const response = await authedFetch('/api/cms/bespoke/process', {
-      method: 'POST',
-      body: JSON.stringify({
-        items: sorted.map(({ sort_order, eyebrow, title, description }) => ({
-          sort_order,
-          eyebrow,
-          title,
-          description,
-        })),
-      }),
-    })
-    const payload = await response.json().catch(() => null)
-
-    if (!response.ok) {
-      toast({ title: 'Save failed', description: payload?.error ?? 'Unable to save process steps.', variant: 'destructive' })
-      return
-    }
-
-    setConfirmOpen(false)
-    await onReload()
-    toast({ title: 'Process steps saved', description: 'Bespoke process cards were updated.' })
+    setSaving(true)
+    try {
+      const response = await authedFetch('/api/cms/bespoke/process', {
+        method: 'POST', body: JSON.stringify(prepareSave({ items: saveItems }, saveItems)),
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(payload?.error ?? 'Unable to save process steps.')
+      if (!Array.isArray(payload?.items) || typeof payload.revision !== 'string') throw new Error('Save response was interrupted. Retry to confirm the same save.')
+      const nextItems = payload.items.map((item: BespokeProcessItem) => ({ ...item, clientId: `id-${item.id}` }))
+      setItems(nextItems)
+      setSavedState(JSON.stringify(payload.items.map(({ id, eyebrow, title, description }: BespokeProcessItem) => ({ id, eyebrow, title, description }))))
+      acceptSave(payload.items, payload.revision)
+      setRevision(payload.revision)
+      setConfirmOpen(false)
+      toast({ title: 'Process steps saved', description: 'Bespoke process cards were updated.' })
+    } catch (error) {
+      toast({ title: 'Save failed', description: error instanceof Error ? error.message : 'Unable to save process steps.', variant: 'destructive' })
+    } finally { setSaving(false) }
   }
 
   return (
@@ -732,7 +727,7 @@ function ProcessStepsPanel({
       />
 
       <div className="flex justify-end">
-        <button type="button" onClick={() => setConfirmOpen(true)} className={primaryButtonClassName}>Save Process Steps</button>
+        <button type="button" onClick={() => setConfirmOpen(true)} disabled={saving || !dirty} className={primaryButtonClassName}>{saving ? 'Saving...' : 'Save Process Steps'}</button>
       </div>
 
       <FormDialog open={dialogOpen} onOpenChange={setDialogOpen} title="Edit Process Step" description="Update eyebrow, title, and description.">
@@ -756,6 +751,7 @@ function ProcessStepsPanel({
         title="Save process steps?"
         description="This will update the Bespoke process cards on the live site."
         confirmText="Save"
+        isLoading={saving}
         onConfirm={() => void saveAll()}
         onCancel={() => setConfirmOpen(false)}
       />
@@ -773,6 +769,7 @@ function PortfolioCategoriesPanel({ categories, onReload }: { categories: Portfo
   const [originalForm, setOriginalForm] = useState<PortfolioCategory>(form)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [imageUploadState, setImageUploadState] = useState<'idle' | 'uploading'>('idle')
   const categoryHasChanges = dialogOpen && JSON.stringify(form) !== JSON.stringify(originalForm)
   const categoryUnsaved = useUnsavedChanges(categoryHasChanges)
   const closeCategoryEditor = () => categoryUnsaved.confirmNavigation(() => {
@@ -793,8 +790,17 @@ function PortfolioCategoriesPanel({ categories, onReload }: { categories: Portfo
     setOriginalForm({ ...item })
     setDialogOpen(true)
   }
+  const uploadImage = async (file: File) => {
+    const body = new FormData()
+    body.append('file', file)
+    body.append('kind', 'image')
+    const response = await authedFetch('/api/bespoke/media', { method: 'POST', body })
+    const payload = await response.json().catch(() => null)
+    if (!response.ok || !payload?.path) throw new Error(payload?.error ?? 'Unable to upload category image.')
+    return payload.path as string
+  }
   const save = async () => {
-    if (saving) return
+    if (saving || imageUploadState === 'uploading') return
     setSaving(true)
     try {
       const response = await authedFetch(selectedId ? `/api/bespoke/portfolio-categories/${selectedId}` : '/api/bespoke/portfolio-categories', {
@@ -802,6 +808,7 @@ function PortfolioCategoriesPanel({ categories, onReload }: { categories: Portfo
         body: JSON.stringify({
           name: form.name,
           slug: form.slug || slugify(form.name),
+          image_path: form.image_path ?? null,
           display_order: form.display_order,
           status: form.status,
           ...(selectedId ? { expected_updated_at: form.updated_at } : {}),
@@ -849,10 +856,11 @@ function PortfolioCategoriesPanel({ categories, onReload }: { categories: Portfo
     <section className="rounded-lg border border-border bg-white p-6 shadow-xs space-y-6">
       <SectionHeader title="Portfolio Categories" description="Categories map to the storefront filter pills." actionLabel="Add Category" onAction={openNew} />
       <DataTable
-        headers={['Name', 'Slug', 'Order', 'Status', 'Edit', 'Delete']}
+        headers={['Image', 'Name', 'Slug', 'Order', 'Status', 'Edit', 'Delete']}
         rows={categories.map((item) => ({
           id: item.id,
           cells: [
+            item.image_path ? <img key="image" src={supabase.storage.from(process.env.NEXT_PUBLIC_SUPABASE_COLLECTION_BUCKET ?? 'hod').getPublicUrl(item.image_path).data.publicUrl} alt="" className="h-10 w-10 rounded object-cover" /> : '—', // eslint-disable-line @next/next/no-img-element -- Admin-managed storage preview has runtime dimensions.
             item.name,
             item.slug,
             item.display_order,
@@ -862,12 +870,52 @@ function PortfolioCategoriesPanel({ categories, onReload }: { categories: Portfo
           ],
         }))}
       />
-      <FormDialog open={dialogOpen} onOpenChange={(open) => { if (open) setDialogOpen(true); else if (!saving) closeCategoryEditor() }} title={selectedId ? 'Edit Portfolio Category' : 'Add Portfolio Category'} description="Manage Bespoke portfolio filter categories.">
+      <FormDialog open={dialogOpen} onOpenChange={(open) => { if (open) setDialogOpen(true); else if (!saving && imageUploadState !== 'uploading') closeCategoryEditor() }} title={selectedId ? 'Edit Portfolio Category' : 'Add Portfolio Category'} description="Manage Bespoke portfolio filter categories and their storefront rail images.">
         <Field label="Name"><input value={form.name} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value, slug: prev.slug || slugify(e.target.value) }))} className={inputClassName} /></Field>
         <Field label="Slug"><input value={form.slug} onChange={(e) => setForm((prev) => ({ ...prev, slug: e.target.value }))} className={inputClassName} /></Field>
+        <Field label="Category Image">
+          <p className="text-xs text-muted-foreground">Optional. This image appears on the Bespoke collection rail. Use JPG, PNG, WebP, or AVIF.</p>
+          {form.image_path ? (
+            <div className="mt-3 flex items-center gap-3">
+              {/* Native img is intentional for an admin upload preview with a runtime storage URL. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={supabase.storage.from(process.env.NEXT_PUBLIC_SUPABASE_COLLECTION_BUCKET ?? 'hod').getPublicUrl(form.image_path).data.publicUrl} alt={`${form.name || 'Bespoke category'} preview`} className="h-20 w-16 rounded border border-border object-cover" />
+              <p className="min-w-0 break-all text-xs text-muted-foreground">{form.image_path}</p>
+            </div>
+          ) : null}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <label className={`flex cursor-pointer items-center gap-2 rounded-lg border border-border px-4 py-3 text-sm font-medium transition-colors ${imageUploadState === 'uploading' ? 'bg-secondary/30 text-muted-foreground' : 'bg-secondary/20 text-foreground hover:bg-secondary/30'}`}>
+              {imageUploadState === 'uploading' ? <Loader2 size={16} className="animate-spin" /> : <ImageIcon size={16} />}
+              <span>{imageUploadState === 'uploading' ? 'Uploading image...' : form.image_path ? 'Change Image' : 'Upload Image'}</span>
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/avif"
+                className="hidden"
+                disabled={imageUploadState === 'uploading'}
+                onChange={async (e) => {
+                  const file = e.target.files?.[0]
+                  const input = e.currentTarget
+                  if (!file) return
+                  setImageUploadState('uploading')
+                  try {
+                    const path = await uploadImage(file)
+                    setForm((prev) => ({ ...prev, image_path: path }))
+                    toast({ title: 'Upload complete', description: 'Category image uploaded successfully.' })
+                  } catch (error) {
+                    toast({ title: 'Upload failed', description: error instanceof Error ? error.message : 'Unable to upload category image.', variant: 'destructive' })
+                  } finally {
+                    setImageUploadState('idle')
+                    input.value = ''
+                  }
+                }}
+              />
+            </label>
+            {form.image_path ? <button type="button" onClick={() => setForm((prev) => ({ ...prev, image_path: null }))} disabled={imageUploadState === 'uploading'} className="rounded-lg border border-destructive/30 px-4 py-3 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-60">Remove Image</button> : null}
+          </div>
+        </Field>
         <Field label="Display Order"><input type="number" value={form.display_order} onChange={(e) => setForm((prev) => ({ ...prev, display_order: Number(e.target.value) || 0 }))} className={inputClassName} /></Field>
         <Field label="Status"><ToggleRow options={['Active', 'Hidden']} value={form.status === 'hidden' ? 'Hidden' : 'Active'} onChange={(value) => setForm((prev) => ({ ...prev, status: value === 'Hidden' ? 'hidden' : 'active' }))} /></Field>
-        <Actions onSave={() => setConfirmOpen(true)} onCancel={closeCategoryEditor} disabled={saving} />
+        <Actions onSave={() => setConfirmOpen(true)} onCancel={closeCategoryEditor} disabled={saving || imageUploadState === 'uploading'} />
       </FormDialog>
       <ConfirmDialog isOpen={confirmOpen} title={selectedId ? 'Update category?' : 'Create category?'} description="This will save the portfolio category." confirmText="Save" isLoading={saving} onConfirm={save} onCancel={() => setConfirmOpen(false)} />
       <ConfirmDialog isOpen={Boolean(deleteTarget)} title="Delete category?" description={`Are you sure you want to delete "${deleteTarget?.name ?? ''}"?`} confirmText="Delete" type="delete" isLoading={deleting} onConfirm={remove} onCancel={() => setDeleteTarget(null)} />
@@ -1285,10 +1333,6 @@ function DataTable({ headers, rows }: { headers: string[]; rows: { id: string; c
   const totalPages = Math.max(1, Math.ceil(totalItems / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
   const visibleRows = rows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
-
-  useEffect(() => {
-    setPage(1)
-  }, [rows])
 
   return (
     <div className="rounded-lg border border-border bg-white shadow-xs overflow-hidden">

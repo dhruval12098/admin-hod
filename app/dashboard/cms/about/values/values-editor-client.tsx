@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useMemo, useState } from 'react'
 import { ArrowLeft, Edit2, Plus, Trash2 } from 'lucide-react'
 import {
@@ -16,6 +17,7 @@ import { CmsSaveAction } from '@/components/cms-save-action'
 import { supabase } from '@/lib/supabase'
 import { uploadCmsAssetDirectWithFallback } from '@/lib/cms-direct-upload-client'
 import { useCmsAtomicListSave } from '@/hooks/use-cms-atomic-list-save'
+import { useUnsavedChanges } from '@/hooks/use-unsaved-changes'
 
 type ValueItem = {
   clientId: string
@@ -56,6 +58,7 @@ const empty = (sortOrder: number): EditorItem => ({
 })
 
 export function ValuesEditorClient({ initialData }: { initialData: ValuesInitialData }) {
+  const router = useRouter()
   const [items, setItems] = useState<ValueItem[]>(
     initialData.items.map((item) => ({ clientId: `id-${item.id}`, ...item, image_path: item.image_path ?? '', image_alt: item.image_alt ?? '' }))
   )
@@ -64,12 +67,19 @@ export function ValuesEditorClient({ initialData }: { initialData: ValuesInitial
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
   const [editorItem, setEditorItem] = useState<EditorItem>(empty(1))
+  const [savedState, setSavedState] = useState(() => JSON.stringify(
+    [...initialData.items].sort((a, b) => a.sort_order - b.sort_order || a.id - b.id)
+      .map(({ id, icon_path, image_path, image_alt, title, description }) => ({ id, icon_path, image_path: image_path ?? '', image_alt: image_alt ?? '', title, description }))
+  ))
   const { prepareSave, acceptSave } = useCmsAtomicListSave(initialData.items, initialData.revision)
 
   const sorted = useMemo(
     () => [...items].sort((a, b) => a.sort_order - b.sort_order || a.clientId.localeCompare(b.clientId)),
     [items]
   )
+  const saveItems = sorted.map(({ id, icon_path, image_path, image_alt, title, description }) => ({ ...(id ? { id } : {}), icon_path, image_path, image_alt, title, description }))
+  const dirty = JSON.stringify(saveItems) !== savedState
+  const unsaved = useUnsavedChanges(dirty || editorOpen)
 
   const nextOrder = Math.max(...items.map((item) => item.sort_order), 0) + 1
 
@@ -88,51 +98,36 @@ export function ValuesEditorClient({ initialData }: { initialData: ValuesInitial
 
   const saveAll = async () => {
     setIsSaving(true)
-    const { data: sessionData } = await supabase.auth.getSession()
-    const accessToken = sessionData.session?.access_token
-    if (!accessToken) {
-      setIsSaving(false)
-      setStatus('You are not signed in.')
-      return
-    }
-
-    const saveItems = sorted.map(({ id, icon_path, image_path, image_alt, title, description }) => ({
-      ...(id ? { id } : {}), icon_path, image_path, image_alt, title, description,
-    }))
-    const response = await fetch('/api/cms/about/values', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify(prepareSave({ items: saveItems }, saveItems)),
-    })
-
-    const payload = (await response.json().catch(() => null)) as ApiPayload | null
-    setIsSaving(false)
-
-    if (!response.ok) {
-      setStatus(payload?.error ?? 'Unable to save values.')
-      return
-    }
-
-    if (Array.isArray(payload?.items) && typeof payload.revision === 'string') {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const accessToken = sessionData.session?.access_token
+      if (!accessToken) throw new Error('You are not signed in.')
+      const response = await fetch('/api/cms/about/values', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify(prepareSave({ items: saveItems }, saveItems)),
+      })
+      const payload = (await response.json().catch(() => null)) as ApiPayload | null
+      if (!response.ok) throw new Error(payload?.error ?? 'Unable to save values.')
+      if (!Array.isArray(payload?.items) || typeof payload.revision !== 'string') throw new Error('Save response was interrupted. Retry to confirm the same save.')
       setItems(payload.items.map((item) => ({ clientId: `id-${item.id}`, ...item, image_path: item.image_path ?? '', image_alt: item.image_alt ?? '' })))
+      setSavedState(JSON.stringify(payload.items.map(({ id, icon_path, image_path, image_alt, title, description }) => ({ id, icon_path, image_path: image_path ?? '', image_alt: image_alt ?? '', title, description }))))
       acceptSave(payload.items, payload.revision)
-    }
-
-    setConfirmOpen(false)
-    setStatus('Values saved')
+      setConfirmOpen(false)
+      setStatus('Values saved')
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Unable to save values.')
+    } finally { setIsSaving(false) }
   }
 
   return (
     <div className="min-h-screen bg-background p-8">
       <div className="mb-8 flex items-center justify-between gap-4">
-        <Link href="/dashboard/cms/about" className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:text-primary/80">
+        <Link href="/dashboard/cms/about" onClick={(event) => { event.preventDefault(); unsaved.confirmNavigation(() => router.push('/dashboard/cms/about')) }} className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:text-primary/80">
           <ArrowLeft size={16} />
           Back to About
         </Link>
-        <CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={isSaving} position="inline" />
+        <CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={isSaving} disabled={!dirty} position="inline" />
       </div>
 
       <div className="mb-10">
@@ -196,6 +191,7 @@ export function ValuesEditorClient({ initialData }: { initialData: ValuesInitial
         onConfirm={saveAll}
         onCancel={() => setConfirmOpen(false)}
       />
+      <ConfirmDialog isOpen={unsaved.showWarning} title="Discard unsaved Values changes?" description="Your Values changes have not been saved." confirmText="Discard changes" cancelText="Keep editing" type="warning" onConfirm={unsaved.handleDiscard} onCancel={() => unsaved.setShowWarning(false)} />
 
       <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
         <DialogContent className="sm:max-w-xl">

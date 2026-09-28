@@ -17,11 +17,11 @@ import type {
 } from '@/lib/product-catalog'
 import { buildCombinedMetalDisplayLabel } from '@/lib/product-metal-variants'
 
-function formatInrPrice(value: number) {
+function formatDollarPrice(value: number) {
   return value.toLocaleString('en-IN', {
     style: 'currency',
-    currency: 'INR',
-    maximumFractionDigits: 0,
+    currency: 'USD',
+    maximumFractionDigits: 2,
   })
 }
 
@@ -77,14 +77,14 @@ export function ProductPricingSummaryCard({
               <div>
                 <p className="font-semibold">{getMetalVariantLabel(defaultMetalVariant.metal_id)}</p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {formatInrPrice(Number(defaultMetalVariant.price || 0))}
+                  {formatDollarPrice(Number(defaultMetalVariant.price || 0))}
                 </p>
               </div>
             ) : selectedBasePriceEntry ? (
               <div>
                 <p className="font-semibold">Legacy base price</p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {formatInrPrice(Number(selectedBasePriceEntry.price || 0))}
+                  {formatDollarPrice(Number(selectedBasePriceEntry.price || 0))}
                 </p>
               </div>
             ) : (

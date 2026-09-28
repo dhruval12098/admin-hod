@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useMemo, useState } from 'react'
 import { ArrowLeft, Edit2, Plus, Trash2, Upload } from 'lucide-react'
 import {
@@ -15,6 +16,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { CmsSaveAction } from '@/components/cms-save-action'
 import { supabase } from '@/lib/supabase'
 import { useCmsAtomicListSave } from '@/hooks/use-cms-atomic-list-save'
+import { useUnsavedChanges } from '@/hooks/use-unsaved-changes'
 
 type FounderItem = {
   clientId: string
@@ -70,6 +72,7 @@ const empty = (sortOrder: number): EditorItem => ({
 })
 
 export function FoundersEditorClient({ initialData }: { initialData: FoundersInitialData }) {
+  const router = useRouter()
   const [items, setItems] = useState<FounderItem[]>(
     initialData.items.map((item) => ({ clientId: `id-${item.id}`, ...item }))
   )
@@ -79,12 +82,19 @@ export function FoundersEditorClient({ initialData }: { initialData: FoundersIni
   const [editorOpen, setEditorOpen] = useState(false)
   const [editorItem, setEditorItem] = useState<EditorItem>(empty(1))
   const [uploadState, setUploadState] = useState<'idle' | 'uploading'>('idle')
+  const [savedState, setSavedState] = useState(() => JSON.stringify(
+    [...initialData.items].sort((a, b) => a.sort_order - b.sort_order || a.id - b.id)
+      .map(({ id, name, designation, bio, image_path }) => ({ id, name, designation, bio, image_path }))
+  ))
   const { prepareSave, acceptSave } = useCmsAtomicListSave(initialData.items, initialData.revision)
 
   const sorted = useMemo(
     () => [...items].sort((a, b) => a.sort_order - b.sort_order || a.clientId.localeCompare(b.clientId)),
     [items]
   )
+  const saveItems = sorted.map(({ id, name, designation, bio, image_path }) => ({ ...(id ? { id } : {}), name, designation, bio, image_path }))
+  const dirty = JSON.stringify(saveItems) !== savedState
+  const unsaved = useUnsavedChanges(dirty || editorOpen)
 
   const nextOrder = Math.max(...items.map((item) => item.sort_order), 0) + 1
 
@@ -108,7 +118,7 @@ export function FoundersEditorClient({ initialData }: { initialData: FoundersIni
       const signResponse = await fetch('/api/cms/uploads/founders/sign', {
         method: 'POST',
         headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ contentType: preparedFile.type }),
+        body: JSON.stringify({ contentType: preparedFile.type, declaredSize: preparedFile.size }),
       })
       const signed = await signResponse.json().catch(() => null) as { bucket?: string; path?: string; token?: string; error?: string } | null
       if (!signResponse.ok || !signed?.bucket || !signed.path || !signed.token) throw new Error(signed?.error ?? 'Unable to prepare upload.')
@@ -151,51 +161,37 @@ export function FoundersEditorClient({ initialData }: { initialData: FoundersIni
 
   const saveAll = async () => {
     setIsSaving(true)
-    const { data } = await supabase.auth.getSession()
-    const token = data.session?.access_token
-    if (!token) {
-      setIsSaving(false)
-      setStatus('You are not signed in.')
-      return
-    }
-
-    const saveItems = sorted.map(({ id, name, designation, bio, image_path }) => ({
-      ...(id ? { id } : {}), name, designation, bio, image_path,
-    }))
-    const response = await fetch('/api/cms/about/founders', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(prepareSave({ items: saveItems }, saveItems)),
-    })
-
-    const payload = (await response.json().catch(() => null)) as ApiPayload | null
-    setIsSaving(false)
-
-    if (!response.ok) {
-      setStatus(payload?.error ?? 'Unable to save founders.')
-      return
-    }
-
-    if (Array.isArray(payload?.items) && typeof payload.revision === 'string') {
-      setItems(payload.items.map((item) => ({ clientId: `id-${item.id}`, ...item })))
+    try {
+      const { data } = await supabase.auth.getSession()
+      const token = data.session?.access_token
+      if (!token) throw new Error('You are not signed in.')
+      const response = await fetch('/api/cms/about/founders', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+        body: JSON.stringify(prepareSave({ items: saveItems }, saveItems)),
+      })
+      const payload = (await response.json().catch(() => null)) as ApiPayload | null
+      if (!response.ok) throw new Error(payload?.error ?? 'Unable to save founders.')
+      if (!Array.isArray(payload?.items) || typeof payload.revision !== 'string') throw new Error('Save response was interrupted. Retry to confirm the same save.')
+      const nextItems = payload.items.map((item) => ({ clientId: `id-${item.id}`, ...item }))
+      setItems(nextItems)
+      setSavedState(JSON.stringify(payload.items.map(({ id, name, designation, bio, image_path }) => ({ id, name, designation, bio, image_path }))))
       acceptSave(payload.items, payload.revision)
-    }
-
-    setConfirmOpen(false)
-    setStatus('Founders saved')
+      setConfirmOpen(false)
+      setStatus('Founders saved')
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Unable to save founders.')
+    } finally { setIsSaving(false) }
   }
 
   return (
     <div className="min-h-screen bg-background p-8">
       <div className="mb-8 flex items-center justify-between gap-4">
-        <Link href="/dashboard/cms/about" className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:text-primary/80">
+        <Link href="/dashboard/cms/about" onClick={(event) => { event.preventDefault(); unsaved.confirmNavigation(() => router.push('/dashboard/cms/about')) }} className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:text-primary/80">
           <ArrowLeft size={16} />
           Back to About
         </Link>
-        <CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={isSaving} position="inline" />
+        <CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={isSaving} disabled={!dirty} position="inline" />
       </div>
 
       <div className="mb-10">
@@ -261,6 +257,7 @@ export function FoundersEditorClient({ initialData }: { initialData: FoundersIni
         onConfirm={saveAll}
         onCancel={() => setConfirmOpen(false)}
       />
+      <ConfirmDialog isOpen={unsaved.showWarning} title="Discard unsaved Founder changes?" description="Your founder changes have not been saved." confirmText="Discard changes" cancelText="Keep editing" type="warning" onConfirm={unsaved.handleDiscard} onCancel={() => unsaved.setShowWarning(false)} />
 
       <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
         <DialogContent className="sm:max-w-xl">

@@ -1,11 +1,12 @@
 import { cache } from 'react'
 import { createSupabaseAdminClient } from '@/lib/admin-supabase'
 import type { BootstrapPayload } from '@/components/product-form'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
-async function loadOptionalTable(adminClient: any, table: string, columns = '*') {
+async function loadOptionalTable<T>(adminClient: SupabaseClient, table: string, columns = '*'): Promise<T[]> {
   const result = await adminClient.from(table).select(columns).order('display_order', { ascending: true })
   if (result.error) return []
-  return result.data ?? []
+  return (result.data ?? []) as unknown as T[]
 }
 
 export const getProductFormBasicsBootstrap = cache(async (): Promise<BootstrapPayload> => {
@@ -15,7 +16,7 @@ export const getProductFormBasicsBootstrap = cache(async (): Promise<BootstrapPa
     adminClient.from('catalog_categories').select('id, code, name, slug, category_lane, nav_type, direct_link_url, display_order, status').order('display_order', { ascending: true }),
     adminClient.from('catalog_subcategories').select('id, category_id, name, slug, sub_type, display_order, status').order('display_order', { ascending: true }),
     adminClient.from('catalog_options').select('id, subcategory_id, name, slug, display_order, status').order('display_order', { ascending: true }),
-    loadOptionalTable(adminClient, 'catalog_styles', 'id, name, icon_svg_path, display_order, status'),
+    loadOptionalTable<NonNullable<BootstrapPayload['styles']>[number]>(adminClient, 'catalog_styles', 'id, name, icon_svg_path, display_order, status'),
   ])
 
   return {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { AlertCircle, CheckCircle, Loader2, Trash2 } from 'lucide-react'
 import {
   AlertDialog,
@@ -50,12 +50,6 @@ export function ConfirmDialog({
   const [fallbackLoading, setFallbackLoading] = useState(false)
   const loading = Boolean(isLoading || fallbackLoading)
 
-  useEffect(() => {
-    if (!isOpen) {
-      setFallbackLoading(false)
-    }
-  }, [isOpen])
-
   const loadingText = useMemo(() => {
     const normalized = confirmText.trim().toLowerCase()
     if (normalized.includes('delete')) return 'Deleting...'
@@ -93,8 +87,13 @@ export function ConfirmDialog({
     }, 900)
   }
 
+  const handleCancel = () => {
+    setFallbackLoading(false)
+    onCancel()
+  }
+
   return (
-    <AlertDialog open={isOpen} onOpenChange={(open) => (!open ? onCancel() : undefined)}>
+    <AlertDialog open={isOpen} onOpenChange={(open) => (!open ? handleCancel() : undefined)}>
       <AlertDialogContent className="z-[90] max-w-sm border-0 bg-transparent p-0 shadow-none">
         <div className={`${bgColor} mx-4 rounded-lg border ${borderColor} p-6 shadow-lg`}>
           <div className="flex items-start gap-4">
@@ -109,7 +108,7 @@ export function ConfirmDialog({
 
           <AlertDialogFooter className="mt-6 flex-row justify-end gap-3">
             <AlertDialogCancel
-              onClick={onCancel}
+              onClick={handleCancel}
               disabled={loading}
               className="mt-0 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary"
             >

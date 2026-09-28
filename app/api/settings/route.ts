@@ -10,7 +10,7 @@ export async function GET(request: Request) {
 
   const { data, error } = await access.adminClient
     .from('site_settings')
-    .select('whatsapp_number, default_gst_slab_id, maintenance_mode_enabled, maintenance_mode_message')
+    .select('whatsapp_number, default_gst_slab_id, maintenance_mode_enabled, maintenance_mode_message, estimated_delivery_text')
     .eq('settings_key', settingsKey)
     .limit(1)
     .maybeSingle()
@@ -23,6 +23,7 @@ export async function GET(request: Request) {
       default_gst_slab_id: data?.default_gst_slab_id ?? '',
       maintenance_mode_enabled: Boolean(data?.maintenance_mode_enabled),
       maintenance_mode_message: data?.maintenance_mode_message ?? '',
+      estimated_delivery_text: data?.estimated_delivery_text ?? 'Approximately 3 to 4 weeks',
     },
   }, { headers: { 'Cache-Control': 'no-store' } })
 }

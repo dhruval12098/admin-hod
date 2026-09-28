@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useMemo, useState, type ChangeEvent } from 'react'
 import { ArrowLeft, Edit2, Plus, Trash2 } from 'lucide-react'
 import {
@@ -16,6 +17,7 @@ import { CmsSaveAction } from '@/components/cms-save-action'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
 import { useCmsAtomicListSave } from '@/hooks/use-cms-atomic-list-save'
+import { useUnsavedChanges } from '@/hooks/use-unsaved-changes'
 
 type ManufacturingItem = {
   clientId: string
@@ -80,6 +82,7 @@ export function BespokeManufacturingEditorClient({
   copy?: EditorCopy
 }) {
   const { toast } = useToast()
+  const router = useRouter()
   const resolvedCopy = {
     backHref: '/dashboard/cms/bespoke',
     backLabel: 'Back to Bespoke',
@@ -107,12 +110,25 @@ export function BespokeManufacturingEditorClient({
   const [editorOpen, setEditorOpen] = useState(false)
   const [editorItem, setEditorItem] = useState<EditorItem>(empty(1))
   const [uploading, setUploading] = useState(false)
+  const [savedState, setSavedState] = useState(() => JSON.stringify(
+    [...initialData.items].sort((a, b) => a.sort_order - b.sort_order || a.id - b.id).map((item) => ({
+      id: item.id, step: item.step, eyebrow: item.eyebrow, title: item.title, description: item.description,
+      media_type: item.media_type === 'video' ? 'video' : 'image', media_path: item.media_path ?? item.image_path ?? '',
+      image_path: item.media_type === 'video' ? '' : (item.media_path ?? item.image_path ?? ''),
+    }))
+  ))
   const { prepareSave, acceptSave } = useCmsAtomicListSave(initialData.items, initialData.revision)
 
   const sorted = useMemo(
     () => [...items].sort((a, b) => a.sort_order - b.sort_order || a.clientId.localeCompare(b.clientId)),
     [items]
   )
+  const saveItems = sorted.map(({ id, step, eyebrow, title, description, media_type, media_path, image_path }) => ({
+    ...(id ? { id } : {}), step, eyebrow, title, description, media_type, media_path,
+    image_path: media_type === 'image' ? (media_path || image_path) : '',
+  }))
+  const dirty = JSON.stringify(saveItems) !== savedState
+  const unsaved = useUnsavedChanges(dirty || editorOpen)
   const nextOrder = Math.max(...items.map((item) => item.sort_order), 0) + 1
 
   const uploadImage = async (file: File) => {
@@ -136,7 +152,7 @@ export function BespokeManufacturingEditorClient({
         const signResponse = await fetch('/api/cms/uploads/bespoke-process/sign', {
           method: 'POST',
           headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
-          body: JSON.stringify({ contentType: preparedFile.type }),
+        body: JSON.stringify({ contentType: preparedFile.type, declaredSize: preparedFile.size }),
         })
         const signed = await signResponse.json().catch(() => null) as { bucket?: string; path?: string; token?: string; error?: string } | null
         if (!signResponse.ok || !signed?.bucket || !signed.path || !signed.token) throw new Error(signed?.error ?? 'Unable to prepare upload.')
@@ -168,48 +184,36 @@ export function BespokeManufacturingEditorClient({
 
   const saveAll = async () => {
     setIsSaving(true)
-    const { data: sessionData } = await supabase.auth.getSession()
-    const accessToken = sessionData.session?.access_token
-    if (!accessToken) {
-      setIsSaving(false)
-      setStatus('You are not signed in.')
-      return
-    }
-    const saveItems = sorted.map(({ id, step, eyebrow, title, description, media_type, media_path, image_path }) => ({
-      ...(id ? { id } : {}), step, eyebrow, title, description, media_type, media_path,
-      image_path: media_type === 'image' ? (media_path || image_path) : '',
-    }))
-    const response = await fetch('/api/cms/bespoke/manufacturing', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify(prepareSave({ items: saveItems }, saveItems)),
-    })
-    const payload = (await response.json().catch(() => null)) as { items?: BespokeManufacturingInitialData['items']; revision?: string; error?: string } | null
-    setIsSaving(false)
-    if (!response.ok) {
-      setStatus(payload?.error ?? 'Unable to save bespoke manufacturing.')
-      return
-    }
-    if (Array.isArray(payload?.items) && typeof payload.revision === 'string') {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const accessToken = sessionData.session?.access_token
+      if (!accessToken) throw new Error('You are not signed in.')
+      const response = await fetch('/api/cms/bespoke/manufacturing', {
+        method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify(prepareSave({ items: saveItems }, saveItems)),
+      })
+      const payload = (await response.json().catch(() => null)) as { items?: BespokeManufacturingInitialData['items']; revision?: string; error?: string } | null
+      if (!response.ok) throw new Error(payload?.error ?? 'Unable to save bespoke manufacturing.')
+      if (!Array.isArray(payload?.items) || typeof payload.revision !== 'string') throw new Error('Save response was interrupted. Retry to confirm the same save.')
       setItems(payload.items.map((item) => ({ clientId: `id-${item.id}`, ...item, media_type: item.media_type === 'video' ? 'video' : 'image', media_path: item.media_path ?? item.image_path ?? '', image_path: item.image_path ?? item.media_path ?? '' })))
+      setSavedState(JSON.stringify(payload.items.map((item) => ({ id: item.id, step: item.step, eyebrow: item.eyebrow, title: item.title, description: item.description, media_type: item.media_type === 'video' ? 'video' : 'image', media_path: item.media_path ?? item.image_path ?? '', image_path: item.media_type === 'video' ? '' : (item.media_path ?? item.image_path ?? '') }))))
       acceptSave(payload.items, payload.revision)
-    }
-    setConfirmOpen(false)
-    setStatus(resolvedCopy.savedStatus)
-    toast({ title: 'Saved', description: resolvedCopy.savedStatus })
+      setConfirmOpen(false)
+      setStatus(resolvedCopy.savedStatus)
+      toast({ title: 'Saved', description: resolvedCopy.savedStatus })
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Unable to save bespoke manufacturing.')
+    } finally { setIsSaving(false) }
   }
 
   return (
     <div className="min-h-screen bg-background p-8">
       <div className="mb-8 flex items-center justify-between">
-        <Link href={resolvedCopy.backHref} className="inline-flex items-center gap-2 text-sm font-semibold text-primary">
+        <Link href={resolvedCopy.backHref} onClick={(event) => { event.preventDefault(); unsaved.confirmNavigation(() => router.push(resolvedCopy.backHref)) }} className="inline-flex items-center gap-2 text-sm font-semibold text-primary">
           <ArrowLeft size={16} />
           {resolvedCopy.backLabel}
         </Link>
-        <CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={isSaving} position="inline" />
+        <CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={isSaving} disabled={!dirty || uploading} position="inline" />
       </div>
 
       <div className="mb-10">
@@ -255,6 +259,7 @@ export function BespokeManufacturingEditorClient({
       </button>
 
       <ConfirmDialog isOpen={confirmOpen} title={resolvedCopy.confirmTitle} description={resolvedCopy.confirmDescription} confirmText="Save" cancelText="Cancel" type="confirm" isLoading={isSaving} onConfirm={saveAll} onCancel={() => setConfirmOpen(false)} />
+      <ConfirmDialog isOpen={unsaved.showWarning} title="Discard unsaved Manufacturing changes?" description="Your manufacturing changes have not been saved." confirmText="Discard changes" cancelText="Keep editing" type="warning" onConfirm={unsaved.handleDiscard} onCancel={() => unsaved.setShowWarning(false)} />
 
       <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
         <DialogContent>

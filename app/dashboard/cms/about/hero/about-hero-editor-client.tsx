@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { ChangeEvent, useState } from 'react'
 import { ArrowLeft, ImageIcon, Upload, Video } from 'lucide-react'
 import { ConfirmDialog } from '@/components/confirm-dialog'
@@ -9,6 +10,7 @@ import { CmsSaveAction } from '@/components/cms-save-action'
 import { uploadCmsAssetDirectWithFallback } from '@/lib/cms-direct-upload-client'
 import { supabase } from '@/lib/supabase'
 import { useCmsSingletonSave } from '@/hooks/use-cms-singleton-save'
+import { useUnsavedChanges } from '@/hooks/use-unsaved-changes'
 
 export type OverlayPosition = 'left' | 'center' | 'right' | 'bottom-left' | 'bottom-center' | 'bottom-right'
 export type AboutHeroInitialData = {
@@ -33,11 +35,15 @@ function SwitchRow({ label, description, checked, onChange }: { label: string; d
 
 export function AboutHeroEditorClient({ initialData, initialRevision }: { initialData: AboutHeroInitialData; initialRevision: string }) {
   const [form, setForm] = useState(initialData)
+  const [savedForm, setSavedForm] = useState(initialData)
   const [status, setStatus] = useState('About hero loaded')
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState<string | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const { prepareSave, acceptSave } = useCmsSingletonSave(initialRevision)
+  const router = useRouter()
+  const dirty = JSON.stringify(form) !== JSON.stringify(savedForm)
+  const unsaved = useUnsavedChanges(dirty)
   const patch = <K extends keyof AboutHeroInitialData>(key: K, value: AboutHeroInitialData[K]) => setForm((current) => ({ ...current, [key]: value }))
 
   const upload = async (event: ChangeEvent<HTMLInputElement>, target: 'desktop_media_path' | 'mobile_media_path' | 'video_poster_path') => {
@@ -59,34 +65,29 @@ export function AboutHeroEditorClient({ initialData, initialRevision }: { initia
         ...(isVideo ? {} : { rasterWidth: 2400, webpQuality: 86, rasterOnly: true }),
         signFields: { kind, declaredSize: file.size }, fallbackFields: { kind },
       })
-      const nextForm = { ...form, [target]: path }
-      setForm(nextForm)
-      const saveResponse = await fetch('/api/cms/about/hero', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-        body: JSON.stringify(prepareSave(nextForm)),
-      })
-      const savePayload = await saveResponse.json().catch(() => null) as { error?: string; revision?: string } | null
-      if (!saveResponse.ok) throw new Error(savePayload?.error ?? 'Image uploaded, but the hero record could not be updated.')
-      if (!savePayload?.revision) throw new Error('The media was saved, but its new revision was not returned. Reload this page.')
-      acceptSave(savePayload.revision)
-      setStatus('Hero media uploaded and saved.')
+      patch(target, path)
+      setStatus('Hero media uploaded. Save changes to publish it.')
     } catch (error) { setStatus(error instanceof Error ? error.message : 'Upload failed.') }
     finally { setUploading(null) }
   }
 
   const save = async () => {
     setSaving(true)
-    const { data } = await supabase.auth.getSession()
-    const token = data.session?.access_token
-    if (!token) { setSaving(false); return setStatus('You are not signed in.') }
-    const response = await fetch('/api/cms/about/hero', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify(prepareSave(form)) })
-    const payload = await response.json().catch(() => null) as { error?: string; revision?: string } | null
-    setSaving(false)
-    if (!response.ok) return setStatus(payload?.error ?? 'Unable to save about hero.')
-    if (!payload?.revision) return setStatus('The hero was saved, but its new revision was not returned. Reload this page.')
-    acceptSave(payload.revision)
-    setConfirmOpen(false); setStatus('About hero saved')
+    try {
+      const { data } = await supabase.auth.getSession()
+      const token = data.session?.access_token
+      if (!token) throw new Error('You are not signed in.')
+      const response = await fetch('/api/cms/about/hero', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify(prepareSave(form)) })
+      const payload = await response.json().catch(() => null) as { error?: string; revision?: string; item?: AboutHeroInitialData } | null
+      if (!response.ok) throw new Error(payload?.error ?? 'Unable to save about hero.')
+      if (!payload?.revision || !payload.item) throw new Error('Save response was interrupted. Retry to confirm the same save.')
+      setForm(payload.item)
+      setSavedForm(payload.item)
+      acceptSave(payload.revision)
+      setConfirmOpen(false); setStatus('About hero saved')
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Unable to save about hero.')
+    } finally { setSaving(false) }
   }
 
   const mediaAccept = form.media_type === 'video' ? 'video/mp4,video/webm,video/quicktime' : 'image/jpeg,image/png,image/webp,image/avif'
@@ -100,7 +101,7 @@ export function AboutHeroEditorClient({ initialData, initialRevision }: { initia
   </div>
 
   return <div className="min-h-screen bg-background p-8">
-    <div className="mb-8 flex items-center justify-between gap-4"><Link href="/dashboard/cms/about" className="inline-flex items-center gap-2 text-sm font-semibold text-primary transition-colors hover:text-primary/80"><ArrowLeft size={16} />Back to About</Link><CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={saving} position="inline" /></div>
+    <div className="mb-8 flex items-center justify-between gap-4"><Link href="/dashboard/cms/about" onClick={(event) => { event.preventDefault(); unsaved.confirmNavigation(() => router.push('/dashboard/cms/about')) }} className="inline-flex items-center gap-2 text-sm font-semibold text-primary transition-colors hover:text-primary/80"><ArrowLeft size={16} />Back to About</Link><CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={saving} disabled={!dirty} position="inline" /></div>
     <div className="mb-10"><h1 className="font-jakarta text-3xl font-semibold text-foreground">About Hero</h1><p className="mt-1 text-sm text-muted-foreground">Manage the full-width image or video banner at the top of the About page.</p><p className="mt-2 text-xs text-muted-foreground" aria-live="polite">{status}</p></div>
 
     <div className="grid max-w-6xl gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -129,6 +130,7 @@ export function AboutHeroEditorClient({ initialData, initialRevision }: { initia
       </div></aside>
     </div>
     <ConfirmDialog isOpen={confirmOpen} title="Save About Hero?" description="This will update the About page hero on the live site." confirmText="Save" cancelText="Cancel" type="confirm" isLoading={saving} onConfirm={save} onCancel={() => setConfirmOpen(false)} />
+    <ConfirmDialog isOpen={unsaved.showWarning} title="Discard unsaved About Hero changes?" description="Your changes have not been saved." confirmText="Discard changes" cancelText="Keep editing" type="warning" onConfirm={unsaved.handleDiscard} onCancel={() => unsaved.setShowWarning(false)} />
   </div>
 }
 

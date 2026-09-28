@@ -12,7 +12,7 @@ export async function POST(request: Request) {
   const kind = body?.kind ?? ''
   const type = body?.contentType ?? ''
   const size = body?.declaredSize
-  if (!Number.isSafeInteger(size) || (size as number) < 0) return NextResponse.json({ error: 'Invalid file size.' }, { status: 400 })
+  if (!Number.isSafeInteger(size) || (size as number) < 1) return NextResponse.json({ error: 'Invalid file size.' }, { status: 400 })
 
   const isVideo = kind === 'video'
   if (!isVideo && kind !== 'image' && kind !== 'poster') return NextResponse.json({ error: 'Invalid upload kind.' }, { status: 400 })
@@ -22,6 +22,6 @@ export async function POST(request: Request) {
   const extension = isVideo ? (type === 'video/webm' ? 'webm' : type === 'video/quicktime' ? 'mov' : 'mp4') : 'webp'
   const path = `about/hero/${kind}/${crypto.randomUUID()}.${extension}`
   const { data, error } = await access.adminClient.storage.from(bucket).createSignedUploadUrl(path)
-  if (error || !data?.token) return NextResponse.json({ error: error?.message ?? 'Unable to prepare upload.' }, { status: 500 })
+  if (error || !data?.token) return NextResponse.json({ error: 'Unable to prepare upload.' }, { status: 500 })
   return NextResponse.json({ bucket, path, token: data.token })
 }

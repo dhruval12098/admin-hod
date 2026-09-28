@@ -11,9 +11,8 @@ export async function GET(request: Request) {
   try {
     const payload = await loadNavbarBuilderData(access.adminClient)
     return NextResponse.json(payload, { headers: { 'Cache-Control': 'no-store' } })
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unable to load the navbar editor.'
-    return NextResponse.json({ error: message }, { status: message.includes('migration') ? 503 : 500 })
+  } catch {
+    return NextResponse.json({ error: 'Unable to load the navbar editor.' }, { status: 503 })
   }
 }
 

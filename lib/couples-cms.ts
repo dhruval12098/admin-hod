@@ -137,7 +137,7 @@ export async function uploadCoupleImage(file: File) {
     const signResponse = await fetch('/api/cms/uploads/couples/sign', {
       method: 'POST',
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ contentType: preparedFile.type }),
+        body: JSON.stringify({ contentType: preparedFile.type, declaredSize: preparedFile.size }),
     })
     const signed = await signResponse.json().catch(() => null) as { bucket?: string; path?: string; token?: string; error?: string } | null
     if (!signResponse.ok || !signed?.bucket || !signed.path || !signed.token) throw new Error(signed?.error ?? 'Unable to prepare upload.')

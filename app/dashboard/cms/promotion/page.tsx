@@ -9,8 +9,8 @@ async function getPromotionInitialData() {
     adminClient.from('promotion_popup').select('*').eq('section_key', 'global_promotion_popup').maybeSingle(),
     adminClient.from('coupons').select('id, code, title, is_active, usage_limit, usage_count').eq('is_active', true).order('created_at', { ascending: false }),
   ])
-  if (error) throw new Error(error.message)
-  if (couponsError) throw new Error(couponsError.message)
+  if (error) throw new Error('Unable to load promotion details.')
+  if (couponsError) throw new Error('Unable to load active coupons.')
 
   let questions = snapshot.items as PromotionInitialData['item']['questions']
   let responses: PromotionInitialData['responses'] = []

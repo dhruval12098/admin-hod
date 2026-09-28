@@ -7,8 +7,8 @@ export async function GET(request: Request) {
   if ('error' in access) return access.error
   try {
     return NextResponse.json(await loadCmsSingletonSnapshot(access.adminClient, 'about_hero'), { headers: { 'Cache-Control': 'no-store' } })
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Unable to load this section.' }, { status: 500 })
+  } catch {
+    return NextResponse.json({ error: 'Unable to load the About hero.' }, { status: 503 })
   }
 }
 export async function POST(request: Request) {

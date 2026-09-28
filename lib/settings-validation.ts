@@ -5,6 +5,7 @@ export const siteSettingsSchema = z.object({
   default_gst_slab_id: z.string().uuid().nullable(),
   maintenance_mode_enabled: z.boolean(),
   maintenance_mode_message: z.string().trim().min(1, 'Maintenance message is required.').max(2_000),
+  estimated_delivery_text: z.string().trim().min(1, 'Estimated delivery text is required.').max(240),
 }).strict()
 
 export const passwordChangeSchema = z.object({

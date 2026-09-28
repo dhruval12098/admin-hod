@@ -24,10 +24,11 @@ export async function uploadCmsAssetDirectWithFallback(options: DirectCmsUploadO
 
   try {
     const preparedFile = await prepareCmsAsset(file, options.rasterWidth, options.webpQuality)
+    if (preparedFile.type === 'image/svg+xml') throw new Error('SVG requires server validation.')
     const signResponse = await fetch(options.signEndpoint, {
       method: 'POST',
       headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ contentType: preparedFile.type, ...options.signFields }),
+      body: JSON.stringify({ contentType: preparedFile.type, ...options.signFields, declaredSize: preparedFile.size }),
     })
     const signed = await signResponse.json().catch(() => null) as { bucket?: string; path?: string; token?: string; error?: string } | null
     if (!signResponse.ok || !signed?.bucket || !signed.path || !signed.token) throw new Error(signed?.error ?? 'Unable to prepare upload.')

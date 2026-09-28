@@ -82,7 +82,8 @@ export function VideoLibraryDialog({ open, onClose, onSelect }: {
   const [error, setError] = useState('')
 
   const loadLibrary = async (forceRefresh = false) => {
-    forceRefresh ? setRefreshing(true) : setLoading(!cachedLibrary)
+    if (forceRefresh) setRefreshing(true)
+    else setLoading(!cachedLibrary)
     setError('')
     try { setItems(await fetchLibrary(forceRefresh)) }
     catch (loadError) { setError(loadError instanceof Error ? loadError.message : 'Unable to load videos.') }
@@ -91,14 +92,26 @@ export function VideoLibraryDialog({ open, onClose, onSelect }: {
 
   useEffect(() => {
     if (!open) return
-    setQuery('')
-    if (cachedLibrary) setItems(cachedLibrary.items)
-    void loadLibrary(false)
+    void fetchLibrary(false)
+      .then((libraryItems) => setItems(libraryItems))
+      .catch((loadError) => setError(loadError instanceof Error ? loadError.message : 'Unable to load videos.'))
+      .finally(() => setLoading(false))
   }, [open])
+
+  const closeDialog = () => {
+    setQuery('')
+    setError('')
+    onClose()
+  }
 
   useEffect(() => {
     if (!open) return
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setQuery('')
+      setError('')
+      onClose()
+    }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [onClose, open])
@@ -112,13 +125,13 @@ export function VideoLibraryDialog({ open, onClose, onSelect }: {
   if (!open) return null
   return (
     <div className="fixed inset-0 z-[10020] flex items-center justify-center bg-black/55 p-4" role="dialog" aria-modal="true" aria-labelledby="video-library-title">
-      <button type="button" className="absolute inset-0 cursor-default" aria-label="Close video library" onClick={onClose} />
+      <button type="button" className="absolute inset-0 cursor-default" aria-label="Close video library" onClick={closeDialog} />
       <div className="relative flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-border bg-white shadow-2xl">
         <div className="flex items-start justify-between gap-4 border-b border-border px-6 py-5">
           <div><h2 id="video-library-title" className="text-xl font-bold text-foreground">Choose a Cloudflare video</h2><p className="mt-1 text-sm text-muted-foreground">Central library for videos across every R2 folder. Selecting affects only this media slot.</p></div>
           <div className="flex items-center gap-2">
             <button type="button" disabled={refreshing} onClick={() => void loadLibrary(true)} className="inline-flex h-10 items-center gap-2 whitespace-nowrap rounded-lg border border-border px-3 text-sm font-semibold text-foreground hover:bg-secondary disabled:opacity-60"><RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} />Refresh</button>
-            <button type="button" onClick={onClose} className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-border text-foreground hover:bg-secondary" aria-label="Close"><X size={18} /></button>
+            <button type="button" onClick={closeDialog} className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-border text-foreground hover:bg-secondary" aria-label="Close"><X size={18} /></button>
           </div>
         </div>
         <div className="border-b border-border px-6 py-4"><div className="relative"><Search size={17} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search all Cloudflare videos by filename or folder" className="w-full rounded-lg border border-border bg-white py-2.5 pl-10 pr-4 text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring" /></div></div>

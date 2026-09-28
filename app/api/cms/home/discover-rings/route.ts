@@ -22,8 +22,8 @@ export async function GET(request: Request) {
     .select('*')
     .order('sort_order', { ascending: true })
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ items: data ?? [] })
+  if (error) return NextResponse.json({ error: 'Unable to load Discover Rings.' }, { status: 503 })
+  return NextResponse.json({ items: data ?? [] }, { headers: { 'Cache-Control': 'no-store' } })
 }
 
 export async function POST(request: Request) {
@@ -47,7 +47,7 @@ export async function POST(request: Request) {
   }) as DiscoverItem[]
 
   const { error: deleteError } = await access.adminClient.from(tableName).delete().gte('sort_order', 0)
-  if (deleteError) return NextResponse.json({ error: deleteError.message }, { status: 500 })
+  if (deleteError) return NextResponse.json({ error: 'Unable to save Discover Rings. Existing content may be unchanged.' }, { status: 500 })
 
   if (items.length > 0) {
     const rows = items.map((item) => ({
@@ -62,7 +62,7 @@ export async function POST(request: Request) {
     }))
 
     const { error: insertError } = await access.adminClient.from(tableName).insert(rows)
-    if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 })
+    if (insertError) return NextResponse.json({ error: 'Unable to finish saving Discover Rings.' }, { status: 500 })
   }
 
   return NextResponse.json({ ok: true })

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { assertAdmin } from '@/lib/cms-auth'
-import { readHomeGroup1Envelope, saveHomeGroup1 } from '@/lib/cms-home-group1-save'
+import { loadHomeGroup1Snapshot, readHomeGroup1Envelope, saveHomeGroup1 } from '@/lib/cms-home-group1-save'
 
 type Override = { id?: string; product_id: string; display_title?: string; display_image_path?: string }
 type Payload = Record<string, unknown> & {
@@ -11,9 +11,11 @@ type Payload = Record<string, unknown> & {
 export async function GET(request: Request) {
   const access = await assertAdmin(request)
   if ('error' in access) return access.error
-  const { data, error } = await access.adminClient.rpc('cms_home_group1_snapshot_v1', { p_kind: 'bestsellers' })
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data, { headers: { 'Cache-Control': 'no-store' } })
+  try {
+    return NextResponse.json(await loadHomeGroup1Snapshot(access.adminClient, 'bestsellers'), { headers: { 'Cache-Control': 'no-store' } })
+  } catch {
+    return NextResponse.json({ error: 'Unable to load Best Sellers.' }, { status: 503 })
+  }
 }
 
 export async function POST(request: Request) {

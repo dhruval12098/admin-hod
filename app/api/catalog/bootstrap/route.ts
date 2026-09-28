@@ -5,7 +5,9 @@ import { loadCatalogRingSnapshot } from '@/lib/catalog-ring-save'
 import { loadCatalogHierarchyList } from '@/lib/catalog-hierarchy-save'
 import { loadCatalogMetalList } from '@/lib/catalog-metal-save'
 
-async function loadOptionalTable(adminClient: any, table: string, columns = '*') {
+type CatalogClient = { from: (table: string) => { select: (columns: string) => { order: (column: string, options: { ascending: boolean }) => PromiseLike<{ data: unknown[] | null; error: unknown }> } } }
+
+async function loadOptionalTable(adminClient: CatalogClient, table: string, columns = '*') {
   const result = await adminClient.from(table).select(columns).order('display_order', { ascending: true })
   if (result.error) return []
   return result.data ?? []
@@ -43,7 +45,7 @@ export async function GET(request: Request) {
     stoneShapesResult.error
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: 'Unable to load the catalog editor data.' }, { status: 503 })
   }
 
   return NextResponse.json({

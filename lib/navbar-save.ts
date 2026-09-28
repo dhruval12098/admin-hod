@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { assertAdmin } from './cms-auth'
-import { mapSectionTypeToDb, normalizeNavbarItemForSave, type NavbarItem } from './navbar'
+import { mapSectionTypeToDb, normalizeNavbarItemForSave } from './navbar'
 
 type Access = Exclude<Awaited<ReturnType<typeof assertAdmin>>, { error: NextResponse }>
 const uuid = z.string().uuid()
@@ -24,8 +24,8 @@ const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}
 function unique(values: string[]) { return new Set(values).size === values.length }
 function errorResponse(error: { code?: string; message?: string }) {
   if (error.code === 'PGRST202' || error.code === '42883') return NextResponse.json({ error: 'The navbar editor is awaiting its database update. Existing navigation was not changed.' }, { status: 503 })
-  if (error.code === '40001') return NextResponse.json({ error: error.message }, { status: 409 })
-  if (['22023', '22P02', '23502', '23503', '23505', '23514'].includes(error.code ?? '')) return NextResponse.json({ error: error.message }, { status: 400 })
+  if (error.code === '40001') return NextResponse.json({ error: 'The navbar changed after you opened it. Reload before saving again.' }, { status: 409 })
+  if (['22023', '22P02', '23502', '23503', '23505', '23514'].includes(error.code ?? '')) return NextResponse.json({ error: 'The navbar contains invalid or conflicting data.' }, { status: 400 })
   return NextResponse.json({ error: 'Unable to save the navbar. No partial changes were committed.' }, { status: 500 })
 }
 

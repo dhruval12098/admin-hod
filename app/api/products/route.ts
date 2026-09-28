@@ -56,6 +56,26 @@ function isPositivePrice(value: unknown) {
   return Number.isFinite(price) && price > 0
 }
 
+async function fetchAllProductMetalSelectionSummaries(adminClient: any, productIds: string[]) {
+  const pageSize = 1000
+  const rows: Array<{ product_id: string; metal: RelatedNameRow }> = []
+
+  for (let from = 0; ; from += pageSize) {
+    const result = await adminClient
+      .from('product_metal_selections')
+      .select('product_id, metal:catalog_metals(name)')
+      .in('product_id', productIds)
+      .order('id', { ascending: true })
+      .range(from, from + pageSize - 1)
+
+    if (result.error) return result
+
+    const page = (result.data ?? []) as Array<{ product_id: string; metal: RelatedNameRow }>
+    rows.push(...page)
+    if (page.length < pageSize) return { data: rows, error: null }
+  }
+}
+
 async function replaceProductPurityPrices(adminClient: any, productId: string, purityPrices: ProductPurityPrice[], defaultPurityPriceId?: string | null) {
   const normalizedRows = purityPrices
     .map((row, index) => ({
@@ -476,7 +496,7 @@ export async function GET(request: Request) {
   const productIds = (products ?? []).map((product) => product.id)
   const [metalSelections, materialValueSelections, shapeSelections, catalog] = await Promise.all([
     productIds.length
-      ? adminClient.from('product_metal_selections').select('product_id, metal:catalog_metals(name)').in('product_id', productIds)
+      ? fetchAllProductMetalSelectionSummaries(adminClient, productIds)
       : Promise.resolve({ data: [], error: null }),
     productIds.length
       ? adminClient.from('product_material_value_selections').select('product_id, material_value:catalog_material_values(name)').in('product_id', productIds)

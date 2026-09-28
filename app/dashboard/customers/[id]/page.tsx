@@ -27,7 +27,7 @@ const mockCustomer = {
   ]
 }
 
-export default function CustomerDetailPage({ params }: { params: { id: string } }) {
+export default function CustomerDetailPage() {
   const [isEditing, setIsEditing] = useState(false)
 
   return (

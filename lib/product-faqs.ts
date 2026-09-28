@@ -1,4 +1,5 @@
 import type { ProductFaqItem } from '@/lib/product-catalog'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 function isMissingRelation(error: { message?: string | null } | null | undefined, table: string) {
   return (
@@ -7,7 +8,7 @@ function isMissingRelation(error: { message?: string | null } | null | undefined
   ) ?? false
 }
 
-export async function loadProductFaqItems(adminClient: any, productId: string) {
+export async function loadProductFaqItems(adminClient: SupabaseClient, productId: string) {
   const { data, error } = await adminClient
     .from('product_faq_items')
     .select('id, product_id, question, answer, sort_order, is_active, source')
@@ -22,7 +23,7 @@ export async function loadProductFaqItems(adminClient: any, productId: string) {
   return (data ?? []) as ProductFaqItem[]
 }
 
-export async function replaceProductFaqItems(adminClient: any, productId: string, items: ProductFaqItem[], source = 'admin') {
+export async function replaceProductFaqItems(adminClient: SupabaseClient, productId: string, items: ProductFaqItem[], source = 'admin') {
   const normalizedRows = items
     .map((item, index) => ({
       question: item.question?.trim() ?? '',

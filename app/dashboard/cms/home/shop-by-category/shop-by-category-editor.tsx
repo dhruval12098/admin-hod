@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { ArrowDown, ArrowLeft, ArrowUp, ImageOff, Plus, Trash2 } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
 import { CmsSaveAction } from '@/components/cms-save-action'
@@ -9,6 +10,8 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/hooks/use-toast'
+import { ConfirmDialog } from '@/components/confirm-dialog'
+import { useUnsavedChanges } from '@/hooks/use-unsaved-changes'
 
 type Kind = 'category' | 'subcategory' | 'option'
 type CatalogItem = { id: string; name: string; slug: string; status: string; image_path?: string | null; icon_svg_path?: string | null; image_alt?: string | null; category_id?: string; subcategory_id?: string; banner_desktop_image_path?: string | null; banner_mobile_image_path?: string | null; banner_desktop_image_alt?: string | null; banner_mobile_image_alt?: string | null }
@@ -24,6 +27,9 @@ export type ShopByCategoryInitialData = {
 
 const field = 'w-full rounded-lg border border-border bg-white px-3 py-2.5 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/10'
 function sourceId(item: SelectedItem) { return item.category_id ?? item.subcategory_id ?? item.option_id ?? '' }
+function editableState(section: ShopByCategoryInitialData['section'], items: SelectedItem[]) {
+  return JSON.stringify({ section, items: items.map((item, index) => ({ ...item, display_order: index })) })
+}
 function storageUrl(path?: string | null) {
   if (!path) return ''
   if (/^https?:\/\//i.test(path)) return path
@@ -34,6 +40,7 @@ function storageUrl(path?: string | null) {
 
 export function ShopByCategoryEditor({ initialData }: { initialData: ShopByCategoryInitialData }) {
   const { toast } = useToast()
+  const router = useRouter()
   const [section, setSection] = useState(initialData.section)
   const [items, setItems] = useState(initialData.items)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -43,7 +50,10 @@ export function ShopByCategoryEditor({ initialData }: { initialData: ShopByCateg
   const [saving, setSaving] = useState(false)
   const [revision, setRevision] = useState(initialData.revision)
   const [savedItemIds, setSavedItemIds] = useState(() => initialData.items.flatMap((item) => item.id ? [String(item.id)] : []))
+  const [savedState, setSavedState] = useState(() => editableState(initialData.section, initialData.items))
   const pendingSave = useRef<{ fingerprint: string; id: string } | null>(null)
+  const dirty = editableState(section, items) !== savedState
+  const unsaved = useUnsavedChanges(dirty)
   const categoryMap = useMemo(() => new Map(initialData.categories.map((x) => [x.id, x])), [initialData.categories])
   const subcategoryMap = useMemo(() => new Map(initialData.subcategories.map((x) => [x.id, x])), [initialData.subcategories])
   const selectedKeys = new Set(items.map((item) => `${item.item_type}:${sourceId(item)}`))
@@ -97,20 +107,20 @@ export function ShopByCategoryEditor({ initialData }: { initialData: ShopByCateg
       const response = await fetch('/api/cms/home/shop-by-category', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${data.session.access_token}` }, body: JSON.stringify({ ...saveBody, request_id: pendingSave.current.id }) })
       const payload = await response.json().catch(() => null)
       if (!response.ok) throw new Error(payload?.error ?? 'Unable to save section.')
-      if (Array.isArray(payload?.items) && typeof payload?.revision === 'string') {
-        setItems(payload.items)
-        setSection(payload.section)
-        setSavedItemIds(payload.items.map((item: SelectedItem) => String(item.id)))
-        setRevision(payload.revision)
-        pendingSave.current = null
-      }
+      if (!Array.isArray(payload?.items) || !payload?.section || typeof payload?.revision !== 'string') throw new Error('Save response was interrupted. Retry to confirm the same save.')
+      setItems(payload.items)
+      setSection(payload.section)
+      setSavedState(editableState(payload.section, payload.items))
+      setSavedItemIds(payload.items.map((item: SelectedItem) => String(item.id)))
+      setRevision(payload.revision)
+      pendingSave.current = null
       toast({ title: 'Saved', description: 'Shop By Category updated successfully.' })
     } catch (error) {
       toast({ title: 'Save failed', description: error instanceof Error ? error.message : 'Unable to save section.', variant: 'destructive' })
     } finally { setSaving(false) }
   }
   return <div className="p-5 md:p-8">
-    <Link href="/dashboard/cms/home" className="inline-flex items-center gap-2 text-sm font-semibold text-primary"><ArrowLeft size={16}/>Back to Home</Link>
+    <Link href="/dashboard/cms/home" onClick={(event) => { event.preventDefault(); unsaved.confirmNavigation(() => router.push('/dashboard/cms/home')) }} className="inline-flex items-center gap-2 text-sm font-semibold text-primary"><ArrowLeft size={16}/>Back to Home</Link>
     <div className="mt-7"><h1 className="font-jakarta text-3xl font-semibold">Shop By Category</h1><p className="mt-1 text-sm text-muted-foreground">Build the compact catalog grid shown directly below the homepage hero.</p></div>
     <section className="mt-8 max-w-6xl rounded-lg border border-border bg-white p-5 shadow-xs">
       <div className="grid gap-4 md:grid-cols-2"><label className="text-sm font-semibold">Heading<input className={`${field} mt-2`} value={section.heading} onChange={(e)=>setSection({...section,heading:e.target.value})}/></label><label className="text-sm font-semibold">Shop All label<input className={`${field} mt-2`} value={section.shop_all_label ?? ''} onChange={(e)=>setSection({...section,shop_all_label:e.target.value})}/></label><label className="text-sm font-semibold">Shop All link<input className={`${field} mt-2`} value={section.shop_all_link ?? ''} onChange={(e)=>setSection({...section,shop_all_link:e.target.value})}/></label><label className="flex items-center gap-3 self-end rounded-lg border border-border p-3 text-sm font-semibold"><input type="checkbox" checked={section.is_enabled} onChange={(e)=>setSection({...section,is_enabled:e.target.checked})}/>Enable section</label></div>
@@ -146,6 +156,7 @@ export function ShopByCategoryEditor({ initialData }: { initialData: ShopByCateg
         </DialogFooter>
       </DialogContent>
     </Dialog>
-    <CmsSaveAction onClick={save} isSaving={saving}/>
+    <CmsSaveAction onClick={save} isSaving={saving} disabled={!dirty}/>
+    <ConfirmDialog isOpen={unsaved.showWarning} title="Discard unsaved Shop By Category changes?" description="Your changes have not been saved." confirmText="Discard changes" cancelText="Keep editing" type="warning" onConfirm={unsaved.handleDiscard} onCancel={() => unsaved.setShowWarning(false)}/>
   </div>
 }

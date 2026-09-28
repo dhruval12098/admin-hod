@@ -22,7 +22,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     .update({ ...changes, updated_at: new Date().toISOString() })
     .eq('id', id.data)
     .eq('updated_at', expected_updated_at)
-    .select('id, name, slug, display_order, status, created_at, updated_at')
+    .select('id, name, slug, image_path, display_order, status, created_at, updated_at')
     .maybeSingle()
 
   if (error) {

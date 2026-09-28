@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Edit2, Plus, Trash2 } from 'lucide-react'
 import { TablePagination } from '@/components/table-pagination'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -42,14 +42,11 @@ export function ProductFaqEditor({
   const [draft, setDraft] = useState<ProductFaqItem>(() => emptyFaqItem())
 
   const totalPages = Math.max(1, Math.ceil(items.length / FAQ_PAGE_SIZE))
+  const safePage = Math.min(Math.max(1, page), totalPages)
   const paginatedItems = useMemo(
-    () => items.slice((page - 1) * FAQ_PAGE_SIZE, page * FAQ_PAGE_SIZE),
-    [items, page]
+    () => items.slice((safePage - 1) * FAQ_PAGE_SIZE, safePage * FAQ_PAGE_SIZE),
+    [items, safePage]
   )
-
-  useEffect(() => {
-    setPage((current) => Math.min(Math.max(1, current), totalPages))
-  }, [totalPages])
 
   const openDialog = (index: number | null = null) => {
     setEditingIndex(index)
@@ -133,7 +130,7 @@ export function ProductFaqEditor({
           ) : null}
 
           {paginatedItems.map((item, visibleIndex) => {
-            const index = (page - 1) * FAQ_PAGE_SIZE + visibleIndex
+            const index = (safePage - 1) * FAQ_PAGE_SIZE + visibleIndex
 
             return (
               <div key={item.id ?? `faq-${index}`} className="rounded-lg border border-border bg-secondary/10 p-4">
@@ -184,7 +181,7 @@ export function ProductFaqEditor({
           })}
 
           {items.length > FAQ_PAGE_SIZE ? (
-            <TablePagination page={page} totalItems={items.length} pageSize={FAQ_PAGE_SIZE} onPageChange={setPage} />
+            <TablePagination page={safePage} totalItems={items.length} pageSize={FAQ_PAGE_SIZE} onPageChange={setPage} />
           ) : null}
         </div>
       </section>

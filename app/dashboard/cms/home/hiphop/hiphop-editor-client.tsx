@@ -134,7 +134,7 @@ export function HipHopEditorClient({ initialData }: { initialData: HipHopInitial
           authorization: `Bearer ${accessToken}`,
           'content-type': 'application/json',
         },
-        body: JSON.stringify({ contentType: preparedFile.type }),
+        body: JSON.stringify({ contentType: preparedFile.type, declaredSize: preparedFile.size }),
       })
       const signed = (await signResponse.json().catch(() => null)) as { bucket?: string; path?: string; token?: string; error?: string } | null
       if (!signResponse.ok || !signed?.bucket || !signed.path || !signed.token) {

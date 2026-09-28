@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useState, type ChangeEvent } from 'react'
 import { ArrowLeft, Upload } from 'lucide-react'
 import { CmsSaveAction } from '@/components/cms-save-action'
@@ -9,17 +10,22 @@ import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
 import { uploadCmsAssetDirectWithFallback } from '@/lib/cms-direct-upload-client'
 import { useCmsSingletonSave } from '@/hooks/use-cms-singleton-save'
+import { useUnsavedChanges } from '@/hooks/use-unsaved-changes'
 
 export type BlogHeroForm = { is_enabled: boolean; heading: string; paragraph: string; button_label: string; button_link: string; desktop_image_path: string; desktop_image_alt: string; mobile_image_path: string; mobile_image_alt: string }
 
 export function BlogHeroEditorClient({ initialData, initialRevision }: { initialData: BlogHeroForm; initialRevision: string }) {
+  const router = useRouter()
   const [form, setForm] = useState(initialData)
+  const [savedForm, setSavedForm] = useState(initialData)
   const [status, setStatus] = useState('Blog hero loaded')
   const [isSaving, setIsSaving] = useState(false)
   const [uploading, setUploading] = useState<'desktop' | 'mobile' | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const { toast } = useToast()
   const { prepareSave, acceptSave } = useCmsSingletonSave(initialRevision)
+  const dirty = JSON.stringify(form) !== JSON.stringify(savedForm)
+  const unsaved = useUnsavedChanges(dirty)
 
   const upload = async (kind: 'desktop' | 'mobile', file?: File) => {
     if (!file) return
@@ -35,24 +41,25 @@ export function BlogHeroEditorClient({ initialData, initialRevision }: { initial
   }
 
   const save = async () => {
-    const { data } = await supabase.auth.getSession()
-    const accessToken = data.session?.access_token
-    if (!accessToken) return setStatus('You are not signed in.')
     setIsSaving(true)
-    const response = await fetch('/api/cms/blog/hero', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` }, body: JSON.stringify(prepareSave(form)) })
-    const payload = await response.json().catch(() => null) as { error?: string; revision?: string } | null
-    setIsSaving(false)
-    if (!response.ok) return setStatus(payload?.error ?? 'Unable to save blog hero.')
-    if (!payload?.revision) return setStatus('The hero was saved, but its new revision was not returned. Reload this page.')
-    acceptSave(payload.revision)
-    setConfirmOpen(false)
-    setStatus('Blog hero saved')
-    toast({ title: 'Saved', description: 'Blog page hero updated successfully.' })
+    try {
+      const { data } = await supabase.auth.getSession()
+      const accessToken = data.session?.access_token
+      if (!accessToken) throw new Error('You are not signed in.')
+      const response = await fetch('/api/cms/blog/hero', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` }, body: JSON.stringify(prepareSave(form)) })
+      const payload = await response.json().catch(() => null) as { error?: string; revision?: string; item?: BlogHeroForm } | null
+      if (!response.ok) throw new Error(payload?.error ?? 'Unable to save blog hero.')
+      if (!payload?.revision || !payload.item) throw new Error('Save response was interrupted. Retry to confirm the same save.')
+      setForm(payload.item); setSavedForm(payload.item); acceptSave(payload.revision)
+      setConfirmOpen(false); setStatus('Blog hero saved')
+      toast({ title: 'Saved', description: 'Blog page hero updated successfully.' })
+    } catch (error) { setStatus(error instanceof Error ? error.message : 'Unable to save blog hero.') }
+    finally { setIsSaving(false) }
   }
 
   const input = 'w-full rounded-lg border border-border bg-white px-3 py-2.5 text-sm'
   return <div className="min-h-screen bg-background p-8">
-    <div className="mb-8 flex items-center justify-between gap-4"><Link href="/dashboard/cms/blog" className="inline-flex items-center gap-2 text-sm font-semibold text-primary"><ArrowLeft size={16} />Back to Blog</Link><CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={isSaving} position="inline" /></div>
+    <div className="mb-8 flex items-center justify-between gap-4"><Link href="/dashboard/cms/blog" onClick={(event) => { event.preventDefault(); unsaved.confirmNavigation(() => router.push('/dashboard/cms/blog')) }} className="inline-flex items-center gap-2 text-sm font-semibold text-primary"><ArrowLeft size={16} />Back to Blog</Link><CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={isSaving} disabled={!dirty || Boolean(uploading)} position="inline" /></div>
     <div className="mb-8"><h1 className="font-jakarta text-3xl font-semibold">Blog Page Hero</h1><p className="mt-2 text-xs text-muted-foreground">{status}</p></div>
     <div className="grid max-w-5xl gap-6 lg:grid-cols-2">
       <section className="space-y-5 rounded-lg border border-border bg-white p-6 shadow-xs">
@@ -66,5 +73,6 @@ export function BlogHeroEditorClient({ initialData, initialRevision }: { initial
       </section>
     </div>
     <ConfirmDialog isOpen={confirmOpen} title="Save Blog Hero?" description="This updates the hero shown on the public blog page." confirmText="Save" cancelText="Cancel" type="confirm" isLoading={isSaving} onConfirm={save} onCancel={() => setConfirmOpen(false)} />
+    <ConfirmDialog isOpen={unsaved.showWarning} title="Discard unsaved Blog Hero changes?" description="Your Blog Hero changes have not been saved." confirmText="Discard changes" cancelText="Keep editing" type="warning" onConfirm={unsaved.handleDiscard} onCancel={() => unsaved.setShowWarning(false)} />
   </div>
 }

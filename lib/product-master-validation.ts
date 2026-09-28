@@ -1,4 +1,5 @@
 import 'server-only'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 type ProductMasterValidationPayload = {
   main_category_id?: string | null
@@ -32,20 +33,20 @@ function invalid(label: string): ValidationResult {
   }
 }
 
-async function loadRowsByIds<T extends { id: string }>(adminClient: any, table: string, ids: string[], columns: string) {
+async function loadRowsByIds<T extends { id: string }>(adminClient: SupabaseClient, table: string, ids: string[], columns: string) {
   if (ids.length < 1) return { rows: [] as T[], error: null }
   const { data, error } = await adminClient.from(table).select(columns).in('id', ids)
-  return { rows: (data ?? []) as T[], error }
+  return { rows: (data ?? []) as unknown as T[], error }
 }
 
-async function validateSimpleIds(adminClient: any, table: string, ids: string[], label: string) {
+async function validateSimpleIds(adminClient: SupabaseClient, table: string, ids: string[], label: string) {
   const { rows, error } = await loadRowsByIds<{ id: string }>(adminClient, table, ids, 'id')
-  if (error) return { ok: false, message: error.message } as ValidationResult
+  if (error) return { ok: false, message: 'Unable to validate the selected master data.' } as ValidationResult
   return rows.length === ids.length ? ({ ok: true } as ValidationResult) : invalid(label)
 }
 
 export async function validateProductMasterReferences(
-  adminClient: any,
+  adminClient: SupabaseClient,
   payload: ProductMasterValidationPayload
 ): Promise<ValidationResult> {
   const categoryId = payload.main_category_id?.trim()
@@ -61,7 +62,7 @@ export async function validateProductMasterReferences(
     subcategoryIds,
     'id, category_id'
   )
-  if (subcategoryError) return { ok: false, message: subcategoryError.message }
+  if (subcategoryError) return { ok: false, message: 'Unable to validate the selected subcategories.' }
   if (subcategoryRows.length !== subcategoryIds.length) return invalid('Selected subcategory')
   const primarySubcategory = payload.subcategory_id ? subcategoryRows.find((row) => row.id === payload.subcategory_id) : null
   if (primarySubcategory && primarySubcategory.category_id !== categoryId) {
@@ -75,7 +76,7 @@ export async function validateProductMasterReferences(
     optionIds,
     'id, subcategory_id'
   )
-  if (optionError) return { ok: false, message: optionError.message }
+  if (optionError) return { ok: false, message: 'Unable to validate the selected options.' }
   if (optionRows.length !== optionIds.length) return invalid('Selected option')
   const primaryOption = payload.option_id ? optionRows.find((row) => row.id === payload.option_id) : null
   if (primaryOption && payload.subcategory_id && primaryOption.subcategory_id !== payload.subcategory_id) {
@@ -118,7 +119,7 @@ export async function validateProductMasterReferences(
     contentRuleIds,
     'id, kind'
   )
-  if (contentRuleError) return { ok: false, message: contentRuleError.message }
+  if (contentRuleError) return { ok: false, message: 'Unable to validate the selected content rules.' }
   if (contentRuleRows.length !== contentRuleIds.length) return invalid('Selected content rule')
   if (payload.shipping_rule_id && contentRuleRows.find((row) => row.id === payload.shipping_rule_id)?.kind !== 'shipping') {
     return { ok: false, message: 'Selected shipping rule is not a shipping rule. Please refresh and choose again.' }

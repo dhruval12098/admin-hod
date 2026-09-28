@@ -1,87 +1,12 @@
 import { NextResponse } from 'next/server'
-import { z } from 'zod'
 import type { assertAdmin } from './cms-auth'
 import { createBlogSlug } from './blog-slug'
 import { createEducationSlug } from './education-slug'
+import { articleDeleteSchema, articleSaveSchema } from './cms-article-schemas'
+export { articleDeleteSchema, articleSaveSchema } from './cms-article-schemas'
 
 export type CmsArticleKind = 'blog' | 'education'
 type Access = Exclude<Awaited<ReturnType<typeof assertAdmin>>, { error: NextResponse }>
-
-const persistedId = z.union([z.number().int().positive(), z.string().regex(/^[1-9][0-9]*$/)]).transform(String)
-const uuid = z.string().uuid()
-const optionalText = z.string().max(200_000).default('')
-
-const tagSchema = z.object({ id: persistedId.optional(), tag: z.string().trim().min(1).max(200) }).strict()
-const productSchema = z.object({ id: persistedId.optional(), product_id: uuid }).strict()
-const blockSchema = z.object({
-  id: persistedId.optional(),
-  block_type: z.enum(['text', 'image', 'heading', 'quote']),
-  heading: optionalText,
-  body_html: optionalText,
-  image_path: optionalText,
-  image_alt: optionalText,
-  image_caption: optionalText,
-  is_enabled: z.boolean(),
-}).strict().superRefine((block, context) => {
-  const required = block.block_type === 'image' ? block.image_path
-    : block.block_type === 'heading' ? block.heading : block.body_html
-  if (!required.trim()) context.addIssue({ code: z.ZodIssueCode.custom, message: 'The content block is incomplete.' })
-})
-
-const articlePostSchema = z.object({
-  slug: optionalText,
-  title: z.string().trim().min(1).max(500),
-  title_html: optionalText,
-  card_title: optionalText,
-  subtitle: z.string().trim().min(1).max(10_000),
-  category: optionalText,
-  catalog_category_id: z.union([uuid, z.literal(''), z.null()]).optional(),
-  author: optionalText,
-  date_label: optionalText,
-  read_time: optionalText,
-  bg_key: optionalText,
-  bg_color: optionalText,
-  hero_image_path: optionalText,
-  card_image_path: optionalText,
-  hero_image_alt: optionalText,
-  body_html: z.string().trim().min(1).max(1_000_000),
-  is_published: z.boolean(),
-  sort_order: z.coerce.number().int().min(-1_000_000).max(1_000_000),
-}).strict()
-
-export const articleSaveSchema = z.object({
-  request_id: uuid,
-  expected_revision: z.string().regex(/^[a-f0-9]{32}$/).nullable().optional(),
-  post: articlePostSchema,
-  tags: z.array(tagSchema).max(100),
-  products: z.array(productSchema).max(100),
-  content_blocks: z.array(blockSchema).max(100),
-  deleted_tag_ids: z.array(persistedId).max(100),
-  deleted_product_ids: z.array(persistedId).max(100),
-  deleted_block_ids: z.array(persistedId).max(100),
-}).strict().superRefine((payload, context) => {
-  const checks: Array<[string, Array<string | undefined>]> = [
-    ['tag', payload.tags.map((item) => item.id)],
-    ['product relation', payload.products.map((item) => item.id)],
-    ['content block', payload.content_blocks.map((item) => item.id)],
-  ]
-  for (const [label, ids] of checks) {
-    const saved = ids.filter((id): id is string => Boolean(id))
-    if (new Set(saved).size !== saved.length) context.addIssue({ code: z.ZodIssueCode.custom, message: `A ${label} ID is duplicated.` })
-  }
-  const normalizedTags = payload.tags.map((item) => item.tag.toLowerCase())
-  if (new Set(normalizedTags).size !== normalizedTags.length) {
-    context.addIssue({ code: z.ZodIssueCode.custom, message: 'Tags must be unique.' })
-  }
-  if (new Set(payload.products.map((item) => item.product_id)).size !== payload.products.length) {
-    context.addIssue({ code: z.ZodIssueCode.custom, message: 'Products may only be selected once.' })
-  }
-})
-
-export const articleDeleteSchema = z.object({
-  request_id: uuid,
-  expected_revision: z.string().regex(/^[a-f0-9]{32}$/),
-}).strict()
 
 type ArticleSnapshot = {
   post: Record<string, unknown>
@@ -96,9 +21,9 @@ function articleError(error: { code?: string; message?: string }, action: 'load'
     return NextResponse.json({ error: 'This CMS section is awaiting its database update. Existing content was not changed.' }, { status: 503 })
   }
   if (error.code === 'P0002') return NextResponse.json({ error: 'Article not found.' }, { status: 404 })
-  if (error.code === '40001') return NextResponse.json({ error: error.message }, { status: 409 })
+  if (error.code === '40001') return NextResponse.json({ error: 'This article changed after you opened it. Reload before saving again.' }, { status: 409 })
   if (['22023', '22P02', '23503', '23505', '23514'].includes(error.code ?? '')) {
-    return NextResponse.json({ error: error.message }, { status: 400 })
+    return NextResponse.json({ error: 'The article contains invalid or conflicting data.' }, { status: 400 })
   }
   return NextResponse.json({ error: `Unable to ${action} this article. No partial changes were committed.` }, { status: 500 })
 }

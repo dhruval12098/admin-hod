@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers'
 import { createClient } from '@supabase/supabase-js'
-import { createServerClient } from '@supabase/ssr'
+import { createServerClient, type CookieOptions } from '@supabase/ssr'
 
 function requireEnv(value: string | undefined, name: string) {
   if (!value) {
@@ -24,10 +24,10 @@ export async function createSupabaseServerSessionClient() {
       getAll() {
         return cookieStore.getAll()
       },
-      setAll(cookiesToSet: Array<{ name: string; value: string; options: Record<string, unknown> }>) {
+      setAll(cookiesToSet: Array<{ name: string; value: string; options: CookieOptions }>) {
         try {
           for (const { name, value, options } of cookiesToSet) {
-            cookieStore.set(name, value, options as any)
+            cookieStore.set(name, value, options)
           }
         } catch {
           // Server Components can read auth cookies even when writes are unavailable.

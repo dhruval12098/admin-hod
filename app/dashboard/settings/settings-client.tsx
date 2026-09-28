@@ -15,6 +15,7 @@ export type SiteSettings = {
   default_gst_slab_id?: string
   maintenance_mode_enabled?: boolean
   maintenance_mode_message?: string
+  estimated_delivery_text?: string
 }
 
 type WhatsappForm = {
@@ -97,6 +98,9 @@ export function SettingsClient({ initialData }: { initialData: SettingsPageData 
     initialData.settings.maintenance_mode_message ??
       'Our atelier is receiving a careful polish. House of Diams will be back online shortly.'
   )
+  const [estimatedDeliveryText, setEstimatedDeliveryText] = useState(
+    initialData.settings.estimated_delivery_text ?? 'Approximately 3 to 4 weeks'
+  )
   const [whatsappForm, setWhatsappForm] = useState<WhatsappForm>(splitWhatsappNumber(initialData.settings.whatsapp_number ?? ''))
   const [passwordForm, setPasswordForm] = useState<PasswordForm>(emptyPasswordForm)
   const [visiblePasswordFields, setVisiblePasswordFields] = useState<Record<keyof PasswordForm, boolean>>({
@@ -112,12 +116,14 @@ export function SettingsClient({ initialData }: { initialData: SettingsPageData 
     default_gst_slab_id: defaultGstSlabId,
     maintenance_mode_enabled: maintenanceModeEnabled,
     maintenance_mode_message: maintenanceModeMessage.trim(),
-  }), [defaultGstSlabId, maintenanceModeEnabled, maintenanceModeMessage, whatsappForm])
+    estimated_delivery_text: estimatedDeliveryText.trim(),
+  }), [defaultGstSlabId, estimatedDeliveryText, maintenanceModeEnabled, maintenanceModeMessage, whatsappForm])
   const initialSettingsFingerprint = useMemo(() => JSON.stringify({
     whatsapp_number: normalizeWhatsappNumber(initialData.settings.whatsapp_number ?? ''),
     default_gst_slab_id: initialData.settings.default_gst_slab_id ?? '',
     maintenance_mode_enabled: Boolean(initialData.settings.maintenance_mode_enabled),
     maintenance_mode_message: (initialData.settings.maintenance_mode_message ?? 'Our atelier is receiving a careful polish. House of Diams will be back online shortly.').trim(),
+    estimated_delivery_text: (initialData.settings.estimated_delivery_text ?? 'Approximately 3 to 4 weeks').trim(),
   }), [initialData.settings])
   const [savedSettingsFingerprint, setSavedSettingsFingerprint] = useState(initialSettingsFingerprint)
   const settingsChanged = settingsFingerprint !== savedSettingsFingerprint
@@ -165,6 +171,7 @@ export function SettingsClient({ initialData }: { initialData: SettingsPageData 
         default_gst_slab_id: defaultGstSlabId || null,
         maintenance_mode_enabled: maintenanceModeEnabled,
         maintenance_mode_message: maintenanceModeMessage.trim(),
+        estimated_delivery_text: estimatedDeliveryText.trim(),
       }
 
       const response = await fetch('/api/settings', {
@@ -186,6 +193,7 @@ export function SettingsClient({ initialData }: { initialData: SettingsPageData 
         default_gst_slab_id: nextSettings.default_gst_slab_id ?? '',
         maintenance_mode_enabled: nextSettings.maintenance_mode_enabled,
         maintenance_mode_message: nextSettings.maintenance_mode_message,
+        estimated_delivery_text: nextSettings.estimated_delivery_text,
       })
       setSavedSettingsFingerprint(settingsFingerprint)
 
@@ -323,6 +331,20 @@ export function SettingsClient({ initialData }: { initialData: SettingsPageData 
                 {settings.whatsapp_number ? (
                   <p className="mt-2 text-xs text-muted-foreground">Current saved number: {settings.whatsapp_number}</p>
                 ) : null}
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-foreground">Estimated Delivery Text</label>
+                <input
+                  type="text"
+                  value={estimatedDeliveryText}
+                  onChange={(e) => setEstimatedDeliveryText(e.target.value)}
+                  placeholder="Approximately 3 to 4 weeks"
+                  className="w-full rounded-lg border border-border bg-white px-4 py-2.5 text-sm transition-colors hover:border-input focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Shown in the cart, checkout, and order confirmation as the delivery estimate.
+                </p>
               </div>
 
               <div>

@@ -5,6 +5,7 @@ import {
 } from './bespoke-client'
 import { loadBespokeHeroSnapshot } from '@/lib/bespoke-hero-save'
 import { loadBespokeFormSnapshot } from '@/lib/bespoke-form-save'
+import { loadCmsContentListSnapshot } from '@/lib/cms-content-list-save'
 
 async function getBespokePageData(): Promise<BespokePageData> {
   const adminClient = createSupabaseAdminClient()
@@ -14,7 +15,7 @@ async function getBespokePageData(): Promise<BespokePageData> {
     loadBespokeHeroSnapshot(adminClient),
     adminClient.from('bespoke_portfolio_categories').select('*').order('display_order', { ascending: true }),
     adminClient.from('bespoke_portfolio_items').select('*').order('display_order', { ascending: true }),
-    adminClient.from('bespoke_process_cards').select('*').order('sort_order', { ascending: true }),
+    loadCmsContentListSnapshot(adminClient, 'bespoke_process'),
     loadBespokeFormSnapshot(adminClient),
   ])
 
@@ -23,7 +24,11 @@ async function getBespokePageData(): Promise<BespokePageData> {
     heroRevision: heroSnapshot.revision,
     categories: categoriesResult.error ? [] : (categoriesResult.data ?? []),
     items: itemsResult.error ? [] : (itemsResult.data ?? []),
-    processItems: processItemsResult.error ? [] : (processItemsResult.data ?? []),
+    processItems: processItemsResult.items.map((item) => ({
+      id: Number(item.id), sort_order: Number(item.sort_order), eyebrow: String(item.eyebrow ?? ''),
+      title: String(item.title ?? ''), description: String(item.description ?? ''),
+    })),
+    processRevision: processItemsResult.revision,
     formConfig: formSnapshot,
     submissions: submissionsResult.error ? [] : (submissionsResult.data ?? []),
   }

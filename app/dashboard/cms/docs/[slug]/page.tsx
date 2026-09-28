@@ -2,12 +2,13 @@
 
 import Link from 'next/link'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { AlertCircle, ArrowLeft, CheckCircle2, ExternalLink, Plus, Trash2, Edit2 } from 'lucide-react'
 import { CmsSaveAction } from '@/components/cms-save-action'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
+import { useUnsavedChanges } from '@/hooks/use-unsaved-changes'
 import { supabase } from '@/lib/supabase'
 import { getCachedDocsPage, loadDocsPage, setCachedDocsPage, type DocsAdminPayload } from '@/lib/docs-admin-cache'
 import { useEditor, EditorContent } from '@tiptap/react'
@@ -49,6 +50,14 @@ const emptyBlock = (sort_order: number): Block => ({
   description: '',
   body: '',
 })
+
+function docsDraftFingerprint(page: { eyebrow: string; title: string; subtitle: string; faq_category_id: number | null }, blocks: Block[]) {
+  return JSON.stringify({
+    page,
+    blocks: [...blocks].sort((a, b) => a.sort_order - b.sort_order || a.clientId.localeCompare(b.clientId))
+      .map(({ id, heading, description, body }) => ({ id, heading, description, body })),
+  })
+}
 
 function RichTextEditor({
   value,
@@ -160,6 +169,7 @@ function RichTextEditor({
 
 export default function DocsEditorPage() {
   const { toast } = useToast()
+  const router = useRouter()
   const params = useParams<{ slug: string }>()
   const slug = useMemo(() => (Array.isArray(params?.slug) ? params.slug[0] : params?.slug ?? ''), [params])
   const meta = DOCS_META[slug] ?? { label: 'Docs', description: 'Edit docs page content' }
@@ -184,11 +194,18 @@ export default function DocsEditorPage() {
   const [deleteTarget, setDeleteTarget] = useState<Block | null>(null)
   const [revision, setRevision] = useState(initialCachedPayload?.revision ?? '')
   const [savedBlockIds, setSavedBlockIds] = useState(() => (initialCachedPayload?.blocks ?? []).flatMap((block) => block.id ? [String(block.id)] : []))
+  const [savedFingerprint, setSavedFingerprint] = useState(() => docsDraftFingerprint(
+    { eyebrow: initialCachedPayload?.page?.eyebrow ?? '', title: initialCachedPayload?.page?.title ?? '', subtitle: initialCachedPayload?.page?.subtitle ?? '', faq_category_id: initialCachedPayload?.page?.faq_category_id ?? null },
+    (initialCachedPayload?.blocks ?? []).map((block, index) => ({ clientId: block.id ? `id-${block.id}` : `cached-${index}`, ...block }))
+  ))
   const pendingSave = useRef<{ fingerprint: string; requestId: string } | null>(null)
 
   const sortedBlocks = useMemo(() => [...blocks].sort((a, b) => a.sort_order - b.sort_order || a.clientId.localeCompare(b.clientId)), [blocks])
   const nextOrder = Math.max(...blocks.map((block) => block.sort_order), 0) + 1
   const isEditingExistingBlock = blocks.some((block) => block.clientId === editorBlock.clientId)
+  const currentFingerprint = useMemo(() => docsDraftFingerprint(pageData, blocks), [pageData, blocks])
+  const isDirty = currentFingerprint !== savedFingerprint
+  const unsaved = useUnsavedChanges(isDirty || editorOpen)
 
   useEffect(() => {
     const load = async () => {
@@ -196,14 +213,17 @@ export default function DocsEditorPage() {
       try {
         const payload = await loadDocsPage(slug)
 
-        setPageData({
+        const nextPage = {
           eyebrow: payload?.page?.eyebrow ?? '',
           title: payload?.page?.title ?? '',
           subtitle: payload?.page?.subtitle ?? '',
           faq_category_id: payload?.page?.faq_category_id ?? null,
-        })
+        }
+        const nextBlocks = (payload?.blocks ?? []).map((block, index) => ({ clientId: block.id ? `id-${block.id}` : `loaded-${index}`, ...block }))
+        setPageData(nextPage)
         setFaqCategories(payload?.faqCategories ?? [])
-        setBlocks((payload?.blocks ?? []).map((block, index) => ({ clientId: block.id ? `id-${block.id}` : `loaded-${index}`, ...block })))
+        setBlocks(nextBlocks)
+        setSavedFingerprint(docsDraftFingerprint(nextPage, nextBlocks))
         setRevision(payload?.revision ?? '')
         setSavedBlockIds((payload?.blocks ?? []).flatMap((block) => block.id ? [String(block.id)] : []))
         setStatus(`${meta.label} loaded`)
@@ -279,25 +299,31 @@ export default function DocsEditorPage() {
       })
       const payload = (await response.json().catch(() => null)) as Payload | null
       if (!response.ok) throw new Error(payload?.error ?? 'Unable to save docs page.')
+      if (!payload?.page || !Array.isArray(payload.blocks) || !payload.revision) {
+        throw new Error('Save response was interrupted. Retry to confirm the same save.')
+      }
 
       const message = `${meta.label} saved successfully and is available on the storefront.`
       setStatus(`${meta.label} saved`)
       const storefrontUrl = process.env.NEXT_PUBLIC_STOREFRONT_URL || 'https://www.houseofdiams.com'
-      const canonicalPage = payload?.page ?? pageData
-      const canonicalBlocks = payload?.blocks ?? []
-      setPageData({
+      const canonicalPage = payload.page
+      const canonicalBlocks = payload.blocks
+      const nextPage = {
         eyebrow: canonicalPage.eyebrow ?? '', title: canonicalPage.title ?? '', subtitle: canonicalPage.subtitle ?? '',
         faq_category_id: canonicalPage.faq_category_id ?? null,
-      })
-      setBlocks(canonicalBlocks.map((block, index) => ({ clientId: block.id ? `id-${block.id}` : `saved-${index}`, ...block })))
-      setRevision(payload?.revision ?? revision)
+      }
+      const nextBlocks = canonicalBlocks.map((block, index) => ({ clientId: block.id ? `id-${block.id}` : `saved-${index}`, ...block }))
+      setPageData(nextPage)
+      setBlocks(nextBlocks)
+      setRevision(payload.revision)
       setSavedBlockIds(canonicalBlocks.flatMap((block) => block.id ? [String(block.id)] : []))
+      setSavedFingerprint(docsDraftFingerprint(nextPage, nextBlocks))
       pendingSave.current = null
       setCachedDocsPage(slug, {
         page: canonicalPage,
         blocks: canonicalBlocks,
         faqCategories,
-        revision: payload?.revision ?? revision,
+        revision: payload.revision,
       })
       setSaveFeedback({ type: 'success', message, previewUrl: `${storefrontUrl}/${slug}?preview=${Date.now()}` })
       setConfirmOpen(false)
@@ -315,11 +341,11 @@ export default function DocsEditorPage() {
   return (
     <div className="min-h-screen bg-background p-8">
       <div className="mb-8 flex items-center justify-between gap-4">
-        <Link href="/dashboard/cms/docs" className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:text-primary/80">
+        <Link href="/dashboard/cms/docs" onClick={(event) => { event.preventDefault(); unsaved.confirmNavigation(() => router.push('/dashboard/cms/docs')) }} className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:text-primary/80">
           <ArrowLeft size={16} />
           Back to Docs
         </Link>
-        <CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={isSaving} position="inline" />
+        <CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={isSaving} disabled={!isDirty || editorOpen} position="inline" />
       </div>
 
       <div className="mb-10">
@@ -479,6 +505,16 @@ export default function DocsEditorPage() {
           saveEditor()
         }}
         onCancel={() => setEditorConfirmOpen(false)}
+      />
+      <ConfirmDialog
+        isOpen={unsaved.showWarning}
+        title="Discard unsaved document changes?"
+        description="Your page or open block changes have not been saved and will be lost."
+        confirmText="Discard"
+        cancelText="Keep editing"
+        type="warning"
+        onConfirm={unsaved.handleDiscard}
+        onCancel={() => unsaved.setShowWarning(false)}
       />
 
       <Dialog open={editorOpen} onOpenChange={setEditorOpen}>

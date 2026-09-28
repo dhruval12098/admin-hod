@@ -1,11 +1,12 @@
 import { createSupabaseAdminClient } from '@/lib/admin-supabase'
-import { loadCatalogMasterList } from '@/lib/catalog-master-save'
+import { loadCatalogMasterList, type CatalogMasterRow } from '@/lib/catalog-master-save'
 import { StoneShapesClient, type StoneShape } from './stone-shapes-client'
 
 async function getStoneShapes(): Promise<StoneShape[]> {
   const adminClient = createSupabaseAdminClient()
   const data = await loadCatalogMasterList(adminClient, 'stone_shape')
-  return data.map((item: any) => ({
+  const rows = data as Array<CatalogMasterRow & { name: string; slug: string; svg_asset_url: string; display_order: number; status: string }>
+  return rows.map((item) => ({
     id: item.id,
     _revision: item._revision,
     name: item.name,

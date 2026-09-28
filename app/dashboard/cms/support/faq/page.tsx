@@ -7,10 +7,10 @@ async function getSupportFaqInitialData() {
   const [snapshot, { data: catalogCategories, error: catalogError }, { data: categories, error: categoriesError }] = await Promise.all([
     loadCmsRelationalSnapshot(adminClient, 'faq'),
     adminClient.from('catalog_categories').select('id, name, slug').eq('status', 'active').order('display_order', { ascending: true }),
-    adminClient.from('support_faq_categories').select('id, name, slug, description, image_path, image_alt, sort_order, is_active').order('sort_order', { ascending: true }),
+    adminClient.rpc('cms_support_faq_categories_v1'),
   ])
-  if (catalogError) throw new Error(catalogError.message)
-  if (categoriesError) throw new Error(categoriesError.message)
+  if (catalogError) throw new Error('Unable to load catalog categories.')
+  if (categoriesError) throw new Error('Unable to load FAQ categories.')
   if (!snapshot.parent) return { initialData: {
       section: { section_key: 'global_support_faq', title: 'Frequently Asked Questions', subtitle: '' },
       items: [],

@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useMemo, useState } from 'react'
 import { ArrowLeft, Edit2, Plus, Trash2 } from 'lucide-react'
 import {
@@ -15,6 +16,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { CmsSaveAction } from '@/components/cms-save-action'
 import { supabase } from '@/lib/supabase'
 import { useCmsAtomicListSave } from '@/hooks/use-cms-atomic-list-save'
+import { useUnsavedChanges } from '@/hooks/use-unsaved-changes'
 
 type ProcessItem = {
   clientId: string
@@ -47,6 +49,7 @@ const empty = (sortOrder: number): EditorItem => ({
 })
 
 export function BespokeProcessEditorClient({ initialData }: { initialData: BespokeProcessInitialData }) {
+  const router = useRouter()
   const [items, setItems] = useState<ProcessItem[]>(
     initialData.items.map((item) => ({ clientId: `id-${item.id}`, ...item }))
   )
@@ -55,56 +58,51 @@ export function BespokeProcessEditorClient({ initialData }: { initialData: Bespo
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
   const [editorItem, setEditorItem] = useState<EditorItem>(empty(1))
+  const [savedState, setSavedState] = useState(() => JSON.stringify(
+    [...initialData.items].sort((a, b) => a.sort_order - b.sort_order || a.id - b.id).map(({ id, eyebrow, title, description }) => ({ id, eyebrow, title, description }))
+  ))
   const { prepareSave, acceptSave } = useCmsAtomicListSave(initialData.items, initialData.revision)
 
   const sorted = useMemo(
     () => [...items].sort((a, b) => a.sort_order - b.sort_order || a.clientId.localeCompare(b.clientId)),
     [items]
   )
+  const saveItems = sorted.map(({ id, eyebrow, title, description }) => ({ ...(id ? { id } : {}), eyebrow, title, description }))
+  const dirty = JSON.stringify(saveItems) !== savedState
+  const unsaved = useUnsavedChanges(dirty || editorOpen)
   const nextOrder = Math.max(...items.map((item) => item.sort_order), 0) + 1
 
   const saveAll = async () => {
     setIsSaving(true)
-    const { data: sessionData } = await supabase.auth.getSession()
-    const accessToken = sessionData.session?.access_token
-    if (!accessToken) {
-      setIsSaving(false)
-      setStatus('You are not signed in.')
-      return
-    }
-    const saveItems = sorted.map(({ id, eyebrow, title, description }) => ({
-      ...(id ? { id } : {}), eyebrow, title, description,
-    }))
-    const response = await fetch('/api/cms/bespoke/process', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify(prepareSave({ items: saveItems }, saveItems)),
-    })
-    const payload = (await response.json().catch(() => null)) as { items?: BespokeProcessInitialData['items']; revision?: string; error?: string } | null
-    setIsSaving(false)
-    if (!response.ok) {
-      setStatus(payload?.error ?? 'Unable to save bespoke process.')
-      return
-    }
-    if (Array.isArray(payload?.items) && typeof payload.revision === 'string') {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const accessToken = sessionData.session?.access_token
+      if (!accessToken) throw new Error('You are not signed in.')
+      const response = await fetch('/api/cms/bespoke/process', {
+        method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify(prepareSave({ items: saveItems }, saveItems)),
+      })
+      const payload = (await response.json().catch(() => null)) as { items?: BespokeProcessInitialData['items']; revision?: string; error?: string } | null
+      if (!response.ok) throw new Error(payload?.error ?? 'Unable to save bespoke process.')
+      if (!Array.isArray(payload?.items) || typeof payload.revision !== 'string') throw new Error('Save response was interrupted. Retry to confirm the same save.')
       setItems(payload.items.map((item) => ({ clientId: `id-${item.id}`, ...item })))
+      setSavedState(JSON.stringify(payload.items.map(({ id, eyebrow, title, description }) => ({ id, eyebrow, title, description }))))
       acceptSave(payload.items, payload.revision)
-    }
-    setConfirmOpen(false)
-    setStatus('Bespoke process saved')
+      setConfirmOpen(false)
+      setStatus('Bespoke process saved')
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Unable to save bespoke process.')
+    } finally { setIsSaving(false) }
   }
 
   return (
     <div className="min-h-screen bg-background p-8">
       <div className="mb-8 flex items-center justify-between">
-        <Link href="/dashboard/cms/bespoke" className="inline-flex items-center gap-2 text-sm font-semibold text-primary">
+        <Link href="/dashboard/cms/bespoke" onClick={(event) => { event.preventDefault(); unsaved.confirmNavigation(() => router.push('/dashboard/cms/bespoke')) }} className="inline-flex items-center gap-2 text-sm font-semibold text-primary">
           <ArrowLeft size={16} />
           Back to Bespoke
         </Link>
-        <CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={isSaving} position="inline" />
+        <CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={isSaving} disabled={!dirty} position="inline" />
       </div>
 
       <div className="mb-10">
@@ -150,6 +148,7 @@ export function BespokeProcessEditorClient({ initialData }: { initialData: Bespo
       </button>
 
       <ConfirmDialog isOpen={confirmOpen} title="Save Bespoke Process?" description="This will update the Bespoke process cards on the live site." confirmText="Save" cancelText="Cancel" type="confirm" isLoading={isSaving} onConfirm={saveAll} onCancel={() => setConfirmOpen(false)} />
+      <ConfirmDialog isOpen={unsaved.showWarning} title="Discard unsaved Bespoke Process changes?" description="Your process changes have not been saved." confirmText="Discard changes" cancelText="Keep editing" type="warning" onConfirm={unsaved.handleDiscard} onCancel={() => unsaved.setShowWarning(false)} />
 
       <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
         <DialogContent>

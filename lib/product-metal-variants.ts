@@ -1,4 +1,5 @@
 import type { CatalogMetal } from '@/lib/product-catalog'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 export type ProductVariantMediaItem = {
   id?: string
@@ -62,7 +63,7 @@ export function buildCombinedMetalDisplayLabel(metal: Pick<CatalogMetal, 'displa
 }
 
 export async function replaceProductMetalVariants(
-  adminClient: any,
+  adminClient: SupabaseClient,
   productId: string,
   variants: ProductMetalVariant[]
 ) {
@@ -150,7 +151,7 @@ export async function replaceProductMetalVariants(
 }
 
 export async function replaceProductVariantMediaItems(
-  adminClient: any,
+  adminClient: SupabaseClient,
   productId: string,
   params: {
     variants: ProductMetalVariant[]
@@ -213,7 +214,7 @@ export async function replaceProductVariantMediaItems(
   return { ok: true }
 }
 
-export async function loadProductMetalVariantBundle(adminClient: any, productId: string) {
+export async function loadProductMetalVariantBundle(adminClient: SupabaseClient, productId: string) {
   const [variantsResult, mediaResult] = await Promise.all([
     adminClient
       .from('product_metal_variants')

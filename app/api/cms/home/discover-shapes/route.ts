@@ -1,15 +1,17 @@
 import { NextResponse } from 'next/server'
 import { assertAdmin } from '@/lib/cms-auth'
-import { readHomeGroup1Envelope, saveHomeGroup1 } from '@/lib/cms-home-group1-save'
+import { loadHomeGroup1Snapshot, readHomeGroup1Envelope, saveHomeGroup1 } from '@/lib/cms-home-group1-save'
 
 type DiscoverItem = { id?: string; title: string; description: string; image_path: string; image_alt?: string; shape_id?: string }
 
 export async function GET(request: Request) {
   const access = await assertAdmin(request)
   if ('error' in access) return access.error
-  const { data, error } = await access.adminClient.rpc('cms_home_group1_snapshot_v1', { p_kind: 'discover_shapes' })
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data, { headers: { 'Cache-Control': 'no-store' } })
+  try {
+    return NextResponse.json(await loadHomeGroup1Snapshot(access.adminClient, 'discover_shapes'), { headers: { 'Cache-Control': 'no-store' } })
+  } catch {
+    return NextResponse.json({ error: 'Unable to load Discover Shapes.' }, { status: 503 })
+  }
 }
 
 export async function POST(request: Request) {

@@ -263,7 +263,6 @@ export function buildNavbarItemsFromRows(args: {
     sectionLinks,
     sectionSourceItems,
     featuredCards,
-    categories,
     subcategories,
     metals,
     stoneShapes,
@@ -273,7 +272,6 @@ export function buildNavbarItemsFromRows(args: {
     options = [],
   } = args
 
-  const categoryById = new Map(categories.map((entry) => [entry.id, entry]))
   const labelMaps = {
     subcategory_option: new Map(options.map((entry) => [entry.id, entry.name])),
     metal: new Map(metals.map((entry) => [entry.id, entry.name])),

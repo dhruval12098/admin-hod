@@ -48,25 +48,32 @@ export function EducationListClient({ initialItems }: { initialItems: EducationL
       return
     }
 
+    const target = deleteTarget
     setIsDeleting(true)
-    const response = await fetch(`/api/cms/education/posts/${deleteTarget.id}`, {
-      method: 'DELETE',
-      headers: { authorization: `Bearer ${accessToken}` },
-    })
-    const payload = (await response.json().catch(() => null)) as { error?: string } | null
-    setIsDeleting(false)
+    try {
+      const currentResponse = await fetch(`/api/cms/education/posts/${target.id}`, { headers: { authorization: `Bearer ${accessToken}` } })
+      const current = (await currentResponse.json().catch(() => null)) as { revision?: string; error?: string } | null
+      if (!currentResponse.ok || !current?.revision) throw new Error(current?.error ?? 'Unable to verify the current education post.')
 
-    if (!response.ok) {
-      const message = payload?.error ?? 'Unable to delete education.'
+      const response = await fetch(`/api/cms/education/posts/${target.id}`, {
+        method: 'DELETE',
+        headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ request_id: crypto.randomUUID(), expected_revision: current.revision }),
+      })
+      const payload = (await response.json().catch(() => null)) as { ok?: boolean; error?: string } | null
+      if (!response.ok || !payload?.ok) throw new Error(payload?.error ?? 'Delete response was interrupted. Reload before retrying.')
+
+      setItems((prev) => prev.filter((item) => item.id !== target.id))
+      setDeleteTarget(null)
+      setStatus('Education deleted')
+      toast({ title: 'Deleted', description: 'Education post deleted successfully.' })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to delete education.'
       setStatus(message)
       toast({ title: 'Delete failed', description: message, variant: 'destructive' })
-      return
+    } finally {
+      setIsDeleting(false)
     }
-
-    setItems((prev) => prev.filter((item) => item.id !== deleteTarget.id))
-    setDeleteTarget(null)
-    setStatus('Education deleted')
-    toast({ title: 'Deleted', description: 'Education post deleted successfully.' })
   }
 
   return (

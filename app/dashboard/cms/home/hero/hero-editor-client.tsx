@@ -23,12 +23,6 @@ type SlideItem = {
   button_link: string
 }
 
-type Payload = {
-  section?: HeroSectionData
-  items?: Array<{ id: number; sort_order: number; image_path: string; mobile_image_path?: string; headline: string; subtitle: string; button_text: string; button_link: string }>
-  error?: string
-}
-
 export type HeroEditorInitialData = {
   revision: string
   section: HeroSectionData
@@ -117,7 +111,7 @@ export function HeroEditorClient({ initialData }: { initialData: HeroEditorIniti
           authorization: `Bearer ${accessToken}`,
           'content-type': 'application/json',
         },
-        body: JSON.stringify({ contentType: preparedFile.type }),
+        body: JSON.stringify({ contentType: preparedFile.type, declaredSize: preparedFile.size }),
       })
       const signed = (await signResponse.json().catch(() => null)) as { bucket?: string; path?: string; token?: string; error?: string } | null
       if (!signResponse.ok || !signed?.bucket || !signed.path || !signed.token) throw new Error(signed?.error ?? 'Unable to prepare upload.')

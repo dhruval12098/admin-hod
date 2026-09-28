@@ -8,7 +8,12 @@ type Access = Exclude<Awaited<ReturnType<typeof assertAdmin>>, { error: NextResp
 export { readCmsSaveEnvelope }
 
 export async function loadCmsContentListSnapshot(
-  client: { rpc: (name: string, args: Record<string, unknown>) => any },
+  client: {
+    rpc: (
+      name: string,
+      args: Record<string, unknown>,
+    ) => PromiseLike<{ data: unknown; error: { code?: string } | null }>
+  },
   kind: CmsContentListKind,
 ) {
   const { data, error } = await client.rpc('cms_content_list_snapshot_v1', { p_kind: kind })
@@ -26,6 +31,13 @@ export async function saveCmsContentList(
   envelope: { requestId: string; revision: string; deletedIds: string[] },
   items: Array<Record<string, unknown>>,
 ) {
+  const retainedIds = items.flatMap((item) => item.id == null ? [] : [String(item.id)])
+  if (new Set(retainedIds).size !== retainedIds.length) {
+    return NextResponse.json({ error: 'The same saved item cannot appear more than once.' }, { status: 400 })
+  }
+  if (envelope.deletedIds.some((id) => retainedIds.includes(id))) {
+    return NextResponse.json({ error: 'An item cannot be retained and deleted in the same save.' }, { status: 400 })
+  }
   const { data, error } = await access.adminClient.rpc('cms_save_content_list_v1', {
     p_actor_id: access.user.id,
     p_request_id: envelope.requestId,
@@ -39,9 +51,9 @@ export async function saveCmsContentList(
   if (error.code === 'PGRST202' || error.code === '42883') {
     return NextResponse.json({ error: 'This CMS section is awaiting its database update. Existing content was not changed.' }, { status: 503 })
   }
-  if (error.code === '40001') return NextResponse.json({ error: error.message }, { status: 409 })
+  if (error.code === '40001') return NextResponse.json({ error: 'This section changed after you opened it. Reload before saving again.' }, { status: 409 })
   if (error.code === '22023' || error.code === '22P02' || error.code === '23503' || error.code === '23514') {
-    return NextResponse.json({ error: error.message }, { status: 400 })
+    return NextResponse.json({ error: 'The section contains invalid or conflicting data.' }, { status: 400 })
   }
   return NextResponse.json({ error: 'Unable to save this section. No part of the save was committed.' }, { status: 500 })
 }

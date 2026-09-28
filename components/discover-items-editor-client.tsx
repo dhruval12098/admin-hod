@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useRef, useState, type ChangeEvent } from 'react'
 import { ArrowLeft, Edit2, Plus, Upload, Trash2 } from 'lucide-react'
 import {
@@ -15,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { CmsSaveAction } from '@/components/cms-save-action'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { useToast } from '@/hooks/use-toast'
+import { useUnsavedChanges } from '@/hooks/use-unsaved-changes'
 import { supabase } from '@/lib/supabase'
 import { uploadCmsAssetDirectWithFallback } from '@/lib/cms-direct-upload-client'
 
@@ -90,6 +92,16 @@ const emptyItem = (sortOrder: number): DiscoverItem => ({
   target_id: '',
 })
 
+function editableItems(items: Array<DiscoverItem | PersistedDiscoverItem>) {
+  return JSON.stringify(items.map(persistedItem))
+}
+
+function persistedItem(item: DiscoverItem | PersistedDiscoverItem): PersistedDiscoverItem {
+  const copy = { ...item } as Partial<DiscoverItem>
+  delete copy.clientId
+  return copy as PersistedDiscoverItem
+}
+
 export function DiscoverItemsEditorClient({
   backHref,
   sectionName,
@@ -106,6 +118,7 @@ export function DiscoverItemsEditorClient({
   linkTargetItemLabel = 'Target Item',
 }: DiscoverItemsEditorClientProps) {
   const { toast } = useToast()
+  const router = useRouter()
   const [items, setItems] = useState<DiscoverItem[]>(
     initialData.items.map((item, index) => ({
       ...item,
@@ -123,7 +136,10 @@ export function DiscoverItemsEditorClient({
   const [editorItem, setEditorItem] = useState<DiscoverItem | null>(null)
   const [revision, setRevision] = useState(initialData.revision)
   const [savedItemIds, setSavedItemIds] = useState(() => initialData.items.flatMap((item) => item.id ? [item.id] : []))
+  const [savedState, setSavedState] = useState(() => JSON.stringify(initialData.items))
   const pendingSave = useRef<{ fingerprint: string; id: string } | null>(null)
+  const dirty = editableItems(items) !== savedState
+  const unsaved = useUnsavedChanges(dirty)
   const activeLinkTargetOptions =
     editorItem && linkTargetGroups.length > 0
       ? linkTargetGroups.find((group) => group.kind === (editorItem.target_kind ?? ''))?.options ?? []
@@ -183,61 +199,49 @@ export function DiscoverItemsEditorClient({
 
   const confirmSave = async () => {
     setIsSaving(true)
-    const { data: sessionData } = await supabase.auth.getSession()
-    const accessToken = sessionData.session?.access_token
+    try {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const accessToken = sessionData.session?.access_token
+      if (!accessToken) throw new Error('You are not signed in.')
 
-    if (!accessToken) {
+      const retainedIds = new Set(items.flatMap((item) => item.id ? [item.id] : []))
+      const itemPayload = items.map((item) => ({ ...persistedItem(item), image_alt: item.title.trim() || item.image_alt }))
+      const saveBody = revision ? { items: itemPayload, expected_revision: revision, deleted_ids: savedItemIds.filter((id) => !retainedIds.has(id)) } : { items: itemPayload }
+      const fingerprint = JSON.stringify(saveBody)
+      if (pendingSave.current?.fingerprint !== fingerprint) pendingSave.current = { fingerprint, id: crypto.randomUUID() }
+      const response = await fetch(saveEndpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify(revision ? { ...saveBody, request_id: pendingSave.current.id } : saveBody),
+      })
+      const payload = (await response.json().catch(() => null)) as ApiPayload | null
+      if (!response.ok) throw new Error(payload?.error ?? `Unable to save ${sectionName}.`)
+
+      if (revision) {
+        if (!Array.isArray(payload?.items) || typeof (payload as { revision?: unknown }).revision !== 'string') throw new Error('Save response was interrupted. Retry to confirm the same save.')
+        const saved = payload.items.map((item, index) => ({ ...item, clientId: `id-${item.id}`, sort_order: index + 1 }))
+        setItems(saved)
+        setSavedState(editableItems(saved))
+        setSavedItemIds(saved.flatMap((item) => item.id ? [item.id] : []))
+        setRevision((payload as { revision: string }).revision)
+        pendingSave.current = null
+      } else {
+        setSavedState(JSON.stringify(itemPayload))
+      }
+      setConfirmOpen(false)
+      setLoadStatus(`${sectionName} saved`)
+      toast({ title: 'Saved', description: `${sectionName} updated successfully.` })
+    } catch (error) {
+      setLoadStatus(error instanceof Error ? error.message : `Unable to save ${sectionName}.`)
+    } finally {
       setIsSaving(false)
-      setLoadStatus('You are not signed in.')
-      return
     }
-
-    const retainedIds = new Set(items.flatMap((item) => item.id ? [item.id] : []))
-    const itemPayload = items.map(({ clientId: _clientId, ...item }) => ({
-      ...item,
-      image_alt: item.title.trim() || item.image_alt,
-    }))
-    const saveBody = revision ? {
-      items: itemPayload,
-      expected_revision: revision,
-      deleted_ids: savedItemIds.filter((id) => !retainedIds.has(id)),
-    } : { items: itemPayload }
-    const fingerprint = JSON.stringify(saveBody)
-    if (pendingSave.current?.fingerprint !== fingerprint) pendingSave.current = { fingerprint, id: crypto.randomUUID() }
-    const response = await fetch(saveEndpoint, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify(revision ? { ...saveBody, request_id: pendingSave.current.id } : saveBody),
-    })
-
-    const payload = (await response.json().catch(() => null)) as ApiPayload | null
-    setIsSaving(false)
-
-    if (!response.ok) {
-      setLoadStatus(payload?.error ?? `Unable to save ${sectionName}.`)
-      return
-    }
-
-    if (revision && Array.isArray(payload?.items) && typeof (payload as { revision?: unknown }).revision === 'string') {
-      const saved = payload.items.map((item, index) => ({ ...item, clientId: `id-${item.id}`, sort_order: index + 1 }))
-      setItems(saved)
-      setSavedItemIds(saved.flatMap((item) => item.id ? [item.id] : []))
-      setRevision((payload as { revision: string }).revision)
-      pendingSave.current = null
-    }
-
-    setConfirmOpen(false)
-    setLoadStatus(`${sectionName} saved`)
-    toast({ title: 'Saved', description: `${sectionName} updated successfully.` })
   }
 
   return (
     <div className="p-8">
       <div className="mb-8 flex items-center gap-4">
-        <Link href={backHref} className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:text-primary/80">
+        <Link href={backHref} onClick={(event) => { event.preventDefault(); unsaved.confirmNavigation(() => router.push(backHref)) }} className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:text-primary/80">
           <ArrowLeft size={16} />
           Back to Home
         </Link>
@@ -324,7 +328,7 @@ export function DiscoverItemsEditorClient({
         </table>
       </div>
 
-      <CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={isSaving} />
+      <CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={isSaving} disabled={!dirty} />
 
       <ConfirmDialog
         isOpen={confirmOpen}
@@ -337,6 +341,7 @@ export function DiscoverItemsEditorClient({
         onConfirm={confirmSave}
         onCancel={() => setConfirmOpen(false)}
       />
+      <ConfirmDialog isOpen={unsaved.showWarning} title={`Discard unsaved ${sectionName} changes?`} description="Your changes have not been saved." confirmText="Discard changes" cancelText="Keep editing" type="warning" onConfirm={unsaved.handleDiscard} onCancel={() => unsaved.setShowWarning(false)} />
 
       <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
         <DialogContent className="sm:max-w-2xl">

@@ -56,7 +56,7 @@ export async function GET(request: Request) {
     .eq('section_key', sectionKey)
     .maybeSingle()
 
-  if (sectionError) return NextResponse.json({ error: sectionError.message }, { status: 500 })
+  if (sectionError) return NextResponse.json({ error: 'Unable to load Testimonials Cards.' }, { status: 503 })
 
   const { data: items, error: itemsError } = await adminClient
     .from('testimonials_items')
@@ -64,7 +64,7 @@ export async function GET(request: Request) {
     .eq('section_id', section?.id ?? null)
     .order('sort_order', { ascending: true })
 
-  if (itemsError) return NextResponse.json({ error: itemsError.message }, { status: 500 })
+  if (itemsError) return NextResponse.json({ error: 'Unable to load Testimonials Cards entries.' }, { status: 503 })
 
   return NextResponse.json({
     section: section ?? { section_key: sectionKey, eyebrow: 'Client Stories', heading: 'What Our Clients Say' },
@@ -96,11 +96,11 @@ export async function POST(request: Request) {
     .single()
 
   if (sectionError || !section) {
-    return NextResponse.json({ error: sectionError?.message ?? 'Unable to save testimonials.' }, { status: 500 })
+    return NextResponse.json({ error: 'Unable to save Testimonials Cards.' }, { status: 500 })
   }
 
   const { error: deleteError } = await adminClient.from('testimonials_items').delete().eq('section_id', section.id)
-  if (deleteError) return NextResponse.json({ error: deleteError.message }, { status: 500 })
+  if (deleteError) return NextResponse.json({ error: 'Unable to replace Testimonials Cards entries.' }, { status: 500 })
 
   const rows = body.items
     .filter((item: { quote?: unknown; author?: unknown; origin?: unknown; rating?: unknown }) => typeof item.quote === 'string' && typeof item.author === 'string' && typeof item.origin === 'string')
@@ -115,7 +115,7 @@ export async function POST(request: Request) {
 
   if (rows.length > 0) {
     const { error: insertError } = await adminClient.from('testimonials_items').insert(rows)
-    if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 })
+    if (insertError) return NextResponse.json({ error: 'Unable to finish saving Testimonials Cards.' }, { status: 500 })
   }
 
   return NextResponse.json({ ok: true })

@@ -35,7 +35,7 @@ export async function POST(request: Request) {
     idsByKind('subcategory').length ? db.from('catalog_subcategories').select('id, name, status').in('id', idsByKind('subcategory')) : Promise.resolve({ data: [], error: null }),
     idsByKind('option').length ? db.from('catalog_options').select('id, name, status').in('id', idsByKind('option')) : Promise.resolve({ data: [], error: null }),
   ])
-  if (categories.error || subcategories.error || options.error) return NextResponse.json({ error: categories.error?.message ?? subcategories.error?.message ?? options.error?.message }, { status: 500 })
+  if (categories.error || subcategories.error || options.error) return NextResponse.json({ error: 'Unable to validate the selected catalog records.' }, { status: 503 })
   const catalogRows = [...(categories.data ?? []), ...(subcategories.data ?? []), ...(options.data ?? [])]
   const found = new Set(catalogRows.map((x) => x.id))
   const missing = normalized.filter((item) => !found.has(item.category_id ?? item.subcategory_id ?? item.option_id ?? ''))

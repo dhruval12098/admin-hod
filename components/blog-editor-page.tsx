@@ -7,6 +7,7 @@ import { ArrowLeft, Bold, Heading2, Heading3, Italic, List, ListOrdered, Pilcrow
 import { CmsSaveAction } from '@/components/cms-save-action'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { useToast } from '@/hooks/use-toast'
+import { useUnsavedChanges } from '@/hooks/use-unsaved-changes'
 import { supabase } from '@/lib/supabase'
 import { useEditor, useEditorState, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
@@ -233,6 +234,15 @@ function initialContentBlocks(data?: BlogEditorInitialData): BlogContentBlock[] 
   }))
 }
 
+function blogDraftFingerprint(form: BlogForm, tags: BlogTag[], products: BlogProduct[], blocks: BlogContentBlock[]) {
+  return JSON.stringify({
+    form,
+    tags: tags.filter((tag) => tag.value.trim()).map(({ id, value }) => ({ id, value: value.trim() })),
+    products: products.map(({ id, relationId }) => ({ id, relationId })),
+    blocks: blocks.map((block) => ({ id: block.id, block_type: block.block_type, heading: block.heading, body_html: block.body_html, image_path: block.image_path, image_alt: block.image_alt, image_caption: block.image_caption, is_enabled: block.is_enabled })),
+  })
+}
+
 export function BlogEditorPage({ mode, id, categories, initialData }: { mode: 'create' | 'edit'; id?: string; categories: BlogCatalogCategory[]; initialData?: BlogEditorInitialData }) {
   const { toast } = useToast()
   const router = useRouter()
@@ -252,8 +262,15 @@ export function BlogEditorPage({ mode, id, categories, initialData }: { mode: 'c
   const [savedTagIds, setSavedTagIds] = useState(() => (initialData?.tags ?? []).map((item) => String(item.id)))
   const [savedProductIds, setSavedProductIds] = useState(() => (initialData?.products ?? []).map((item) => String(item.id)))
   const [savedBlockIds, setSavedBlockIds] = useState(() => (initialData?.content_blocks ?? []).map((item) => String(item.id)))
+  const [savedFingerprint, setSavedFingerprint] = useState(() => blogDraftFingerprint(
+    initialData?.post ? { ...initialData.post, catalog_category_id: initialData.post.catalog_category_id ?? '', card_title: initialData.post.card_title ?? '', card_image_path: initialData.post.card_image_path ?? '', hero_image_alt: initialData.post.hero_image_alt ?? '' } : emptyForm,
+    initialTags(initialData), initialProducts(initialData), initialContentBlocks(initialData)
+  ))
   const pendingSave = useRef<{ fingerprint: string; requestId: string } | null>(null)
   const pendingDeleteId = useRef<string | null>(null)
+  const currentFingerprint = useMemo(() => blogDraftFingerprint(form, tags, selectedProducts, contentBlocks), [form, tags, selectedProducts, contentBlocks])
+  const isDirty = currentFingerprint !== savedFingerprint
+  const unsaved = useUnsavedChanges(isDirty)
 
   const filteredProducts = useMemo(() => {
     const search = productSearch.trim().toLowerCase()
@@ -288,25 +305,15 @@ export function BlogEditorPage({ mode, id, categories, initialData }: { mode: 'c
       const payload = (await response.json().catch(() => null)) as BlogEditorInitialData | null
       if (!response.ok || !payload?.post) return setStatus(payload?.error ?? 'Unable to load blog post.')
 
-      setForm({ ...payload.post, catalog_category_id: payload.post.catalog_category_id ?? '', card_title: payload.post.card_title ?? '', card_image_path: payload.post.card_image_path ?? '', hero_image_alt: payload.post.hero_image_alt ?? '' })
-      setTags((payload.tags ?? []).map((tag) => ({ clientId: `tag-${tag.id}`, id: tag.id, value: tag.tag })))
-      setSelectedProducts(
-        initialProducts(payload)
-      )
-      setContentBlocks(
-        (payload.content_blocks ?? []).map((block, index) => ({
-          clientId: `block-${block.id}`,
-          id: block.id,
-          block_type: block.block_type,
-          sort_order: block.sort_order ?? index + 1,
-          heading: block.heading ?? '',
-          body_html: block.body_html ?? '',
-          image_path: block.image_path ?? '',
-          image_alt: block.image_alt ?? '',
-          image_caption: block.image_caption ?? '',
-          is_enabled: block.is_enabled !== false,
-        }))
-      )
+      const nextForm = { ...payload.post, catalog_category_id: payload.post.catalog_category_id ?? '', card_title: payload.post.card_title ?? '', card_image_path: payload.post.card_image_path ?? '', hero_image_alt: payload.post.hero_image_alt ?? '' }
+      const nextTags = initialTags(payload)
+      const nextProducts = initialProducts(payload)
+      const nextBlocks = initialContentBlocks(payload)
+      setForm(nextForm)
+      setTags(nextTags)
+      setSelectedProducts(nextProducts)
+      setContentBlocks(nextBlocks)
+      setSavedFingerprint(blogDraftFingerprint(nextForm, nextTags, nextProducts, nextBlocks))
       setRevision(payload.revision ?? '')
       setSavedTagIds((payload.tags ?? []).map((item) => String(item.id)))
       setSavedProductIds((payload.products ?? []).map((item) => String(item.id)))
@@ -327,7 +334,7 @@ export function BlogEditorPage({ mode, id, categories, initialData }: { mode: 'c
         headers: {
           'content-type': 'application/json',
         },
-        body: JSON.stringify({ contentType: preparedFile.type }),
+        body: JSON.stringify({ contentType: preparedFile.type, declaredSize: preparedFile.size }),
       })
       const signed = (await signResponse.json().catch(() => null)) as { bucket?: string; path?: string; token?: string; error?: string } | null
       if (!signResponse.ok || !signed?.bucket || !signed.path || !signed.token) {
@@ -399,62 +406,52 @@ export function BlogEditorPage({ mode, id, categories, initialData }: { mode: 'c
 
   const save = async () => {
     setIsSaving(true)
-    const endpoint = mode === 'create' ? '/api/cms/blog/posts' : `/api/cms/blog/posts/${id}`
-    const retainedTagIds = new Set(tags.flatMap((tag) => tag.id ? [String(tag.id)] : []))
-    const retainedProductIds = new Set(selectedProducts.flatMap((product) => product.relationId ? [String(product.relationId)] : []))
-    const retainedBlockIds = new Set(contentBlocks.flatMap((block) => block.id ? [String(block.id)] : []))
-    const saveBody = {
-      expected_revision: mode === 'edit' ? revision : null,
-      post: form,
-      tags: tags.filter((tag) => tag.value.trim()).map((tag) => ({ id: tag.id, tag: tag.value.trim() })),
-      content_blocks: contentBlocks.map((block) => ({
-        id: block.id,
-        block_type: block.block_type,
-        heading: block.heading,
-        body_html: block.body_html,
-        image_path: block.image_path,
-        image_alt: block.image_alt,
-        image_caption: block.image_caption,
-        is_enabled: block.is_enabled,
-      })),
-      products: selectedProducts.map((product) => ({ id: product.relationId, product_id: product.id })),
-      deleted_tag_ids: savedTagIds.filter((savedId) => !retainedTagIds.has(savedId)),
-      deleted_product_ids: savedProductIds.filter((savedId) => !retainedProductIds.has(savedId)),
-      deleted_block_ids: savedBlockIds.filter((savedId) => !retainedBlockIds.has(savedId)),
-    }
-    const fingerprint = JSON.stringify(saveBody)
-    if (pendingSave.current?.fingerprint !== fingerprint) pendingSave.current = { fingerprint, requestId: crypto.randomUUID() }
-    const response = await adminApiFetch(endpoint, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ ...saveBody, request_id: pendingSave.current.requestId }),
-    })
-
-    const payload = (await response.json().catch(() => null)) as (BlogEditorInitialData & { id?: number; slug?: string; error?: string }) | null
-    setIsSaving(false)
-    if (!response.ok) return setStatus(payload?.error ?? 'Unable to save blog post.')
-
-    if (payload?.slug) {
-      setForm((prev) => ({ ...prev, slug: payload.slug ?? prev.slug }))
-    }
-    if (payload?.revision) {
+    try {
+      const endpoint = mode === 'create' ? '/api/cms/blog/posts' : `/api/cms/blog/posts/${id}`
+      const retainedTagIds = new Set(tags.flatMap((tag) => tag.id ? [String(tag.id)] : []))
+      const retainedProductIds = new Set(selectedProducts.flatMap((product) => product.relationId ? [String(product.relationId)] : []))
+      const retainedBlockIds = new Set(contentBlocks.flatMap((block) => block.id ? [String(block.id)] : []))
+      const saveBody = {
+        expected_revision: mode === 'edit' ? revision : null, post: form,
+        tags: tags.filter((tag) => tag.value.trim()).map((tag) => ({ id: tag.id, tag: tag.value.trim() })),
+        content_blocks: contentBlocks.map(({ id, block_type, heading, body_html, image_path, image_alt, image_caption, is_enabled }) => ({ id, block_type, heading, body_html, image_path, image_alt, image_caption, is_enabled })),
+        products: selectedProducts.map((product) => ({ id: product.relationId, product_id: product.id })),
+        deleted_tag_ids: savedTagIds.filter((savedId) => !retainedTagIds.has(savedId)),
+        deleted_product_ids: savedProductIds.filter((savedId) => !retainedProductIds.has(savedId)),
+        deleted_block_ids: savedBlockIds.filter((savedId) => !retainedBlockIds.has(savedId)),
+      }
+      const fingerprint = JSON.stringify(saveBody)
+      if (pendingSave.current?.fingerprint !== fingerprint) pendingSave.current = { fingerprint, requestId: crypto.randomUUID() }
+      const response = await adminApiFetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...saveBody, request_id: pendingSave.current.requestId }) })
+      const payload = (await response.json().catch(() => null)) as (BlogEditorInitialData & { id?: number; slug?: string; error?: string }) | null
+      if (!response.ok) throw new Error(payload?.error ?? 'Unable to save blog post.')
+      if (!payload?.post || !payload.revision || !Array.isArray(payload.tags) || !Array.isArray(payload.products) || !Array.isArray(payload.content_blocks)) {
+        throw new Error('Save response was interrupted. Retry to confirm the same save.')
+      }
+      const nextForm = { ...payload.post, catalog_category_id: payload.post.catalog_category_id ?? '', card_title: payload.post.card_title ?? '', card_image_path: payload.post.card_image_path ?? '', hero_image_alt: payload.post.hero_image_alt ?? '' }
+      const nextTags = initialTags(payload)
+      const nextProducts = initialProducts(payload)
+      const nextBlocks = initialContentBlocks(payload)
+      setForm(nextForm)
+      setTags(nextTags)
+      setSelectedProducts(nextProducts)
+      setContentBlocks(nextBlocks)
       setRevision(payload.revision)
-      setTags((payload.tags ?? []).map((tag) => ({ clientId: `tag-${tag.id}`, id: tag.id, value: tag.tag })))
-      setSelectedProducts(initialProducts(payload))
-      setContentBlocks(initialContentBlocks(payload))
-      setSavedTagIds((payload.tags ?? []).map((item) => String(item.id)))
-      setSavedProductIds((payload.products ?? []).map((item) => String(item.id)))
-      setSavedBlockIds((payload.content_blocks ?? []).map((item) => String(item.id)))
+      setSavedTagIds(payload.tags.map((item) => String(item.id)))
+      setSavedProductIds(payload.products.map((item) => String(item.id)))
+      setSavedBlockIds(payload.content_blocks.map((item) => String(item.id)))
+      setSavedFingerprint(blogDraftFingerprint(nextForm, nextTags, nextProducts, nextBlocks))
       pendingSave.current = null
-    }
-
-    setConfirmOpen(false)
-    setStatus('Blog post saved')
-    toast({ title: 'Saved', description: 'Blog post updated successfully.' })
-
-    if (mode === 'create' && payload?.id) {
-      router.push(`/dashboard/cms/blog/${payload.id}`)
-      router.refresh()
+      setConfirmOpen(false)
+      setStatus('Blog post saved')
+      toast({ title: 'Saved', description: 'Blog post updated successfully.' })
+      if (mode === 'create' && payload.id) { router.push(`/dashboard/cms/blog/${payload.id}`); router.refresh() }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to save blog post.'
+      setStatus(message)
+      toast({ title: 'Save failed', description: message, variant: 'destructive' })
+    } finally {
+      setIsSaving(false)
     }
   }
 
@@ -462,25 +459,22 @@ export function BlogEditorPage({ mode, id, categories, initialData }: { mode: 'c
     if (mode !== 'edit' || !id) return
 
     setIsDeleting(true)
-    pendingDeleteId.current ??= crypto.randomUUID()
-    const response = await adminApiFetch(`/api/cms/blog/posts/${id}`, {
-      method: 'DELETE', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ request_id: pendingDeleteId.current, expected_revision: revision }),
-    })
-
-    const payload = (await response.json().catch(() => null)) as { error?: string } | null
-    setIsDeleting(false)
-    if (!response.ok) {
-      const message = payload?.error ?? 'Unable to delete blog post.'
+    try {
+      pendingDeleteId.current ??= crypto.randomUUID()
+      const response = await adminApiFetch(`/api/cms/blog/posts/${id}`, { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ request_id: pendingDeleteId.current, expected_revision: revision }) })
+      const payload = (await response.json().catch(() => null)) as { ok?: boolean; error?: string } | null
+      if (!response.ok || !payload?.ok) throw new Error(payload?.error ?? 'Delete response was interrupted. Reload before retrying.')
+      setDeleteConfirmOpen(false)
+      toast({ title: 'Deleted', description: 'Blog post deleted successfully.' })
+      router.push('/dashboard/cms/blog')
+      router.refresh()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to delete blog post.'
       setStatus(message)
       toast({ title: 'Delete failed', description: message, variant: 'destructive' })
-      return
+    } finally {
+      setIsDeleting(false)
     }
-
-    setDeleteConfirmOpen(false)
-    toast({ title: 'Deleted', description: 'Blog post deleted successfully.' })
-    router.push('/dashboard/cms/blog')
-    router.refresh()
   }
 
   const moveSelectedProduct = (productId: string, direction: -1 | 1) => {
@@ -511,7 +505,7 @@ export function BlogEditorPage({ mode, id, categories, initialData }: { mode: 'c
   return (
     <div className="min-h-screen bg-background p-8">
       <div className="mb-8 flex items-center justify-between gap-4">
-        <Link href="/dashboard/cms/blog" className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:text-primary/80">
+        <Link href="/dashboard/cms/blog" onClick={(event) => { event.preventDefault(); unsaved.confirmNavigation(() => router.push('/dashboard/cms/blog')) }} className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:text-primary/80">
           <ArrowLeft size={16} />
           Back to Blog
         </Link>
@@ -527,7 +521,7 @@ export function BlogEditorPage({ mode, id, categories, initialData }: { mode: 'c
               {isDeleting ? 'Deleting...' : 'Delete Blog'}
             </button>
           ) : null}
-          <CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={isSaving} position="inline" />
+          <CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={isSaving} disabled={!isDirty || uploading} position="inline" />
         </div>
       </div>
 
@@ -853,6 +847,16 @@ export function BlogEditorPage({ mode, id, categories, initialData }: { mode: 'c
         isLoading={isDeleting}
         onConfirm={deletePost}
         onCancel={() => setDeleteConfirmOpen(false)}
+      />
+      <ConfirmDialog
+        isOpen={unsaved.showWarning}
+        title="Discard unsaved blog changes?"
+        description="Your changes have not been saved and will be lost."
+        confirmText="Discard"
+        cancelText="Keep editing"
+        type="warning"
+        onConfirm={unsaved.handleDiscard}
+        onCancel={() => unsaved.setShowWarning(false)}
       />
     </div>
   )

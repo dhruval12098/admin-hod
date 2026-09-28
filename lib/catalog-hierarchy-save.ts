@@ -34,10 +34,10 @@ export async function loadCatalogHierarchyList(client: RpcClient, kind: CatalogH
 
 function errorResponse(error: RpcError, action: 'save' | 'delete') {
   if (error.code === 'PGRST202' || error.code === '42883') return NextResponse.json({ error: 'Catalog hierarchy is awaiting its database update. Existing data was not changed.' }, { status: 503 })
-  if (error.code === '40001' || error.code === 'P0001') return NextResponse.json({ error: error.message }, { status: 409 })
+  if (error.code === '40001' || error.code === 'P0001') return NextResponse.json({ error: 'This catalog hierarchy changed or conflicts with another saved record. Reload before continuing.' }, { status: 409 })
   if (error.code === 'P0002') return NextResponse.json({ error: 'This catalog record no longer exists.' }, { status: 404 })
-  if (error.code === '42501') return NextResponse.json({ error: error.message }, { status: 403 })
-  if (['22023', '22P02', '23502', '23503', '23505', '23514'].includes(error.code ?? '')) return NextResponse.json({ error: error.message }, { status: 400 })
+  if (error.code === '42501') return NextResponse.json({ error: 'Administrator access is required.' }, { status: 403 })
+  if (['22023', '22P02', '23502', '23503', '23505', '23514'].includes(error.code ?? '')) return NextResponse.json({ error: 'The catalog hierarchy contains invalid or conflicting data.' }, { status: 400 })
   return NextResponse.json({ error: `Unable to ${action} this catalog record. No partial changes were committed.` }, { status: 500 })
 }
 
@@ -59,7 +59,10 @@ export async function saveCatalogHierarchy(access: Access, kind: CatalogHierarch
     const loaded = await loadSnapshot(access.adminClient, kind, parsedId.data)
     if (!loaded.ok) return errorResponse(loaded.error, 'save')
     if (!loaded.snapshot.item) return NextResponse.json({ error: 'This catalog record no longer exists.' }, { status: 404 })
-    const { id: _id, _revision: _revision, is_system_locked: _locked, category_lane: _lane, ...current } = loaded.snapshot.item
+    const excludedKeys = new Set(['id', '_revision', 'is_system_locked', 'category_lane'])
+    const current = Object.fromEntries(
+      Object.entries(loaded.snapshot.item).filter(([key]) => !excludedKeys.has(key)),
+    )
     candidate = { ...current, ...candidate }
   }
   const item = schemas[kind].safeParse(candidate)

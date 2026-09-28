@@ -18,10 +18,10 @@ export async function GET(request: Request) {
   try {
     const items = await getProductRows(lane)
     return NextResponse.json({ items })
-  } catch (error) {
+  } catch {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Unable to load products.' },
-      { status: 500 }
+      { error: 'Unable to load products.' },
+      { status: 503 }
     )
   }
 }

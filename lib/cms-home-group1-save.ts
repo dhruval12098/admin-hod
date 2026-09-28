@@ -5,8 +5,9 @@ import { readCmsSaveEnvelope } from './cms-atomic-save'
 export type HomeGroup1Kind = 'hero' | 'collection' | 'certifications' | 'discover_shapes' | 'bestsellers' | 'shop_by_category'
 type Access = Exclude<Awaited<ReturnType<typeof assertAdmin>>, { error: NextResponse }>
 type SnapshotRecord = Record<string, unknown>
+type RpcClient = { rpc: (name: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: { code?: string } | null }> }
 
-export async function loadHomeGroup1Snapshot(client: { rpc: (name: string, args: Record<string, unknown>) => any }, kind: HomeGroup1Kind) {
+export async function loadHomeGroup1Snapshot(client: RpcClient, kind: HomeGroup1Kind) {
   const { data, error } = await client.rpc('cms_home_group1_snapshot_v1', { p_kind: kind })
   if (error) throw new Error(error.code === 'PGRST202' || error.code === '42883'
     ? 'This CMS section is awaiting its database migration.' : 'Unable to load this CMS section.')
@@ -33,7 +34,7 @@ export async function saveHomeGroup1(
   })
   if (!error) return NextResponse.json({ ok: true, ...data }, { headers: { 'Cache-Control': 'no-store' } })
   if (error.code === 'PGRST202' || error.code === '42883') return NextResponse.json({ error: 'This CMS section is awaiting its database update. Existing content was not changed.' }, { status: 503 })
-  if (error.code === '40001') return NextResponse.json({ error: error.message }, { status: 409 })
-  if (error.code === '22023' || error.code === '22P02' || error.code === '23503') return NextResponse.json({ error: error.message }, { status: 400 })
+  if (error.code === '40001') return NextResponse.json({ error: 'This section changed after you opened it. Reload before saving again.' }, { status: 409 })
+  if (error.code === '22023' || error.code === '22P02' || error.code === '23503') return NextResponse.json({ error: 'This section contains invalid or conflicting data.' }, { status: 400 })
   return NextResponse.json({ error: 'Unable to save this section. No part of the save was committed.' }, { status: 500 })
 }

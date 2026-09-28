@@ -9,6 +9,9 @@ export async function POST(request: Request) {
   if ('error' in access) return access.error
 
   const body = await request.json().catch(() => null) as { contentType?: unknown } | null
+  if (body?.contentType === 'image/svg+xml') return NextResponse.json({ error: 'SVG uploads require server validation.' }, { status: 400 })
+  const declaredSize = (body as { declaredSize?: unknown } | null)?.declaredSize
+  if (typeof declaredSize !== 'number' || !Number.isSafeInteger(declaredSize) || declaredSize < 1 || declaredSize > 5 * 1024 * 1024) return NextResponse.json({ error: 'Invalid prepared image size.' }, { status: 400 })
   const contentType = typeof body?.contentType === 'string' ? body.contentType : ''
   if (!allowedMimeTypes.has(contentType)) {
     return NextResponse.json({ error: 'Invalid direct Hip Hop hero image upload type.' }, { status: 400 })
@@ -19,7 +22,7 @@ export async function POST(request: Request) {
   const { data, error } = await access.adminClient.storage.from(bucket).createSignedUploadUrl(path)
 
   if (error || !data?.token) {
-    return NextResponse.json({ error: error?.message ?? 'Unable to prepare direct Hip Hop hero upload.' }, { status: 500 })
+    return NextResponse.json({ error: 'Unable to prepare upload.' }, { status: 500 })
   }
 
   const url = access.adminClient.storage.from(bucket).getPublicUrl(path).data.publicUrl

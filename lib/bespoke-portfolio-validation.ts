@@ -27,6 +27,7 @@ const nullableMediaLocation = z.union([
 export const portfolioCategoryCreateSchema = z.object({
   name: z.string().trim().min(1, 'Category name is required.').max(200),
   slug: z.string().trim().min(1, 'Category slug is required.').max(200).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Category slug must use lowercase letters, numbers, and hyphens.'),
+  image_path: nullableMediaLocation,
   display_order: displayOrder,
   status,
 }).strict()

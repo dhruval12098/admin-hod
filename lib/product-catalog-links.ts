@@ -1,3 +1,5 @@
+import type { SupabaseClient } from '@supabase/supabase-js'
+
 function isMissingRelation(error: { message?: string | null } | null | undefined, table: string) {
   return (
     error?.message?.includes(`relation "${table}" does not exist`) ||
@@ -23,7 +25,7 @@ export function buildResolvedLinkedIds(primaryId: string | null | undefined, lin
 }
 
 export async function replaceProductSubcategoryLinks(
-  adminClient: any,
+  adminClient: SupabaseClient,
   productId: string,
   primarySubcategoryId: string | null | undefined,
   linkedSubcategoryIds: Array<string | null | undefined>
@@ -56,7 +58,7 @@ export async function replaceProductSubcategoryLinks(
 }
 
 export async function replaceProductOptionLinks(
-  adminClient: any,
+  adminClient: SupabaseClient,
   productId: string,
   primaryOptionId: string | null | undefined,
   linkedOptionIds: Array<string | null | undefined>
@@ -88,7 +90,7 @@ export async function replaceProductOptionLinks(
   return { ok: true }
 }
 
-export async function loadProductLinkSelections(adminClient: any, productId: string) {
+export async function loadProductLinkSelections(adminClient: SupabaseClient, productId: string) {
   const [subcategoryLinksResult, optionLinksResult] = await Promise.all([
     adminClient
       .from('product_subcategory_links')

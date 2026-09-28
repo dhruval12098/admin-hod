@@ -7,7 +7,7 @@ async function getEducationRows(): Promise<EducationListItem[]> {
     .from('education_posts')
     .select('id, slug, title, category, author, date_label, read_time, is_published, sort_order, updated_at')
     .order('sort_order', { ascending: true })
-  if (error) throw new Error(error.message)
+  if (error) throw new Error('Unable to load education posts.')
   return (data ?? []) as EducationListItem[]
 }
 

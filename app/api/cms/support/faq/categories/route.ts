@@ -1,38 +1,38 @@
 import { NextResponse } from 'next/server'
 import { assertAdmin } from '@/lib/cms-auth'
+import { faqCategoryDeleteSchema, faqCategorySaveSchema } from '@/lib/cms-support-schemas'
 
-const fields = 'id, name, slug, description, image_path, image_alt, sort_order, is_active'
-const slugify = (value: string) => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+function categoryError(error: { code?: string }) {
+  if (error.code === 'PGRST202' || error.code === '42883') return NextResponse.json({ error: 'FAQ categories are awaiting their database update. Existing content was not changed.' }, { status: 503 })
+  if (error.code === 'P0002') return NextResponse.json({ error: 'FAQ category not found.' }, { status: 404 })
+  if (error.code === '40001') return NextResponse.json({ error: 'This FAQ category changed after you opened it. Reload before continuing.' }, { status: 409 })
+  if (error.code === '23503') return NextResponse.json({ error: 'Remove this category from its FAQs and document page before deleting it.' }, { status: 409 })
+  if (error.code === '23505') return NextResponse.json({ error: 'An FAQ category with this name or slug already exists.' }, { status: 409 })
+  if (['22023', '22P02', '23502', '23514'].includes(error.code ?? '')) return NextResponse.json({ error: 'The FAQ category contains invalid or conflicting data.' }, { status: 400 })
+  return NextResponse.json({ error: 'Unable to update the FAQ category. No partial changes were committed.' }, { status: 500 })
+}
 
 export async function POST(request: Request) {
   const access = await assertAdmin(request)
   if ('error' in access) return access.error
-  const body = await request.json().catch(() => null)
-  if (!body || typeof body.name !== 'string' || !body.name.trim()) return NextResponse.json({ error: 'Category name is required.' }, { status: 400 })
-  const id = Number(body.id)
-  const row = {
-    name: body.name.trim(), slug: slugify(String(body.slug || body.name)), description: String(body.description || '').trim(),
-    image_path: String(body.image_path || '').trim() || null, image_alt: String(body.image_alt || body.name).trim(),
-    sort_order: Number(body.sort_order) || 1, is_active: body.is_active !== false, updated_at: new Date().toISOString(),
-  }
-  const { data, error } = Number.isSafeInteger(id) && id > 0
-    ? await access.adminClient.from('support_faq_categories').update(row).eq('id', id).select(fields).single()
-    : await access.adminClient.from('support_faq_categories').insert(row).select(fields).single()
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ category: data })
+  const parsed = faqCategorySaveSchema.safeParse(await request.json().catch(() => null))
+  if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message ?? 'Invalid FAQ category.' }, { status: 400 })
+  const { data, error } = await access.adminClient.rpc('cms_save_support_faq_category_v1', {
+    p_actor_id: access.user.id, p_request_id: parsed.data.request_id, p_expected_revision: parsed.data.expected_revision,
+    p_id: parsed.data.id, p_item: parsed.data.item,
+  })
+  if (error) return categoryError(error)
+  return NextResponse.json(data, { headers: { 'Cache-Control': 'no-store' } })
 }
 
 export async function DELETE(request: Request) {
   const access = await assertAdmin(request)
   if ('error' in access) return access.error
-  const id = Number(new URL(request.url).searchParams.get('id'))
-  if (!Number.isSafeInteger(id) || id <= 0) return NextResponse.json({ error: 'Invalid category.' }, { status: 400 })
-  const [{ count: itemCount }, { count: pageCount }] = await Promise.all([
-    access.adminClient.from('support_faq_items').select('id', { count: 'exact', head: true }).eq('category_id', id),
-    access.adminClient.from('docs_pages').select('id', { count: 'exact', head: true }).eq('faq_category_id', id),
-  ])
-  if ((itemCount || 0) > 0 || (pageCount || 0) > 0) return NextResponse.json({ error: 'Remove this category from its FAQs and document page before deleting it.' }, { status: 409 })
-  const { error } = await access.adminClient.from('support_faq_categories').delete().eq('id', id)
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ ok: true })
+  const parsed = faqCategoryDeleteSchema.safeParse(await request.json().catch(() => null))
+  if (!parsed.success) return NextResponse.json({ error: 'Reload this FAQ category before deleting it.' }, { status: 409 })
+  const { data, error } = await access.adminClient.rpc('cms_delete_support_faq_category_v1', {
+    p_actor_id: access.user.id, p_request_id: parsed.data.request_id, p_expected_revision: parsed.data.expected_revision, p_id: parsed.data.id,
+  })
+  if (error) return categoryError(error)
+  return NextResponse.json(data, { headers: { 'Cache-Control': 'no-store' } })
 }

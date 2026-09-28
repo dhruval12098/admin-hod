@@ -2,6 +2,8 @@ import { createSupabaseAdminClient } from '@/lib/admin-supabase'
 import type { CatalogGstSlab } from '@/lib/product-catalog'
 import { SettingsClient, type SettingsPageData } from './settings-client'
 
+export const dynamic = 'force-dynamic'
+
 async function getSettingsPageData(): Promise<SettingsPageData> {
   const adminClient = createSupabaseAdminClient()
 
@@ -32,6 +34,7 @@ async function getSettingsPageData(): Promise<SettingsPageData> {
       default_gst_slab_id: settingsResult.data?.default_gst_slab_id ?? '',
       maintenance_mode_enabled: Boolean(settingsResult.data?.maintenance_mode_enabled),
       maintenance_mode_message: settingsResult.data?.maintenance_mode_message ?? '',
+      estimated_delivery_text: settingsResult.data?.estimated_delivery_text ?? 'Approximately 3 to 4 weeks',
     },
     gstSlabs: (gstResult.data ?? []) as CatalogGstSlab[],
   }

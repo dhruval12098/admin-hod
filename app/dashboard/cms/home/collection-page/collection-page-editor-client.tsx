@@ -1,13 +1,15 @@
 'use client'
 
 import Link from 'next/link'
-import { useState, type ChangeEvent } from 'react'
+import { useRouter } from 'next/navigation'
+import { useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { ArrowLeft, Upload } from 'lucide-react'
 import { CmsSaveAction } from '@/components/cms-save-action'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
 import { useCmsSingletonSave } from '@/hooks/use-cms-singleton-save'
+import { useUnsavedChanges } from '@/hooks/use-unsaved-changes'
 
 export type CollectionPageEditorInitialData = {
   page_enabled: boolean
@@ -25,100 +27,102 @@ type ApiPayload = { item?: CollectionPageEditorInitialData; path?: string; error
 
 export function CollectionPageEditorClient({ initialData, initialRevision }: { initialData: CollectionPageEditorInitialData; initialRevision: string }) {
   const { toast } = useToast()
+  const router = useRouter()
   const [form, setForm] = useState(initialData)
+  const [savedForm, setSavedForm] = useState(initialData)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [uploadingField, setUploadingField] = useState<'showcase_image_path' | 'showcase_mobile_image_path' | null>(null)
+  const [conflict, setConflict] = useState(false)
   const [status, setStatus] = useState('Collection page settings loaded')
   const { prepareSave, acceptSave } = useCmsSingletonSave(initialRevision)
+  const saveInFlight = useRef(false)
+  const dirty = useMemo(() => JSON.stringify(form) !== JSON.stringify(savedForm), [form, savedForm])
+  const unsaved = useUnsavedChanges(dirty)
 
   const uploadAsset = async (file: File, field: 'showcase_image_path' | 'showcase_mobile_image_path') => {
-    const { data: sessionData } = await supabase.auth.getSession()
-    const accessToken = sessionData.session?.access_token
-    if (!accessToken) return
+    if (uploadingField || isSaving || conflict) return
 
     if (file.size > 5 * 1024 * 1024) {
       setStatus('File too large. Max size is 5MB.')
       return
     }
 
-    let uploadedPath = ''
+    setUploadingField(field)
     try {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const accessToken = sessionData.session?.access_token
+      if (!accessToken) throw new Error('Your session expired. Sign in again before uploading.')
+
+      let uploadedPath = ''
       const preparedFile = await prepareCollectionImage(file)
-      const signResponse = await fetch('/api/cms/uploads/collection-page/sign', {
-        method: 'POST',
-        headers: {
-          authorization: `Bearer ${accessToken}`,
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({ contentType: preparedFile.type }),
-      })
-      const signed = (await signResponse.json().catch(() => null)) as { bucket?: string; path?: string; token?: string; error?: string } | null
-      if (!signResponse.ok || !signed?.bucket || !signed.path || !signed.token) {
-        throw new Error(signed?.error ?? 'Unable to prepare upload.')
+      try {
+        const signResponse = await fetch('/api/cms/uploads/collection-page/sign', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ contentType: preparedFile.type, declaredSize: preparedFile.size }),
+        })
+        const signed = (await signResponse.json().catch(() => null)) as { bucket?: string; path?: string; token?: string; error?: string } | null
+        if (!signResponse.ok || !signed?.bucket || !signed.path || !signed.token) throw new Error(signed?.error ?? 'Unable to prepare upload.')
+        const { error } = await supabase.storage.from(signed.bucket).uploadToSignedUrl(signed.path, signed.token, preparedFile, { contentType: preparedFile.type })
+        if (error) throw new Error('The direct upload was interrupted.')
+        uploadedPath = signed.path
+      } catch {
+        const fallbackBody = new FormData()
+        fallbackBody.append('file', file)
+        const fallbackResponse = await fetch('/api/cms/uploads/collection-page', { method: 'POST', headers: { authorization: `Bearer ${accessToken}` }, body: fallbackBody })
+        const fallbackPayload = (await fallbackResponse.json().catch(() => null)) as ApiPayload | null
+        if (!fallbackResponse.ok || !fallbackPayload?.path) throw new Error(fallbackPayload?.error ?? 'Upload failed.')
+        uploadedPath = fallbackPayload.path
       }
 
-      const { error } = await supabase.storage.from(signed.bucket)
-        .uploadToSignedUrl(signed.path, signed.token, preparedFile, { contentType: preparedFile.type })
-      if (error) throw error
-      uploadedPath = signed.path
-    } catch {
-      const fallbackBody = new FormData()
-      fallbackBody.append('file', file)
-      const fallbackResponse = await fetch('/api/cms/uploads/collection-page', {
-        method: 'POST',
-        headers: { authorization: `Bearer ${accessToken}` },
-        body: fallbackBody,
-      })
-      const fallbackPayload = (await fallbackResponse.json().catch(() => null)) as ApiPayload | null
-      if (!fallbackResponse.ok || !fallbackPayload?.path) {
-        setStatus(fallbackPayload?.error ?? 'Upload failed')
-        return
-      }
-      uploadedPath = fallbackPayload.path
+      setForm((prev) => ({ ...prev, [field]: uploadedPath }))
+      setStatus(field === 'showcase_mobile_image_path' ? 'Mobile showcase image uploaded. Save changes to publish it.' : 'Showcase image uploaded. Save changes to publish it.')
+      toast({ title: 'Uploaded', description: 'Collection showcase image is ready to save.' })
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Upload failed. Your other changes are still in the form.')
+    } finally {
+      setUploadingField(null)
     }
-
-    setForm((prev) => ({ ...prev, [field]: uploadedPath }))
-    setStatus(field === 'showcase_mobile_image_path' ? 'Mobile showcase image uploaded' : 'Showcase image uploaded')
-    toast({ title: 'Uploaded', description: 'Collection showcase image uploaded successfully.' })
   }
 
   const confirmSave = async () => {
+    if (saveInFlight.current || !dirty || conflict) return
+    saveInFlight.current = true
     setIsSaving(true)
-    const { data: sessionData } = await supabase.auth.getSession()
-    const accessToken = sessionData.session?.access_token
-    if (!accessToken) {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const accessToken = sessionData.session?.access_token
+      if (!accessToken) throw new Error('Your session expired. Sign in again before saving.')
+      const response = await fetch('/api/cms/home/collection-page', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
+        body: JSON.stringify(prepareSave(form)),
+      })
+      const payload = (await response.json().catch(() => null)) as ApiPayload | null
+      if (!response.ok) {
+        if (response.status === 409) setConflict(true)
+        throw new Error(payload?.error ?? 'Unable to save collection page settings.')
+      }
+      if (!payload?.item || typeof payload.revision !== 'string') throw new Error('Save response was interrupted. Retry to confirm the same save.')
+      setForm(payload.item)
+      setSavedForm(payload.item)
+      acceptSave(payload.revision)
+      setConfirmOpen(false)
+      setStatus('Collection page settings saved')
+      toast({ title: 'Saved', description: 'Collection page settings updated successfully.' })
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Connection interrupted. Your changes are still in the form.')
+    } finally {
+      saveInFlight.current = false
       setIsSaving(false)
-      return
     }
-
-    const response = await fetch('/api/cms/home/collection-page', {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${accessToken}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify(prepareSave(form)),
-    })
-    const payload = (await response.json().catch(() => null)) as ApiPayload | null
-    setIsSaving(false)
-    if (!response.ok) {
-      setStatus(payload?.error ?? 'Unable to save collection page settings.')
-      return
-    }
-    if (!payload?.revision) {
-      setStatus('The settings were saved, but their new revision was not returned. Reload this page.')
-      return
-    }
-    acceptSave(payload.revision)
-    setConfirmOpen(false)
-    setStatus('Collection page settings saved')
-    toast({ title: 'Saved', description: 'Collection page settings updated successfully.' })
   }
 
   return (
     <div className="p-8">
       <div className="mb-8 flex items-center gap-4">
-        <Link href="/dashboard/cms" className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:text-primary/80">
+        <Link href="/dashboard/cms" onClick={(event) => { event.preventDefault(); unsaved.confirmNavigation(() => router.push('/dashboard/cms')) }} className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:text-primary/80">
           <ArrowLeft size={16} />
           Back to CMS
         </Link>
@@ -182,7 +186,7 @@ export function CollectionPageEditorClient({ initialData, initialRevision }: { i
             <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary">
               <Upload size={14} />
               Upload Image
-              <input type="file" accept="image/*" className="hidden" onChange={(e: ChangeEvent<HTMLInputElement>) => {
+              <input type="file" accept="image/jpeg,image/png,image/webp,image/avif,image/svg+xml" disabled={Boolean(uploadingField) || isSaving || conflict} className="hidden" onChange={(e: ChangeEvent<HTMLInputElement>) => {
                 const file = e.target.files?.[0]
                 if (file) void uploadAsset(file, 'showcase_image_path')
               }} />
@@ -194,7 +198,7 @@ export function CollectionPageEditorClient({ initialData, initialRevision }: { i
             <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary">
               <Upload size={14} />
               Upload Mobile Image
-              <input type="file" accept="image/*" className="hidden" onChange={(e: ChangeEvent<HTMLInputElement>) => {
+              <input type="file" accept="image/jpeg,image/png,image/webp,image/avif,image/svg+xml" disabled={Boolean(uploadingField) || isSaving || conflict} className="hidden" onChange={(e: ChangeEvent<HTMLInputElement>) => {
                 const file = e.target.files?.[0]
                 if (file) void uploadAsset(file, 'showcase_mobile_image_path')
               }} />
@@ -204,7 +208,8 @@ export function CollectionPageEditorClient({ initialData, initialRevision }: { i
         </div>
       </div>
 
-      <CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={isSaving} />
+      {conflict ? <p className="mt-4 text-sm text-amber-800">This content changed after you opened it. Keep a copy of your draft, then reload before saving.</p> : null}
+      <CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={isSaving} disabled={!dirty || Boolean(uploadingField) || conflict} />
 
       <ConfirmDialog
         isOpen={confirmOpen}
@@ -217,6 +222,7 @@ export function CollectionPageEditorClient({ initialData, initialRevision }: { i
         onConfirm={confirmSave}
         onCancel={() => setConfirmOpen(false)}
       />
+      <ConfirmDialog isOpen={unsaved.showWarning} title="Discard unsaved Collection changes?" description="Your Collection settings and uploaded image paths have not been saved." confirmText="Discard changes" cancelText="Keep editing" type="warning" onConfirm={unsaved.handleDiscard} onCancel={() => unsaved.setShowWarning(false)} />
     </div>
   )
 }

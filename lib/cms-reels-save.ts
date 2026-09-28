@@ -42,9 +42,9 @@ export function reelsSaveError(error: { code?: string; message: string }) {
   if (error.code === 'PGRST202' || error.code === '42883') {
     return { status: 503, message: 'Reels saving is awaiting a database update. Your saved content has not been changed.' }
   }
-  if (error.code === '40001') return { status: 409, message: error.message }
+  if (error.code === '40001') return { status: 409, message: 'This Reels section changed after you opened it. Reload before saving again.' }
   if (error.code === '42501') return { status: 403, message: 'Administrator access is required.' }
-  if (error.code === '22023' || error.code === '22P02') return { status: 400, message: error.message }
+  if (error.code === '22023' || error.code === '22P02') return { status: 400, message: 'The Reels section contains invalid or conflicting data.' }
   if (error.code === '23505') return { status: 409, message: 'A reel URL or position conflicts with another entry. Your changes were not saved.' }
   return { status: 500, message: 'Unable to save reels. No part of this save was committed. Please try again.' }
 }

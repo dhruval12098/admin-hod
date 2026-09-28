@@ -41,19 +41,6 @@ type NavbarBuilderInitialData = {
   styles: NonNullable<NavbarBuilderPayload['styles']>
 }
 
-function defaultCatalog(): CatalogPayload {
-  return {
-    categories: [],
-    subcategories: [],
-    options: [],
-    metals: [],
-    stoneShapes: [],
-    ringSizes: [],
-    certificates: [],
-    styles: [],
-  }
-}
-
 type NavbarBuilderState = {
   items: NavbarItem[]
   originalItems: NavbarItem[]

@@ -220,6 +220,8 @@ export function StylesClient({ initialItems }: { initialItems: CatalogStyleItem[
                   <td className="px-6 py-3.5 text-sm font-medium text-foreground">{item.name}</td>
                   <td className="px-6 py-3.5 text-sm text-foreground">
                     {item.iconSvgPath ? (
+                      // Native img preserves uploaded SVG behavior for admin-managed runtime URLs.
+                      // eslint-disable-next-line @next/next/no-img-element
                       <img src={resolveStyleIconUrl(item.iconSvgPath) ?? item.iconSvgPath} alt={item.name} className="h-8 w-8 object-contain" />
                     ) : (
                       <span className="text-muted-foreground">No icon</span>
@@ -306,7 +308,11 @@ export function StylesClient({ initialItems }: { initialItems: CatalogStyleItem[
                   </button>
                 ) : null}
                 <p className="text-xs text-muted-foreground">{uploading ? 'Uploading SVG...' : formData.iconSvgPath || 'No SVG uploaded yet'}</p>
-                {formData.iconSvgPath ? <img src={resolveStyleIconUrl(formData.iconSvgPath) ?? formData.iconSvgPath} alt="Style icon preview" className="h-12 w-12 object-contain" /> : null}
+                {formData.iconSvgPath ? (
+                  // Native img preserves uploaded SVG behavior for admin-managed runtime URLs.
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={resolveStyleIconUrl(formData.iconSvgPath) ?? formData.iconSvgPath} alt="Style icon preview" className="h-12 w-12 object-contain" />
+                ) : null}
               </div>
             </div>
 

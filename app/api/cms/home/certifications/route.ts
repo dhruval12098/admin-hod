@@ -8,7 +8,7 @@ export async function GET(request: Request) {
   const access = await assertAdmin(request)
   if ('error' in access) return access.error
   const { data, error } = await access.adminClient.rpc('cms_home_group1_snapshot_v1', { p_kind: 'certifications' })
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) return NextResponse.json({ error: 'Unable to load Certifications.' }, { status: 503 })
   return NextResponse.json(data, { headers: { 'Cache-Control': 'no-store' } })
 }
 

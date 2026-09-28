@@ -1,10 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
 
 export function useUnsavedChanges(hasChanges: boolean) {
-  const router = useRouter()
   const [showWarning, setShowWarning] = useState(false)
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null)
 

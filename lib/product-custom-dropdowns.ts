@@ -1,3 +1,5 @@
+import type { SupabaseClient } from '@supabase/supabase-js'
+
 export type ProductCustomDropdownOption = {
   id: string
   label: string
@@ -95,17 +97,19 @@ export function validateProductCustomDropdowns(groups: ProductCustomDropdown[]) 
   return null
 }
 
-export async function loadProductCustomDropdowns(adminClient: any, productId: string): Promise<{ data?: ProductCustomDropdown[]; error?: string }> {
+export async function loadProductCustomDropdowns(adminClient: SupabaseClient, productId: string): Promise<{ data?: ProductCustomDropdown[]; error?: string }> {
   const groupsResult = await adminClient.from('product_custom_dropdowns').select('*').eq('product_id', productId).order('display_order')
   if (groupsResult.error) return { error: groupsResult.error.message }
   const groups = groupsResult.data ?? []
   if (!groups.length) return { data: [] }
-  const optionsResult = await adminClient.from('product_custom_dropdown_options').select('*').in('dropdown_id', groups.map((row: any) => row.id)).order('display_order')
+  const typedGroups = groups as Array<Omit<ProductCustomDropdown, 'options'>>
+  const optionsResult = await adminClient.from('product_custom_dropdown_options').select('*').in('dropdown_id', typedGroups.map((row) => row.id)).order('display_order')
   if (optionsResult.error) return { error: optionsResult.error.message }
-  return { data: groups.map((group: any) => ({ ...group, options: (optionsResult.data ?? []).filter((option: any) => option.dropdown_id === group.id) })) }
+  const options = (optionsResult.data ?? []) as Array<ProductCustomDropdownOption & { dropdown_id: string }>
+  return { data: typedGroups.map((group) => ({ ...group, options: options.filter((option) => option.dropdown_id === group.id) })) }
 }
 
-export async function syncProductCustomDropdowns(adminClient: any, productId: string, groups: ProductCustomDropdown[], validateEnabledGroups = true) {
+export async function syncProductCustomDropdowns(adminClient: SupabaseClient, productId: string, groups: ProductCustomDropdown[], validateEnabledGroups = true) {
   const normalizedGroups = normalizeProductCustomDropdowns(groups)
   const validationError = validateEnabledGroups ? validateProductCustomDropdowns(normalizedGroups) : null
   if (validationError) return { error: validationError }

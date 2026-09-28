@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useState, type ChangeEvent } from 'react'
 import { ArrowLeft, Upload } from 'lucide-react'
 import { CmsSaveAction } from '@/components/cms-save-action'
@@ -8,6 +9,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
 import { useCmsSingletonSave } from '@/hooks/use-cms-singleton-save'
+import { useUnsavedChanges } from '@/hooks/use-unsaved-changes'
 
 export type BespokeShowcaseEditorInitialData = {
   is_enabled: boolean
@@ -25,91 +27,87 @@ type ApiPayload = { item?: BespokeShowcaseEditorInitialData; path?: string; erro
 
 export function BespokeShowcaseEditorClient({ initialData, initialRevision }: { initialData: BespokeShowcaseEditorInitialData; initialRevision: string }) {
   const { toast } = useToast()
+  const router = useRouter()
   const [form, setForm] = useState(initialData)
+  const [savedForm, setSavedForm] = useState(initialData)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [status, setStatus] = useState('Bespoke home showcase loaded')
+  const [uploadingField, setUploadingField] = useState<'image_path' | 'mobile_image_path' | null>(null)
   const { prepareSave, acceptSave } = useCmsSingletonSave(initialRevision)
+  const dirty = JSON.stringify(form) !== JSON.stringify(savedForm)
+  const unsaved = useUnsavedChanges(dirty)
 
   const uploadAsset = async (file: File, field: 'image_path' | 'mobile_image_path') => {
     const { data: sessionData } = await supabase.auth.getSession()
     const accessToken = sessionData.session?.access_token
-    if (!accessToken) return
+    if (!accessToken) return setStatus('You are not signed in.')
 
     if (file.size > 5 * 1024 * 1024) {
       setStatus('File too large. Max size is 5MB.')
       return
     }
 
-    let uploadedPath = ''
+    setUploadingField(field)
     try {
-      const preparedFile = await prepareBespokeShowcaseImage(file)
-      const signResponse = await fetch('/api/cms/uploads/bespoke-showcase/sign', {
-        method: 'POST',
-        headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ contentType: preparedFile.type }),
-      })
-      const signed = await signResponse.json().catch(() => null) as { bucket?: string; path?: string; token?: string; error?: string } | null
-      if (!signResponse.ok || !signed?.bucket || !signed.path || !signed.token) throw new Error(signed?.error ?? 'Unable to prepare upload.')
-      const { error } = await supabase.storage.from(signed.bucket)
-        .uploadToSignedUrl(signed.path, signed.token, preparedFile, { contentType: preparedFile.type })
-      if (error) throw error
-      uploadedPath = signed.path
-    } catch {
-      const body = new FormData()
-      body.append('file', file)
-      const response = await fetch('/api/cms/uploads/bespoke-showcase', {
-        method: 'POST', headers: { authorization: `Bearer ${accessToken}` }, body,
-      })
-      const payload = await response.json().catch(() => null) as ApiPayload | null
-      if (!response.ok || !payload?.path) {
-        setStatus(payload?.error ?? 'Upload failed')
-        return
+      let uploadedPath = ''
+      try {
+        const preparedFile = await prepareBespokeShowcaseImage(file)
+        const signResponse = await fetch('/api/cms/uploads/bespoke-showcase/sign', {
+          method: 'POST', headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ contentType: preparedFile.type, declaredSize: preparedFile.size }),
+        })
+        const signed = await signResponse.json().catch(() => null) as { bucket?: string; path?: string; token?: string; error?: string } | null
+        if (!signResponse.ok || !signed?.bucket || !signed.path || !signed.token) throw new Error(signed?.error ?? 'Unable to prepare upload.')
+        const { error } = await supabase.storage.from(signed.bucket).uploadToSignedUrl(signed.path, signed.token, preparedFile, { contentType: preparedFile.type })
+        if (error) throw error
+        uploadedPath = signed.path
+      } catch {
+        const body = new FormData()
+        body.append('file', file)
+        const response = await fetch('/api/cms/uploads/bespoke-showcase', { method: 'POST', headers: { authorization: `Bearer ${accessToken}` }, body })
+        const payload = await response.json().catch(() => null) as ApiPayload | null
+        if (!response.ok || !payload?.path) throw new Error(payload?.error ?? 'Upload failed')
+        uploadedPath = payload.path
       }
-      uploadedPath = payload.path
+      setForm((prev) => ({ ...prev, [field]: uploadedPath }))
+      setStatus(field === 'mobile_image_path' ? 'Mobile image uploaded' : 'Desktop image uploaded')
+      toast({ title: 'Uploaded', description: 'Bespoke showcase image uploaded successfully.' })
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Upload failed')
+    } finally {
+      setUploadingField(null)
     }
-    setForm((prev) => ({ ...prev, [field]: uploadedPath }))
-    setStatus(field === 'mobile_image_path' ? 'Mobile image uploaded' : 'Desktop image uploaded')
-    toast({ title: 'Uploaded', description: 'Bespoke showcase image uploaded successfully.' })
   }
 
   const confirmSave = async () => {
     setIsSaving(true)
-    const { data: sessionData } = await supabase.auth.getSession()
-    const accessToken = sessionData.session?.access_token
-    if (!accessToken) {
-      setIsSaving(false)
-      return
-    }
-
-    const response = await fetch('/api/cms/home/bespoke-showcase', {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${accessToken}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify(prepareSave(form)),
-    })
-    const payload = (await response.json().catch(() => null)) as ApiPayload | null
-    setIsSaving(false)
-    if (!response.ok) {
-      setStatus(payload?.error ?? 'Unable to save bespoke showcase settings.')
-      return
-    }
-    if (!payload?.revision) {
-      setStatus('The showcase was saved, but its new revision was not returned. Reload this page.')
-      return
-    }
-    acceptSave(payload.revision)
-    setConfirmOpen(false)
-    setStatus('Bespoke home showcase saved')
-    toast({ title: 'Saved', description: 'Bespoke home showcase updated successfully.' })
+    try {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const accessToken = sessionData.session?.access_token
+      if (!accessToken) throw new Error('You are not signed in.')
+      const response = await fetch('/api/cms/home/bespoke-showcase', {
+        method: 'POST', headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
+        body: JSON.stringify(prepareSave(form)),
+      })
+      const payload = (await response.json().catch(() => null)) as ApiPayload | null
+      if (!response.ok) throw new Error(payload?.error ?? 'Unable to save bespoke showcase settings.')
+      if (!payload?.revision || !payload.item) throw new Error('Save response was interrupted. Retry to confirm the same save.')
+      setForm(payload.item)
+      setSavedForm(payload.item)
+      acceptSave(payload.revision)
+      setConfirmOpen(false)
+      setStatus('Bespoke home showcase saved')
+      toast({ title: 'Saved', description: 'Bespoke home showcase updated successfully.' })
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Unable to save bespoke showcase settings.')
+    } finally { setIsSaving(false) }
   }
 
   return (
     <div className="p-8">
       <div className="mb-8 flex items-center gap-4">
-        <Link href="/dashboard/cms" className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:text-primary/80">
+        <Link href="/dashboard/cms" onClick={(event) => { event.preventDefault(); unsaved.confirmNavigation(() => router.push('/dashboard/cms')) }} className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:text-primary/80">
           <ArrowLeft size={16} />
           Back to CMS
         </Link>
@@ -167,7 +165,7 @@ export function BespokeShowcaseEditorClient({ initialData, initialRevision }: { 
             <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary">
               <Upload size={14} />
               Upload Image
-              <input type="file" accept="image/*" className="hidden" onChange={(e: ChangeEvent<HTMLInputElement>) => {
+              <input type="file" accept="image/*" className="hidden" disabled={Boolean(uploadingField)} onChange={(e: ChangeEvent<HTMLInputElement>) => {
                 const file = e.target.files?.[0]
                 if (file) void uploadAsset(file, 'image_path')
               }} />
@@ -179,7 +177,7 @@ export function BespokeShowcaseEditorClient({ initialData, initialRevision }: { 
             <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary">
               <Upload size={14} />
               Upload Mobile Image
-              <input type="file" accept="image/*" className="hidden" onChange={(e: ChangeEvent<HTMLInputElement>) => {
+              <input type="file" accept="image/*" className="hidden" disabled={Boolean(uploadingField)} onChange={(e: ChangeEvent<HTMLInputElement>) => {
                 const file = e.target.files?.[0]
                 if (file) void uploadAsset(file, 'mobile_image_path')
               }} />
@@ -189,7 +187,7 @@ export function BespokeShowcaseEditorClient({ initialData, initialRevision }: { 
         </div>
       </div>
 
-      <CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={isSaving} />
+      <CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={isSaving} disabled={!dirty || Boolean(uploadingField)} />
 
       <ConfirmDialog
         isOpen={confirmOpen}
@@ -202,6 +200,7 @@ export function BespokeShowcaseEditorClient({ initialData, initialRevision }: { 
         onConfirm={confirmSave}
         onCancel={() => setConfirmOpen(false)}
       />
+      <ConfirmDialog isOpen={unsaved.showWarning} title="Discard unsaved Bespoke Showcase changes?" description="Your showcase changes have not been saved." confirmText="Discard changes" cancelText="Keep editing" type="warning" onConfirm={unsaved.handleDiscard} onCancel={() => unsaved.setShowWarning(false)} />
     </div>
   )
 }

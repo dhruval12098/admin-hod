@@ -1,12 +1,9 @@
 import 'server-only'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { buildProductSlugBase, getRetiredProductSlug, selectAvailableProductSlug } from '@/lib/product-slug-core'
 
-type ProductSlugClient = {
-  from: (table: string) => any
-}
-
-export async function allocateProductSlug(client: ProductSlugClient, name: string) {
+export async function allocateProductSlug(client: SupabaseClient, name: string) {
   const base = buildProductSlugBase(name)
   const [productsResult, redirectsResult] = await Promise.all([
     client.from('products').select('slug').like('slug', `${base}%`),

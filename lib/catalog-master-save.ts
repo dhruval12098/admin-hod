@@ -40,10 +40,10 @@ export async function loadCatalogMasterList(client: RpcClient, kind: CatalogMast
 
 function errorResponse(error: { code?: string; message?: string }, action: 'save' | 'delete') {
   if (error.code === 'PGRST202' || error.code === '42883') return NextResponse.json({ error: 'This catalog section is awaiting its database update. Existing data was not changed.' }, { status: 503 })
-  if (error.code === '40001') return NextResponse.json({ error: error.message }, { status: 409 })
-  if (error.code === 'P0001') return NextResponse.json({ error: error.message }, { status: 409 })
+  if (error.code === '40001') return NextResponse.json({ error: 'This catalog record changed after you opened it. Reload before continuing.' }, { status: 409 })
+  if (error.code === 'P0001') return NextResponse.json({ error: 'This catalog record conflicts with another saved record.' }, { status: 409 })
   if (error.code === 'P0002') return NextResponse.json({ error: 'The catalog record no longer exists.' }, { status: 404 })
-  if (['22023', '22P02', '23502', '23503', '23505', '23514'].includes(error.code ?? '')) return NextResponse.json({ error: error.message }, { status: 400 })
+  if (['22023', '22P02', '23502', '23503', '23505', '23514'].includes(error.code ?? '')) return NextResponse.json({ error: 'This catalog record contains invalid or conflicting data.' }, { status: 400 })
   return NextResponse.json({ error: `Unable to ${action} this catalog record. No partial changes were committed.` }, { status: 500 })
 }
 
@@ -51,8 +51,8 @@ export async function listCatalogMasters(access: Access, kind: CatalogMasterKind
   try {
     const items = await loadCatalogMasterList(access.adminClient, kind)
     return NextResponse.json({ items }, { headers: { 'Cache-Control': 'no-store' } })
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Unable to load catalog masters.' }, { status: 503 })
+  } catch {
+    return NextResponse.json({ error: 'Unable to load this catalog section.' }, { status: 503 })
   }
 }
 

@@ -8,7 +8,7 @@ export async function GET(request: Request) {
 
   const { data, error } = await access.adminClient
     .from('bespoke_portfolio_categories')
-    .select('id, name, slug, display_order, status, created_at, updated_at')
+    .select('id, name, slug, image_path, display_order, status, created_at, updated_at')
     .order('display_order', { ascending: true })
 
   if (error) return NextResponse.json({ error: 'Unable to load portfolio categories.' }, { status: 500 })
@@ -27,7 +27,7 @@ export async function POST(request: Request) {
   const { data, error } = await access.adminClient
     .from('bespoke_portfolio_categories')
     .insert(parsed.data)
-    .select('id, name, slug, display_order, status, created_at, updated_at')
+    .select('id, name, slug, image_path, display_order, status, created_at, updated_at')
     .single()
 
   if (error) {

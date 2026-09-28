@@ -1,12 +1,20 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Loader2, SlidersHorizontal } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
 type Operation = 'increase_amount' | 'decrease_amount' | 'increase_percent' | 'decrease_percent'
 type SelectedProduct = { id: string; name: string; price: number | null }
+type BulkPriceDialogProps = {
+  open: boolean
+  products: SelectedProduct[]
+  allProducts: SelectedProduct[]
+  lane: 'standard' | 'hiphop' | 'collection'
+  onClose: () => void
+  onApplied: (items: Array<{ id: string; price: number }>) => void
+}
 
 function roundMoney(value: number) { return Math.round((value + Number.EPSILON) * 100) / 100 }
 function formatPrice(value: number) { return `$${value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}` }
@@ -15,38 +23,25 @@ function calculatePrice(price: number, operation: Operation, value: number) {
   return roundMoney(operation.startsWith('increase_') ? price + delta : price - delta)
 }
 
-export function BulkPriceDialog({ open, products, allProducts, lane, onClose, onApplied }: {
-  open: boolean
-  products: SelectedProduct[]
-  allProducts: SelectedProduct[]
-  lane: 'standard' | 'hiphop' | 'collection'
-  onClose: () => void
-  onApplied: (items: Array<{ id: string; price: number }>) => void
-}) {
+export function BulkPriceDialog(props: BulkPriceDialogProps) {
+  if (!props.open) return null
+  return <BulkPriceDialogContent {...props} />
+}
+
+function BulkPriceDialogContent({ products, allProducts, lane, onClose, onApplied }: BulkPriceDialogProps) {
   const [operation, setOperation] = useState<Operation>('increase_percent')
   const [rawValue, setRawValue] = useState('')
   const [confirmed, setConfirmed] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [scope, setScope] = useState<'selected' | 'all'>('selected')
-  const [requestId, setRequestId] = useState<string | null>(null)
+  const [scope, setScope] = useState<'selected' | 'all'>(() => products.length ? 'selected' : 'all')
+  const [requestId] = useState(() => crypto.randomUUID())
   const effectiveProducts = scope === 'all' ? allProducts : products
   const value = Number(rawValue)
   const invalidPriceCount = effectiveProducts.filter((product) => product.price == null || !Number.isFinite(product.price) || product.price <= 0).length
   const valueIsValid = Number.isFinite(value) && value > 0 && value <= 1_000_000_000 && (!operation.endsWith('_percent') || value <= 1000) && (operation !== 'decrease_percent' || value < 100)
   const preview = useMemo(() => effectiveProducts.filter((product): product is SelectedProduct & { price: number } => product.price != null && Number.isFinite(product.price)).slice(0, 4).map((product) => ({ ...product, nextPrice: valueIsValid ? calculatePrice(product.price, operation, value) : product.price })), [effectiveProducts, operation, value, valueIsValid])
   const hasInvalidResult = preview.some((product) => product.nextPrice <= 0 || product.nextPrice > 1_000_000_000)
-
-  useEffect(() => {
-    if (!open) return
-    setOperation('increase_percent')
-    setScope(products.length ? 'selected' : 'all')
-    setRawValue('')
-    setConfirmed(false)
-    setError('')
-    setLoading(false)
-    setRequestId(crypto.randomUUID())
-  }, [open, products.length])
 
   const apply = async () => {
     if (loading || !requestId || !confirmed || !valueIsValid || invalidPriceCount || hasInvalidResult || !effectiveProducts.length) return
@@ -72,7 +67,7 @@ export function BulkPriceDialog({ open, products, allProducts, lane, onClose, on
   }
 
   return (
-    <Dialog open={open} onOpenChange={(next) => { if (!next && !loading) onClose() }}>
+    <Dialog open onOpenChange={(next) => { if (!next && !loading) onClose() }}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader><DialogTitle className="flex items-center gap-2 font-jakarta text-lg font-semibold"><SlidersHorizontal size={19} />Adjust base prices</DialogTitle><DialogDescription>Updates only the listed base price. It cannot delete products or modify stock, status, variants, or discounts.</DialogDescription></DialogHeader>
         <div className="space-y-5 py-2">

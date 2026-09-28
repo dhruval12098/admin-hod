@@ -43,7 +43,7 @@ import { ProductExperienceCard } from '@/components/product-form/ProductExperien
 import { ProductLaneRuleCards } from '@/components/product-form/ProductLaneRuleCards'
 import { ProductMetalOptionsCard } from '@/components/product-form/ProductMetalOptionsCard'
 import { ProductPricingSummaryCard } from '@/components/product-form/ProductPricingSummaryCard'
-import { FormField, PillToggle, TagList, TogglePillGroup } from '@/components/product-form/ProductFormControls'
+import { FormField } from '@/components/product-form/ProductFormControls'
 import { ProductContentStep } from '@/components/product-form/ProductContentStep'
 import { ProductDetailsStep } from '@/components/product-form/ProductDetailsStep'
 import { VideoLibraryDialog } from '@/components/product-form/VideoLibraryDialog'
@@ -73,93 +73,6 @@ export type BootstrapPayload = {
   certificates?: CatalogCertificate[]
   styles?: CatalogStyle[]
   productContentRules?: ProductContentRule[]
-}
-
-type ProductResponse = {
-  item?: {
-    name?: string
-    sku?: string
-    product_lane?: 'standard' | 'hiphop' | 'collection'
-    detail_template?: 'standard' | 'hiphop'
-    featured?: boolean
-    description?: string | null
-    tag_line?: string | null
-    seo_title?: string | null
-    seo_description?: string | null
-    h1_title?: string | null
-    base_price?: number | null
-    discount_price?: number | null
-    gst_slab_id?: string | null
-    stock_quantity?: number | null
-    allow_checkout?: boolean | null
-    ring_enabled?: boolean | null
-    ring_category_id?: string | null
-    main_category_id?: string | null
-    subcategory_id?: string | null
-    option_id?: string | null
-    linked_subcategory_ids?: string[]
-    linked_option_ids?: string[]
-    style_id?: string | null
-    metal_ids?: string[]
-    purity_values?: string[]
-    purity_prices?: ProductPurityPrice[]
-    default_purity_price_id?: string | null
-    metal_media?: ProductMetalMedia[]
-    metal_variants?: ProductMetalVariant[]
-    default_variant_media_items?: ProductVariantMediaItem[]
-    certificate_ids?: string[]
-    ring_size_ids?: string[]
-    fit_options?: string[]
-    fit_label?: string | null
-    gemstone_label?: string | null
-    gemstone_value?: string | null
-    material_value_ids?: string[]
-    shapes_enabled?: boolean | null
-    shape_ids?: string[]
-    show_purity?: boolean | null
-    engraving_enabled?: boolean | null
-    engraving_label?: string | null
-    custom_dropdowns_enabled?: boolean | null
-    custom_dropdowns?: ProductCustomDropdown[]
-    shipping_rule_id?: string | null
-    care_warranty_rule_id?: string | null
-    shipping_enabled?: boolean | null
-    care_warranty_enabled?: boolean | null
-    shipping_override_enabled?: boolean | null
-    care_warranty_override_enabled?: boolean | null
-    shipping_title_override?: string | null
-    shipping_body_override?: string | null
-    care_warranty_title_override?: string | null
-    care_warranty_body_override?: string | null
-    features?: string[]
-    specifications?: ProductKeyValue[]
-    product_details?: ProductKeyValue[]
-    detail_sections?: ProductDetailSection[]
-    faq_items?: ProductFaqItem[]
-    image_1_path?: string | null
-    image_2_path?: string | null
-    image_3_path?: string | null
-    image_4_path?: string | null
-    image_1_alt?: string | null
-    image_2_alt?: string | null
-    image_3_alt?: string | null
-    image_4_alt?: string | null
-    video_path?: string | null
-    model_3d_url?: string | null
-    show_image_1?: boolean | null
-    show_image_2?: boolean | null
-    show_image_3?: boolean | null
-    show_image_4?: boolean | null
-    show_video?: boolean | null
-    custom_order_enabled?: boolean | null
-    ready_to_ship?: boolean | null
-    hiphop_badges?: string[]
-    chain_length_options?: string[]
-    hiphop_carat_label?: string | null
-    hiphop_carat_values?: string[]
-    gram_weight_label?: string | null
-    gram_weight_value?: string | null
-  }
 }
 
 function applyBootstrapPayload(
@@ -362,7 +275,6 @@ const emptySection = (): ProductDetailSection => ({
   rows: [emptyRow()],
   visible: true,
 })
-type ProductMetalMediaImageField = 'image_1_path' | 'image_2_path' | 'image_3_path' | 'image_4_path'
 const collectionBucket = process.env.NEXT_PUBLIC_SUPABASE_COLLECTION_BUCKET || 'hod'
 
 export type ProductFormStepId = 'basics' | 'pricing' | 'attributes' | 'content' | 'details' | 'media'
@@ -554,7 +466,7 @@ export function ProductForm({
   const [detailSections, setDetailSections] = useState<ProductDetailSection[]>(initialProductState.detailSections)
   const [faqItems, setFaqItems] = useState<ProductFaqItem[]>(initialProductState.faqItems)
   const [loadedBootstrapScopes, setLoadedBootstrapScopes] = useState<Set<CatalogBootstrapScope>>(() => new Set(initialBasicsBootstrap ? ['basics'] : []))
-  const [imageSlots, setImageSlots] = useState<string[]>(initialProductState.imageSlots)
+  const [, setImageSlots] = useState<string[]>(initialProductState.imageSlots)
   const [imagePaths, setImagePaths] = useState<(string | null)[]>(initialProductState.imagePaths)
   const [imageAlts, setImageAlts] = useState<string[]>(initialProductState.imageAlts)
   const [videoPath, setVideoPath] = useState<string | null>(initialProductState.videoPath)
@@ -1181,24 +1093,9 @@ export function ProductForm({
     setHiphopCaratInput('')
   }
 
-  const updateMetalMediaEntry = (metalId: string, updater: (entry: ProductMetalMedia) => ProductMetalMedia) => {
-    setMetalMedia((prev) =>
-      prev.map((entry) => (entry.metal_id === metalId ? updater(entry) : entry))
-    )
-  }
-
   const updateMetalVariant = (metalId: string, updater: (entry: ProductMetalVariant) => ProductMetalVariant) => {
     setMetalVariants((prev) =>
       prev.map((entry) => (entry.metal_id === metalId ? updater(entry) : entry))
-    )
-  }
-
-  const setDefaultMetalVariant = (metalId: string) => {
-    setMetalVariants((prev) =>
-      prev.map((entry) => ({
-        ...entry,
-        is_default: entry.metal_id === metalId,
-      }))
     )
   }
 
@@ -1275,15 +1172,6 @@ export function ProductForm({
       if (prev === itemIndex) return null
       return prev > itemIndex ? prev - 1 : prev
     })
-  }
-
-  const setFallbackMetal = (metalId: string) => {
-    setMetalMedia((prev) =>
-      prev.map((entry) => ({
-        ...entry,
-        is_default_fallback: entry.metal_id === metalId,
-      }))
-    )
   }
 
   const applyTestData = () => {
@@ -1675,9 +1563,13 @@ export function ProductForm({
 
             <ProductMetalOptionsCard
               metalVariants={metalVariants}
+              combinedMetalOptions={combinedMetalOptions}
               setMetalVariants={setMetalVariants}
               getMetalVariantLabel={getMetalVariantLabel}
-              setDefaultMetalVariant={setDefaultMetalVariant}
+              selectedMetalIds={selectedMetalIds}
+              onMetalAdd={(metalId) => setSelectedMetalIds((prev) => prev.includes(metalId) ? prev : [...prev, metalId])}
+              onMetalRemove={(metalId) => setSelectedMetalIds((prev) => prev.filter((id) => id !== metalId))}
+              onMetalReplace={(oldMetalId, newMetalId) => setSelectedMetalIds((prev) => prev.map((id) => id === oldMetalId ? newMetalId : id))}
               inputClassName={inputClassName}
             />
           </>
@@ -1998,6 +1890,8 @@ export function ProductForm({
                                 title={item.media_type === 'video' ? 'Choose from Cloudflare video library' : 'Upload image'}
                               >
                                 {item.media_type === 'image' && previewPath ? (
+                                  // Native img is intentional for temporary blob/storage previews with unknown dimensions.
+                                  // eslint-disable-next-line @next/next/no-img-element
                                   <img src={previewPath} alt={`${sectionLabel} item ${itemIndex + 1}`} className="h-full w-full object-cover" />
                                 ) : item.media_type === 'video' && previewPath ? (
                                   <div className="relative h-full w-full bg-black">
@@ -2345,6 +2239,8 @@ function MediaThumbnailSlot({
     <div className="group relative h-24 w-24">
       <label htmlFor={inputId} className="block h-full w-full cursor-pointer overflow-hidden rounded-xl border border-border bg-white transition-colors hover:border-primary">
         {path ? (
+          // Native img is intentional for temporary upload previews with unknown dimensions.
+          // eslint-disable-next-line @next/next/no-img-element
           <img src={toStoragePreviewUrl(path)} alt={`${label} preview`} className="h-full w-full object-cover" />
         ) : (
           <div className="flex h-full w-full items-center justify-center border-2 border-dashed border-border text-muted-foreground">

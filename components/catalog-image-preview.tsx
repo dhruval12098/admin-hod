@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, '')
 const collectionBucket = process.env.NEXT_PUBLIC_SUPABASE_COLLECTION_BUCKET || 'hod'
@@ -30,9 +30,8 @@ export function CatalogImagePreview({
   className?: string
 }) {
   const src = resolveCatalogImageUrl(path)
-  const [failed, setFailed] = useState(false)
-
-  useEffect(() => setFailed(false), [src])
+  const [failedSrc, setFailedSrc] = useState<string | null>(null)
+  const failed = Boolean(src && failedSrc === src)
 
   const dimensions = size === 'table'
     ? 'h-14 w-14'
@@ -59,7 +58,7 @@ export function CatalogImagePreview({
       <img
         src={src}
         alt={alt}
-        onError={() => setFailed(true)}
+        onError={() => setFailedSrc(src)}
         className={`h-full w-full ${isSvgImage(src) ? 'object-contain p-1.5' : 'object-cover'}`}
       />
     </div>

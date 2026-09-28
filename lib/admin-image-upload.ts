@@ -8,6 +8,9 @@ type UploadConfig = {
   bucket: string
   maxBytes: number
   rasterWidth: number | ((form: FormData) => number)
+  rasterHeight?: number
+  rasterFit?: 'inside' | 'cover'
+  preserveAspectRatio?: boolean
   allowSvg?: boolean
   svgOnly?: boolean
   validateForm?: (form: FormData) => string | null
@@ -51,7 +54,7 @@ export async function handleAdminImageUpload(request: Request, access: Access, c
       const metadata = await image.metadata()
       if (!metadata.format || !formats.has(metadata.format)) return NextResponse.json({ error: 'The file contents do not match the selected image type.' }, { status: 400 })
       const width = typeof config.rasterWidth === 'function' ? config.rasterWidth(form) : config.rasterWidth
-      output = await image.rotate().resize({ width, height: width, fit: 'inside', withoutEnlargement: true }).webp({ quality: 84 }).toBuffer()
+      output = await image.rotate().resize({ width, height: config.rasterHeight ?? (config.preserveAspectRatio ? undefined : width), fit: config.rasterFit ?? 'inside', withoutEnlargement: true }).webp({ quality: 84 }).toBuffer()
       extension = 'webp'
       contentType = 'image/webp'
     } catch {

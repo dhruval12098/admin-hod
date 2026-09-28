@@ -1,7 +1,9 @@
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
+import Image from 'next/image'
+import { useRouter } from 'next/navigation'
+import { useMemo, useState } from 'react'
 import { ArrowDown, ArrowLeft, ArrowUp, ExternalLink, Gift, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { CmsSaveAction } from '@/components/cms-save-action'
 import { CMSTabs } from '@/components/cms-tabs'
@@ -10,6 +12,7 @@ import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useCmsAtomicListSave } from '@/hooks/use-cms-atomic-list-save'
+import { useUnsavedChanges } from '@/hooks/use-unsaved-changes'
 
 async function getAccessToken() {
   const { data } = await supabase.auth.getSession()
@@ -58,6 +61,7 @@ function publicAssetUrl(path: string) {
 }
 
 export function PromotionEditorClient({ initialData, initialRevision }: { initialData: PromotionInitialData; initialRevision: string }) {
+  const router = useRouter()
   const { toast } = useToast()
   const [isSaving, setIsSaving] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -66,7 +70,10 @@ export function PromotionEditorClient({ initialData, initialRevision }: { initia
   const [status, setStatus] = useState('Promotion popup loaded')
   const [uploadingField, setUploadingField] = useState<ImageField | null>(null)
   const [form, setForm] = useState(initialData.item)
+  const [savedFingerprint, setSavedFingerprint] = useState(() => JSON.stringify(initialData.item))
   const { prepareSave, acceptSave } = useCmsAtomicListSave(initialData.item.questions, initialRevision)
+  const dirty = useMemo(() => JSON.stringify(form) !== savedFingerprint, [form, savedFingerprint])
+  const unsaved = useUnsavedChanges(dirty)
 
   const updateQuestion = (index: number, patch: Partial<PromotionInitialData['item']['questions'][number]>) => setForm((current) => ({ ...current, questions: current.questions.map((question, questionIndex) => questionIndex === index ? { ...question, ...patch } : question) }))
   const addQuestion = () => setForm((current) => { const index = current.questions.length; setEditingQuestionIndex(index); return { ...current, questions: [...current.questions, { id: null, field_key: 'question_' + (index + 1), question: '', input_type: 'text', options: [], allow_multiple: false, validation_pattern: '', validation_message: '', is_required: true, is_active: true, sort_order: index }] } })
@@ -91,7 +98,7 @@ export function PromotionEditorClient({ initialData, initialRevision }: { initia
       const signResponse = await fetch('/api/cms/uploads/promotion-popup/sign', {
         method: 'POST',
         headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ contentType: preparedFile.type }),
+        body: JSON.stringify({ contentType: preparedFile.type, declaredSize: preparedFile.size }),
       })
       const signed = await signResponse.json().catch(() => null) as { bucket?: string; path?: string; token?: string; error?: string } | null
       if (!signResponse.ok || !signed?.bucket || !signed.path || !signed.token) throw new Error(signed?.error ?? 'Unable to prepare upload.')
@@ -99,19 +106,16 @@ export function PromotionEditorClient({ initialData, initialRevision }: { initia
         .uploadToSignedUrl(signed.path, signed.token, preparedFile, { contentType: preparedFile.type })
       if (error) throw error
       uploadedPath = signed.path
-    } catch {
-      const formData = new FormData()
-      formData.append('file', file)
-      const response = await fetch('/api/cms/uploads/promotion-popup', {
-        method: 'POST', headers: { authorization: `Bearer ${accessToken}` }, body: formData,
-      })
-      const payload = await response.json().catch(() => null) as { path?: string; error?: string } | null
-      if (!response.ok || !payload?.path) {
-        setStatus(payload?.error ?? 'Unable to upload image.')
-        setUploadingField(null)
-        return
+    } catch (directError) {
+      try {
+        const formData = new FormData();formData.append('file', file)
+        const response = await fetch('/api/cms/uploads/promotion-popup', { method: 'POST', headers: { authorization: `Bearer ${accessToken}` }, body: formData })
+        const payload = await response.json().catch(() => null) as { path?: string; error?: string } | null
+        if (!response.ok || !payload?.path) throw new Error(payload?.error ?? (directError instanceof Error ? directError.message : 'Unable to upload image.'))
+        uploadedPath = payload.path
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : 'Unable to upload image.');setUploadingField(null);return
       }
-      uploadedPath = payload.path
     }
     setForm((prev) => ({ ...prev, [field]: uploadedPath }))
     setUploadingField(null)
@@ -128,22 +132,26 @@ export function PromotionEditorClient({ initialData, initialRevision }: { initia
       const accessToken = await getAccessToken()
       if (!accessToken) throw new Error('Missing access token.')
       const questions = form.questions.map((question, index) => ({ ...question, sort_order: index }))
-      const { questions: _questions, ...parent } = form
+      const parent = { label:form.label,title:form.title,description:form.description,cta_text:form.cta_text,cta_link:form.cta_link,cta_action:form.cta_action,selected_coupon_id:form.selected_coupon_id,image_path:form.image_path,mobile_image_path:form.mobile_image_path,image_alt:form.image_alt,image_only_mode:form.image_only_mode,is_active:form.is_active,show_once_per_session:form.show_once_per_session }
       const response = await fetch('/api/cms/promotion', {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` },
         body: JSON.stringify(prepareSave({ parent, items: questions }, questions)),
       })
-      const payload = await response.json().catch(() => null) as { error?: string; items?: PromotionInitialData['item']['questions']; revision?: string } | null
+      const payload = await response.json().catch(() => null) as { error?: string; parent?: Omit<PromotionInitialData['item'], 'questions'>; items?: PromotionInitialData['item']['questions']; revision?: string } | null
       if (!response.ok) throw new Error(payload?.error ?? 'Unable to save promotion popup.')
-      if (!payload?.items || !payload.revision) throw new Error('Saved, but the updated questions could not be reloaded. Reload this page.')
-      setForm((current) => ({ ...current, questions: payload.items! }))
+      if (!payload?.parent || !Array.isArray(payload.items) || !payload.revision) throw new Error('Save response was interrupted. Retry to confirm the same save.')
+      const canonical = { ...payload.parent, questions: payload.items }
+      setForm(canonical)
+      setSavedFingerprint(JSON.stringify(canonical))
       acceptSave(payload.items, payload.revision)
       setConfirmOpen(false)
       setStatus('Promotion popup saved')
       toast({ title: 'Saved', description: 'Promotion popup updated successfully.' })
     } catch (error) {
-      toast({ title: 'Save failed', description: error instanceof Error ? error.message : 'Unable to save promotion popup.', variant: 'destructive' })
+      const message = error instanceof Error ? error.message : 'Unable to save promotion popup.'
+      setStatus(message)
+      toast({ title: 'Save failed', description: message, variant: 'destructive' })
     } finally {
       setIsSaving(false)
     }
@@ -153,8 +161,8 @@ export function PromotionEditorClient({ initialData, initialRevision }: { initia
     <div className="min-h-full p-6 lg:p-8">
       <CMSTabs />
       <div className="mb-8 mt-8 flex items-center justify-between gap-4">
-        <Link href="/dashboard/cms" className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:text-primary/80"><ArrowLeft size={16} />Back to CMS</Link>
-        <CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={isSaving} position="inline" />
+        <Link href="/dashboard/cms" onClick={(event) => { event.preventDefault(); unsaved.confirmNavigation(() => router.push('/dashboard/cms')) }} className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:text-primary/80"><ArrowLeft size={16} />Back to CMS</Link>
+        <CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={isSaving} disabled={!dirty || Boolean(uploadingField) || editingQuestionIndex !== null} position="inline" />
       </div>
       <div className="mb-10">
         <h1 className="font-jakarta text-3xl font-semibold text-foreground">Promotion Popup</h1>
@@ -169,6 +177,14 @@ export function PromotionEditorClient({ initialData, initialRevision }: { initia
             <div><label htmlFor="promotion-title" className="mb-2 block text-sm font-semibold text-foreground">Title</label><input id="promotion-title" value={form.title} onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))} className={fieldClassName} /></div>
             <div><label htmlFor="promotion-description" className="mb-2 block text-sm font-semibold text-foreground">Description</label><textarea id="promotion-description" value={form.description} onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))} rows={4} className={fieldClassName} /></div>
           </div>
+        </section>
+
+        <section aria-labelledby="promotion-media-heading" className="border-t border-border pt-8">
+          <h2 id="promotion-media-heading" className="font-jakarta text-base font-semibold text-foreground">Popup images</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Use separate desktop and mobile artwork when needed.</p>
+          <div className="mt-5 grid gap-5 lg:grid-cols-2">{([['image_path','Desktop image'],['mobile_image_path','Mobile image']] as const).map(([field,label])=><div key={field} className="rounded-lg border border-border p-4"><p className="text-sm font-semibold">{label}</p><div className="mt-3 flex min-h-40 items-center justify-center overflow-hidden bg-secondary/30">{form[field]?<Image unoptimized width={640} height={360} src={publicAssetUrl(form[field])} alt={form.image_alt||label} className="h-40 w-full object-contain"/>:<span className="text-sm text-muted-foreground">No image uploaded</span>}</div><label className="mt-3 inline-flex cursor-pointer rounded-md border border-border px-3 py-2 text-sm font-semibold">{uploadingField===field?'Uploading...':'Upload image'}<input type="file" accept="image/svg+xml,image/jpeg,image/png,image/webp,image/avif" disabled={Boolean(uploadingField)} className="hidden" onChange={(event)=>{const file=event.target.files?.[0];if(file)void uploadAsset(file,field);event.target.value='' }}/></label></div>)}</div>
+          <label className="mt-5 block text-sm font-semibold">Image alt text<input value={form.image_alt} onChange={(event)=>setForm((current)=>({...current,image_alt:event.target.value}))} className={fieldClassName}/></label>
+          <label className="mt-4 flex items-center gap-2 text-sm"><input type="checkbox" checked={form.image_only_mode} onChange={(event)=>setForm((current)=>({...current,image_only_mode:event.target.checked}))}/>Use image-only presentation</label>
         </section>
 
         <section aria-labelledby="cta-heading" className="border-t border-border pt-8">
@@ -226,6 +242,7 @@ export function PromotionEditorClient({ initialData, initialRevision }: { initia
       </div>
       <ConfirmDialog isOpen={deleteQuestionIndex !== null} title="Delete question?" description="This question will be removed from the popup configuration when you save." confirmText="Delete" cancelText="Cancel" type="delete" onConfirm={() => { if (deleteQuestionIndex !== null) removeQuestion(deleteQuestionIndex); setDeleteQuestionIndex(null) }} onCancel={() => setDeleteQuestionIndex(null)} />
       <ConfirmDialog isOpen={confirmOpen} title="Save promotion popup?" description="This will update the storefront promotional popup." confirmText="Save" cancelText="Cancel" type="confirm" isLoading={isSaving} onConfirm={() => void save()} onCancel={() => setConfirmOpen(false)} />
+      <ConfirmDialog isOpen={unsaved.showWarning} title="Discard unsaved promotion changes?" description="Your promotion popup changes have not been saved." confirmText="Discard changes" cancelText="Keep editing" type="warning" onConfirm={unsaved.handleDiscard} onCancel={() => unsaved.setShowWarning(false)} />
     </div>
   )
 }

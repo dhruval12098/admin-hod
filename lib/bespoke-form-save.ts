@@ -79,10 +79,10 @@ function saveErrorResponse(error: { code?: string; message?: string }) {
       { status: 503 }
     )
   }
-  if (error.code === '40001') return NextResponse.json({ error: error.message }, { status: 409 })
+  if (error.code === '40001') return NextResponse.json({ error: 'The Bespoke form changed after you opened it. Reload before saving again.' }, { status: 409 })
   if (error.code === '42501') return NextResponse.json({ error: 'Administrator access is required.' }, { status: 403 })
   if (['22023', '22P02', '23502', '23503', '23505', '23514'].includes(error.code ?? '')) {
-    return NextResponse.json({ error: error.message }, { status: 400 })
+    return NextResponse.json({ error: 'The Bespoke form contains invalid or conflicting data.' }, { status: 400 })
   }
   return NextResponse.json(
     { error: 'Unable to save the Bespoke form. No partial changes were committed.' },

@@ -25,16 +25,16 @@ export async function loadCatalogRingSnapshot(client: RpcClient) {
 
 function errorResponse(error: { code?: string; message?: string }) {
   if (error.code === 'PGRST202' || error.code === '42883') return NextResponse.json({ error: 'Ring catalog is awaiting its database update. Existing data was not changed.' }, { status: 503 })
-  if (error.code === '40001') return NextResponse.json({ error: error.message }, { status: 409 })
-  if (error.code === 'P0001') return NextResponse.json({ error: error.message }, { status: 409 })
+  if (error.code === '40001') return NextResponse.json({ error: 'The ring catalog changed after you opened it. Reload before saving again.' }, { status: 409 })
+  if (error.code === 'P0001') return NextResponse.json({ error: 'The ring catalog conflicts with another saved record.' }, { status: 409 })
   if (error.code === 'P0002') return NextResponse.json({ error: 'A ring catalog record no longer exists.' }, { status: 404 })
-  if (['22023', '22P02', '23503', '23505', '23514'].includes(error.code ?? '')) return NextResponse.json({ error: error.message }, { status: 400 })
+  if (['22023', '22P02', '23503', '23505', '23514'].includes(error.code ?? '')) return NextResponse.json({ error: 'The ring catalog contains invalid or conflicting data.' }, { status: 400 })
   return NextResponse.json({ error: 'Unable to save the ring catalog. No partial changes were committed.' }, { status: 500 })
 }
 
 export async function getCatalogRing(access: Access) {
   try { return NextResponse.json(await loadCatalogRingSnapshot(access.adminClient), { headers: { 'Cache-Control': 'no-store' } }) }
-  catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : 'Unable to load ring catalog.' }, { status: 503 }) }
+  catch { return NextResponse.json({ error: 'Unable to load the ring catalog.' }, { status: 503 }) }
 }
 
 export async function saveCatalogRing(access: Access, input: unknown) {

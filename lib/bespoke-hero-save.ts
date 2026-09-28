@@ -18,8 +18,8 @@ export async function loadBespokeHeroSnapshot(client: SupabaseClient) {
 
 function errorResponse(error: { code?: string; message?: string }) {
   if (error.code === 'PGRST202' || error.code === '42883') return NextResponse.json({ error: 'The Bespoke Hero is awaiting its database update. Existing content was not changed.' }, { status: 503 })
-  if (error.code === '40001') return NextResponse.json({ error: error.message }, { status: 409 })
-  if (['22023', '22P02', '23502', '23503', '23505', '23514'].includes(error.code ?? '')) return NextResponse.json({ error: error.message }, { status: 400 })
+  if (error.code === '40001') return NextResponse.json({ error: 'The Bespoke Hero changed after you opened it. Reload before saving again.' }, { status: 409 })
+  if (['22023', '22P02', '23502', '23503', '23505', '23514'].includes(error.code ?? '')) return NextResponse.json({ error: 'The Bespoke Hero contains invalid or conflicting data.' }, { status: 400 })
   return NextResponse.json({ error: 'Unable to save the Bespoke Hero. No partial changes were committed.' }, { status: 500 })
 }
 
@@ -31,7 +31,11 @@ export async function saveBespokeHero(access: Access, input: unknown) {
   if (!slides.success) return NextResponse.json({ error: slides.error.issues[0]?.message ?? 'Invalid hero slide.' }, { status: 400 })
   const ids = slides.data.flatMap((entry) => entry.id ? [entry.id] : [])
   if (new Set(ids).size !== ids.length || new Set(parsed.data.deleted_ids).size !== parsed.data.deleted_ids.length || ids.some((id) => parsed.data.deleted_ids.includes(id))) return NextResponse.json({ error: 'Slide IDs must be unique and cannot also be deleted.' }, { status: 400 })
-  const cleanSlides = slides.data.map(({ clientId: _clientId, ...entry }) => entry)
+  const cleanSlides = slides.data.map((slideEntry) => {
+    const entry = { ...slideEntry }
+    delete entry.clientId
+    return entry
+  })
   const { data, error } = await access.adminClient.rpc('bespoke_hero_save_v1', { p_actor_id: access.user.id, p_request_id: parsed.data.request_id, p_expected_revision: parsed.data.expected_revision, p_item: parent.data, p_items: cleanSlides, p_deleted_ids: parsed.data.deleted_ids })
   if (error) return errorResponse(error)
   return NextResponse.json(data, { headers: { 'Cache-Control': 'no-store' } })

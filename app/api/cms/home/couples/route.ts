@@ -40,7 +40,7 @@ export async function GET(request: Request) {
     .select('id, section_key, eyebrow, heading, subtitle')
     .eq('section_key', sectionKey)
     .maybeSingle()
-  if (sectionError) return NextResponse.json({ error: sectionError.message }, { status: 500 })
+  if (sectionError) return NextResponse.json({ error: 'Unable to load Couples content.' }, { status: 503 })
 
   const items = section
     ? await adminClient
@@ -50,12 +50,12 @@ export async function GET(request: Request) {
         .order('sort_order', { ascending: true })
     : { data: [], error: null }
 
-  if (items.error) return NextResponse.json({ error: items.error.message }, { status: 500 })
+  if (items.error) return NextResponse.json({ error: 'Unable to load Couples entries.' }, { status: 503 })
 
   return NextResponse.json({
     section: section ?? { section_key: sectionKey, eyebrow: 'Love Stories', heading: 'Our Cute Couples', subtitle: 'Real couples. Real proposals. Real diamonds. Every ring tells a story.' },
     items: items.data ?? [],
-  })
+  }, { headers: { 'Cache-Control': 'no-store' } })
 }
 
 export async function POST(request: Request) {
@@ -78,10 +78,10 @@ export async function POST(request: Request) {
     )
     .select('id')
     .single()
-  if (sectionError || !section) return NextResponse.json({ error: sectionError?.message ?? 'Unable to save couples section.' }, { status: 500 })
+  if (sectionError || !section) return NextResponse.json({ error: 'Unable to save the Couples section.' }, { status: 500 })
 
   const { error: deleteError } = await adminClient.from('couples_items').delete().eq('section_id', section.id)
-  if (deleteError) return NextResponse.json({ error: deleteError.message }, { status: 500 })
+  if (deleteError) return NextResponse.json({ error: 'Unable to replace Couples entries.' }, { status: 500 })
 
   const rows = body.items
     .filter((item: any) =>
@@ -107,7 +107,7 @@ export async function POST(request: Request) {
 
   if (rows.length > 0) {
     const { error: insertError } = await adminClient.from('couples_items').insert(rows)
-    if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 })
+    if (insertError) return NextResponse.json({ error: 'Unable to finish saving Couples entries.' }, { status: 500 })
   }
 
   return NextResponse.json({ ok: true })

@@ -48,7 +48,6 @@ export function RingSizesClient({
   const [categories, setCategories] = useState<RingCategory[]>(initialCategories)
   const [sizes, setSizes] = useState<RingCategorySize[]>(initialSizes)
   const [revision, setRevision] = useState(initialRevision)
-  const [loading, setLoading] = useState(false)
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false)
   const [sizeDialogOpen, setSizeDialogOpen] = useState(false)
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null)
@@ -204,10 +203,6 @@ export function RingSizesClient({
         ))}
         {categories.length === 0 ? <div className="rounded-lg border border-border bg-white p-6 text-sm text-muted-foreground">No ring categories added yet.</div> : null}
       </div>
-
-      {loading ? (
-        <div className="mt-8 text-sm text-muted-foreground">Updating ring categories...</div>
-      ) : null}
 
       <Dialog open={categoryDialogOpen} onOpenChange={setCategoryDialogOpen}>
         <DialogContent className="sm:max-w-xl">

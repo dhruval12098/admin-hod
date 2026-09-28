@@ -1,41 +1,38 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { assertAdmin } from './cms-auth'
+import { supportAnnouncementItemSchema, supportAnnouncementParentSchema, supportFaqItemSchema, supportFaqParentSchema } from './cms-support-schemas'
+import { checkoutResultItemSchema, checkoutResultParentSchema, promotionItemSchema, promotionParentSchema, serviceBannerItemSchema, serviceBannerParentSchema, summaryItemSchema, summaryParentSchema } from './cms-shared-schemas'
 
 export type CmsRelationalKind = 'checkout_result' | 'promotion' | 'service_banner' | 'summary' | 'announcement' | 'faq'
 type Access = Exclude<Awaited<ReturnType<typeof assertAdmin>>, { error: NextResponse }>
 type RpcClient = { rpc: (name: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: { code?: string; message?: string } | null }> }
-const text = (max = 10_000) => z.string().max(max)
-const required = (max = 10_000) => z.string().trim().min(1).max(max)
-const integer = z.coerce.number().int().min(0).max(1_000_000)
-const numericId = z.union([z.number().int().positive(), z.string().regex(/^[1-9][0-9]*$/)]).transform(String)
 const uuid = z.string().uuid()
-const httpUrl = z.string().max(2_000).refine((value) => !value || /^https?:\/\//i.test(value), 'Use a valid HTTP(S) URL.')
 
 const schemas: Record<CmsRelationalKind, { parent: z.ZodTypeAny; item: z.ZodTypeAny }> = {
   checkout_result: {
-    parent: z.object({ main_banner_image_path: text(2_000), main_banner_image_alt: text(2_000), secondary_banner_image_path: text(2_000), secondary_banner_image_alt: text(2_000), secondary_eyebrow: text(500), secondary_heading: text(500), secondary_paragraph: text(10_000), is_enabled: z.boolean() }).strict(),
-    item: z.object({ state: z.enum(['success', 'pending', 'failed', 'error']), eyebrow: text(500), heading: text(500), paragraph: text(10_000), order_button_label: text(500), is_enabled: z.boolean() }).strict(),
+    parent: checkoutResultParentSchema,
+    item: checkoutResultItemSchema,
   },
   promotion: {
-    parent: z.object({ label: text(500), title: text(500), description: text(10_000), cta_text: text(500), cta_link: text(2_000), cta_action: z.enum(['redirect', 'reveal_coupon']), selected_coupon_id: z.number().int().positive().nullable(), image_path: text(2_000), mobile_image_path: text(2_000), image_alt: text(2_000), image_only_mode: z.boolean(), is_active: z.boolean(), show_once_per_session: z.boolean() }).strict(),
-    item: z.object({ id: numericId.nullable().optional(), field_key: z.string().regex(/^[a-z][a-z0-9_]{1,49}$/), question: required(2_000), input_type: z.enum(['text', 'email', 'phone', 'number', 'options']), options: z.array(z.object({ id: z.string(), label: required(500), value: required(500) }).strict()).max(100), allow_multiple: z.boolean(), validation_pattern: text(2_000), validation_message: text(2_000), is_required: z.boolean(), is_active: z.boolean(), sort_order: integer }).strict(),
+    parent: promotionParentSchema,
+    item: promotionItemSchema,
   },
   service_banner: {
-    parent: z.object({ image_path: text(2_000), image_alt: text(2_000), is_enabled: z.boolean() }).strict(),
-    item: z.object({ id: uuid.optional(), title: required(500), paragraph: required(10_000), sort_order: integer, is_active: z.boolean() }).strict(),
+    parent: serviceBannerParentSchema,
+    item: serviceBannerItemSchema,
   },
   summary: {
-    parent: z.object({ heading: required(200), is_enabled: z.boolean() }).strict(),
-    item: z.object({ id: uuid.optional(), sort_order: integer, icon_url: httpUrl, pointer_text: required(500), video_url: httpUrl, video_link_text: text(150) }).strict().refine((x) => !x.video_link_text.trim() || Boolean(x.video_url), 'Video link text requires a video URL.'),
+    parent: summaryParentSchema,
+    item: summaryItemSchema,
   },
   announcement: {
-    parent: z.object({ is_active: z.boolean(), autoplay: z.boolean(), speed_ms: z.coerce.number().int().min(100).max(120_000) }).strict(),
-    item: z.object({ id: numericId.optional(), message: required(2_000), link_url: text(2_000), open_in_new_tab: z.boolean(), sort_order: integer, is_active: z.boolean() }).strict(),
+    parent: supportAnnouncementParentSchema,
+    item: supportAnnouncementItemSchema,
   },
   faq: {
-    parent: z.object({ title: required(500), subtitle: text(2_000) }).strict(),
-    item: z.object({ id: numericId.optional(), question: required(2_000), answer: required(50_000), sort_order: integer, is_active: z.boolean(), category_id: z.union([z.number().int().positive(), z.null()]), catalog_category_id: z.union([uuid, z.null()]) }).strict(),
+    parent: supportFaqParentSchema,
+    item: supportFaqItemSchema,
   },
 }
 
@@ -50,8 +47,8 @@ export async function loadCmsRelationalSnapshot(client: RpcClient, kind: CmsRela
 
 function errorResponse(error: { code?: string; message?: string }) {
   if (error.code === 'PGRST202' || error.code === '42883') return NextResponse.json({ error: 'This CMS section is awaiting its database update. Existing content was not changed.' }, { status: 503 })
-  if (error.code === '40001') return NextResponse.json({ error: error.message }, { status: 409 })
-  if (['22023', '22P02', '23502', '23503', '23505', '23514'].includes(error.code ?? '')) return NextResponse.json({ error: error.message }, { status: 400 })
+  if (error.code === '40001') return NextResponse.json({ error: 'This section changed after you opened it. Reload before saving again.' }, { status: 409 })
+  if (['22023', '22P02', '23502', '23503', '23505', '23514'].includes(error.code ?? '')) return NextResponse.json({ error: 'This section contains invalid or conflicting data.' }, { status: 400 })
   return NextResponse.json({ error: 'Unable to save this section. No partial changes were committed.' }, { status: 500 })
 }
 

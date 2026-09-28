@@ -1,8 +1,9 @@
 'use client'
 
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useMemo, useState } from 'react'
-import { ArrowLeft, Edit2, Plus } from 'lucide-react'
+import { ArrowLeft, Edit2, Plus, Trash2 } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -15,6 +16,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { CmsSaveAction } from '@/components/cms-save-action'
 import { supabase } from '@/lib/supabase'
 import { useCmsAtomicListSave } from '@/hooks/use-cms-atomic-list-save'
+import { useUnsavedChanges } from '@/hooks/use-unsaved-changes'
 
 type TimelineItem = {
   clientId: string
@@ -60,6 +62,7 @@ const empty = (sortOrder: number): EditorItem => ({
 })
 
 export function TimelineEditorClient({ initialData }: { initialData: TimelineInitialData }) {
+  const router = useRouter()
   const [items, setItems] = useState<TimelineItem[]>(
     initialData.items.map((item) => ({ clientId: `id-${item.id}`, ...item }))
   )
@@ -68,12 +71,18 @@ export function TimelineEditorClient({ initialData }: { initialData: TimelineIni
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
   const [editorItem, setEditorItem] = useState<EditorItem>(empty(1))
+  const [savedState, setSavedState] = useState(() => JSON.stringify(
+    [...initialData.items].sort((a, b) => a.sort_order - b.sort_order || a.id - b.id).map(({ id, year, label }) => ({ id, year, label }))
+  ))
   const { prepareSave, acceptSave } = useCmsAtomicListSave(initialData.items, initialData.revision)
 
   const sorted = useMemo(
     () => [...items].sort((a, b) => a.sort_order - b.sort_order || a.clientId.localeCompare(b.clientId)),
     [items]
   )
+  const saveItems = sorted.map(({ id, year, label }) => ({ ...(id ? { id } : {}), year, label }))
+  const dirty = JSON.stringify(saveItems) !== savedState
+  const unsaved = useUnsavedChanges(dirty || editorOpen)
 
   const nextOrder = Math.max(...items.map((item) => item.sort_order), 0) + 1
 
@@ -92,50 +101,36 @@ export function TimelineEditorClient({ initialData }: { initialData: TimelineIni
 
   const saveAll = async () => {
     setIsSaving(true)
-    const { data } = await supabase.auth.getSession()
-    const token = data.session?.access_token
-    if (!token) {
-      setIsSaving(false)
-      setStatus('You are not signed in.')
-      return
-    }
-
-    const saveItems = sorted.map(({ id, year, label }) => ({ ...(id ? { id } : {}), year, label }))
-    const response = await fetch('/api/cms/about/timeline', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(prepareSave({ items: saveItems }, saveItems)),
-    })
-
-    const payload = (await response.json().catch(() => null)) as ApiPayload | null
-    setIsSaving(false)
-
-    if (!response.ok) {
-      setStatus(payload?.error ?? 'Unable to save timeline.')
-      return
-    }
-
-
-    if (Array.isArray(payload?.items) && typeof payload.revision === 'string') {
+    try {
+      const { data } = await supabase.auth.getSession()
+      const token = data.session?.access_token
+      if (!token) throw new Error('You are not signed in.')
+      const response = await fetch('/api/cms/about/timeline', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+        body: JSON.stringify(prepareSave({ items: saveItems }, saveItems)),
+      })
+      const payload = (await response.json().catch(() => null)) as ApiPayload | null
+      if (!response.ok) throw new Error(payload?.error ?? 'Unable to save timeline.')
+      if (!Array.isArray(payload?.items) || typeof payload.revision !== 'string') throw new Error('Save response was interrupted. Retry to confirm the same save.')
       setItems(payload.items.map((item) => ({ clientId: `id-${item.id}`, ...item })))
+      setSavedState(JSON.stringify(payload.items.map(({ id, year, label }) => ({ id, year, label }))))
       acceptSave(payload.items, payload.revision)
-    }
-
-    setConfirmOpen(false)
-    setStatus('Timeline saved')
+      setConfirmOpen(false)
+      setStatus('Timeline saved')
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Unable to save timeline.')
+    } finally { setIsSaving(false) }
   }
 
   return (
     <div className="min-h-screen bg-background p-8">
       <div className="mb-8 flex items-center justify-between gap-4">
-        <Link href="/dashboard/cms/about" className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:text-primary/80">
+        <Link href="/dashboard/cms/about" onClick={(event) => { event.preventDefault(); unsaved.confirmNavigation(() => router.push('/dashboard/cms/about')) }} className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:text-primary/80">
           <ArrowLeft size={16} />
           Back to About
         </Link>
-        <CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={isSaving} position="inline" />
+        <CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={isSaving} disabled={!dirty} position="inline" />
       </div>
 
       <div className="mb-10">
@@ -161,10 +156,7 @@ export function TimelineEditorClient({ initialData }: { initialData: TimelineIni
                 <td className="px-5 py-4 text-sm">{item.year}</td>
                 <td className="px-5 py-4 text-sm">{item.label}</td>
                 <td className="px-5 py-4 text-right">
-                  <button onClick={() => { setEditorItem(item); setEditorOpen(true) }} className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-secondary">
-                    <Edit2 size={14} />
-                    Edit
-                  </button>
+                  <div className="flex items-center justify-end gap-2"><button onClick={() => { setEditorItem(item); setEditorOpen(true) }} className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-secondary"><Edit2 size={14} />Edit</button><button onClick={() => setItems((current) => current.filter((entry) => entry.clientId !== item.clientId))} className="inline-flex items-center gap-2 rounded-md border border-red-200 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"><Trash2 size={14} />Delete</button></div>
                 </td>
               </tr>
             ))}
@@ -193,6 +185,7 @@ export function TimelineEditorClient({ initialData }: { initialData: TimelineIni
         onConfirm={saveAll}
         onCancel={() => setConfirmOpen(false)}
       />
+      <ConfirmDialog isOpen={unsaved.showWarning} title="Discard unsaved Timeline changes?" description="Your timeline changes have not been saved." confirmText="Discard changes" cancelText="Keep editing" type="warning" onConfirm={unsaved.handleDiscard} onCancel={() => unsaved.setShowWarning(false)} />
 
       <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
         <DialogContent className="sm:max-w-xl">

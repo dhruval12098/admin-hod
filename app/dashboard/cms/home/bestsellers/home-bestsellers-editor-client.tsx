@@ -1,12 +1,14 @@
 'use client'
 
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { ArrowLeft, Edit2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { CmsSaveAction } from '@/components/cms-save-action'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { useToast } from '@/hooks/use-toast'
+import { useUnsavedChanges } from '@/hooks/use-unsaved-changes'
 import { supabase } from '@/lib/supabase'
 
 export type ProductListItem = {
@@ -29,6 +31,8 @@ type EditorState = {
 
 type SavedProductOverride = { id: string; product_id: string; display_title: string; display_image_path: string }
 
+function editableState(form: EditorState) { return JSON.stringify(form) }
+
 export type HomeBestSellersInitialData = {
   revision: string
   section: EditorState
@@ -37,6 +41,7 @@ export type HomeBestSellersInitialData = {
 
 export function HomeBestSellersEditorClient({ initialData }: { initialData: HomeBestSellersInitialData }) {
   const { toast } = useToast()
+  const router = useRouter()
   const [form, setForm] = useState<EditorState>(initialData.section)
   const [products] = useState<ProductListItem[]>(initialData.products)
   const [search, setSearch] = useState('')
@@ -47,7 +52,10 @@ export function HomeBestSellersEditorClient({ initialData }: { initialData: Home
   const [editingProductId, setEditingProductId] = useState<string | null>(null)
   const [revision, setRevision] = useState(initialData.revision)
   const [savedItemIds, setSavedItemIds] = useState(() => initialData.section.selected_products.flatMap((item) => item.id ? [item.id] : []))
+  const [savedState, setSavedState] = useState(() => editableState(initialData.section))
   const pendingSave = useRef<{ fingerprint: string; id: string } | null>(null)
+  const dirty = editableState(form) !== savedState
+  const unsaved = useUnsavedChanges(dirty)
 
   const filteredProducts = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -127,55 +135,46 @@ export function HomeBestSellersEditorClient({ initialData }: { initialData: Home
 
   const handleSave = async () => {
     setIsSaving(true)
-    const { data: sessionData } = await supabase.auth.getSession()
-    const accessToken = sessionData.session?.access_token
+    try {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const accessToken = sessionData.session?.access_token
+      if (!accessToken) throw new Error('You are not signed in.')
 
-    if (!accessToken) {
-      setIsSaving(false)
-      setStatus('You are not signed in.')
-      return
-    }
-
-    const retainedIds = new Set(form.selected_products.flatMap((item) => item.id ? [item.id] : []))
-    const saveBody = { ...form, expected_revision: revision, deleted_ids: savedItemIds.filter((id) => !retainedIds.has(id)) }
-    const fingerprint = JSON.stringify(saveBody)
-    if (pendingSave.current?.fingerprint !== fingerprint) pendingSave.current = { fingerprint, id: crypto.randomUUID() }
-    const response = await fetch('/api/cms/home/bestsellers', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({ ...saveBody, request_id: pendingSave.current.id }),
-    })
-
-    const payload = await response.json().catch(() => null)
-    setIsSaving(false)
-
-    if (!response.ok) {
-      setStatus(payload?.error ?? 'Unable to save best sellers.')
-      return
-    }
-
-    if (Array.isArray(payload?.items) && typeof payload?.revision === 'string') {
+      const retainedIds = new Set(form.selected_products.flatMap((item) => item.id ? [item.id] : []))
+      const saveBody = { ...form, expected_revision: revision, deleted_ids: savedItemIds.filter((id) => !retainedIds.has(id)) }
+      const fingerprint = JSON.stringify(saveBody)
+      if (pendingSave.current?.fingerprint !== fingerprint) pendingSave.current = { fingerprint, id: crypto.randomUUID() }
+      const response = await fetch('/api/cms/home/bestsellers', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ ...saveBody, request_id: pendingSave.current.id }),
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(payload?.error ?? 'Unable to save best sellers.')
+      if (!Array.isArray(payload?.items) || typeof payload?.revision !== 'string' || !payload?.section) throw new Error('Save response was interrupted. Retry to confirm the same save.')
       const selectedProducts: SavedProductOverride[] = payload.items.map((item: { id: string; product_id: string; display_title?: string | null; display_image_path?: string | null }) => ({
         id: item.id, product_id: item.product_id, display_title: item.display_title ?? '', display_image_path: item.display_image_path ?? '',
       }))
-      setForm((current) => ({ ...current, selected_product_ids: selectedProducts.map((item) => item.product_id), selected_products: selectedProducts }))
+      const nextForm = { ...payload.section, selected_product_ids: selectedProducts.map((item) => item.product_id), selected_products: selectedProducts } as EditorState
+      setForm(nextForm)
+      setSavedState(editableState(nextForm))
       setSavedItemIds(selectedProducts.map((item) => item.id))
       setRevision(payload.revision)
       pendingSave.current = null
+      setConfirmOpen(false)
+      setStatus('Best sellers saved')
+      toast({ title: 'Saved', description: 'Homepage best sellers updated successfully.' })
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Unable to save best sellers.')
+    } finally {
+      setIsSaving(false)
     }
-
-    setConfirmOpen(false)
-    setStatus('Best sellers saved')
-    toast({ title: 'Saved', description: 'Homepage best sellers updated successfully.' })
   }
 
   return (
     <div className="p-8">
       <div className="mb-8 flex items-center gap-4">
-        <Link href="/dashboard/cms/home" className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:text-primary/80">
+        <Link href="/dashboard/cms/home" onClick={(event) => { event.preventDefault(); unsaved.confirmNavigation(() => router.push('/dashboard/cms/home')) }} className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:text-primary/80">
           <ArrowLeft size={16} />
           Back to Home
         </Link>
@@ -322,7 +321,7 @@ export function HomeBestSellersEditorClient({ initialData }: { initialData: Home
           <DialogFooter><button type="button" onClick={() => setEditingProductId(null)} className="rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white">Done</button></DialogFooter>
         </DialogContent>
       </Dialog>
-      <CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={isSaving} />
+      <CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={isSaving} disabled={!dirty} />
 
       <ConfirmDialog
         isOpen={confirmOpen}
@@ -335,6 +334,7 @@ export function HomeBestSellersEditorClient({ initialData }: { initialData: Home
         onConfirm={handleSave}
         onCancel={() => setConfirmOpen(false)}
       />
+      <ConfirmDialog isOpen={unsaved.showWarning} title="Discard unsaved Best Sellers changes?" description="Your changes have not been saved." confirmText="Discard changes" cancelText="Keep editing" type="warning" onConfirm={unsaved.handleDiscard} onCancel={() => unsaved.setShowWarning(false)} />
     </div>
   )
 }

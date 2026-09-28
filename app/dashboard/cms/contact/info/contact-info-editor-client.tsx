@@ -18,6 +18,7 @@ import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
 import { uploadCmsAssetDirectWithFallback } from '@/lib/cms-direct-upload-client'
 import { useCmsAtomicListSave } from '@/hooks/use-cms-atomic-list-save'
+import { useUnsavedChanges } from '@/hooks/use-unsaved-changes'
 
 type ContactInfoItem = {
   clientId: string
@@ -55,6 +56,10 @@ const empty = (sortOrder: number): EditorItem => ({
   icon_path: '',
 })
 
+const fingerprint = (items: ContactInfoItem[]) => JSON.stringify([...items]
+  .sort((a, b) => a.sort_order - b.sort_order || a.clientId.localeCompare(b.clientId))
+  .map(({ id, label, value, note, href, icon_path }) => ({ id, label, value, note, href, icon_path })))
+
 export function ContactInfoEditorClient({ initialData }: { initialData: ContactInfoInitialData }) {
   const router = useRouter()
   const { toast } = useToast()
@@ -66,7 +71,9 @@ export function ContactInfoEditorClient({ initialData }: { initialData: ContactI
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
   const [editorItem, setEditorItem] = useState<EditorItem>(empty(1))
+  const [deleteTarget, setDeleteTarget] = useState<ContactInfoItem | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [savedFingerprint, setSavedFingerprint] = useState(() => fingerprint(initialData.items.map((item) => ({ clientId: `id-${item.id}`, ...item }))))
   const { prepareSave, acceptSave } = useCmsAtomicListSave(initialData.items, initialData.revision)
 
   const sorted = useMemo(
@@ -74,6 +81,8 @@ export function ContactInfoEditorClient({ initialData }: { initialData: ContactI
     [items]
   )
   const nextOrder = Math.max(...items.map((item) => item.sort_order), 0) + 1
+  const dirty = useMemo(() => fingerprint(items) !== savedFingerprint, [items, savedFingerprint])
+  const unsaved = useUnsavedChanges(dirty || editorOpen)
 
   const save = async () => {
     setIsSaving(true)
@@ -96,17 +105,12 @@ export function ContactInfoEditorClient({ initialData }: { initialData: ContactI
       })
 
       const payload = (await response.json().catch(() => null)) as { items?: ContactInfoInitialData['items']; revision?: string; error?: string } | null
-      if (!response.ok) {
-        const message = payload?.error ?? 'Unable to save contact info.'
-        setStatus(message)
-        toast({ title: 'Save failed', description: message, variant: 'destructive' })
-        return
-      }
-
-      if (Array.isArray(payload?.items) && typeof payload.revision === 'string') {
-        setItems(payload.items.map((item) => ({ clientId: `id-${item.id}`, ...item })))
-        acceptSave(payload.items, payload.revision)
-      }
+      if (!response.ok) throw new Error(payload?.error ?? 'Unable to save contact info.')
+      if (!Array.isArray(payload?.items) || !payload.revision) throw new Error('Save response was interrupted. Retry to confirm the same save.')
+      const canonical = payload.items.map((item) => ({ clientId: `id-${item.id}`, ...item }))
+      setItems(canonical)
+      setSavedFingerprint(fingerprint(canonical))
+      acceptSave(payload.items, payload.revision)
 
       setConfirmOpen(false)
       setStatus('Contact info saved')
@@ -168,11 +172,11 @@ export function ContactInfoEditorClient({ initialData }: { initialData: ContactI
   return (
     <div className="min-h-screen bg-background p-8">
       <div className="mb-8 flex items-center justify-between">
-        <Link href="/dashboard/cms/contact" className="inline-flex items-center gap-2 text-sm font-semibold text-primary">
+        <Link href="/dashboard/cms/contact" onClick={(event) => { event.preventDefault(); unsaved.confirmNavigation(() => router.push('/dashboard/cms/contact')) }} className="inline-flex items-center gap-2 text-sm font-semibold text-primary">
           <ArrowLeft size={16} />
           Back to Contact
         </Link>
-        <CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={isSaving} position="inline" />
+        <CmsSaveAction onClick={() => setConfirmOpen(true)} isSaving={isSaving} disabled={!dirty || editorOpen || uploading} position="inline" />
       </div>
 
       <div className="mb-10">
@@ -204,7 +208,7 @@ export function ContactInfoEditorClient({ initialData }: { initialData: ContactI
                     <button onClick={() => { setEditorItem(item); setEditorOpen(true) }} className="rounded-md border px-3 py-2 text-sm">
                       <Edit2 size={14} />
                     </button>
-                    <button onClick={() => setItems((prev) => prev.filter((x) => x.clientId !== item.clientId))} className="rounded-md border px-3 py-2 text-sm">
+                    <button onClick={() => setDeleteTarget(item)} className="rounded-md border px-3 py-2 text-sm">
                       <Trash2 size={14} />
                     </button>
                   </div>
@@ -226,6 +230,8 @@ export function ContactInfoEditorClient({ initialData }: { initialData: ContactI
       </button>
 
       <ConfirmDialog isOpen={confirmOpen} title="Save contact info?" description="This updates the contact info cards." confirmText="Save" cancelText="Cancel" type="confirm" isLoading={isSaving} onConfirm={save} onCancel={() => setConfirmOpen(false)} />
+      <ConfirmDialog isOpen={Boolean(deleteTarget)} title="Delete contact card?" description="The card will be removed from the draft. Save changes afterward to publish the deletion." confirmText="Delete Card" cancelText="Cancel" type="delete" onConfirm={() => { if (deleteTarget) setItems((prev) => prev.filter((item) => item.clientId !== deleteTarget.clientId)); setDeleteTarget(null); setStatus('Contact card removed from draft. Save changes to publish.') }} onCancel={() => setDeleteTarget(null)} />
+      <ConfirmDialog isOpen={unsaved.showWarning} title="Discard unsaved contact info changes?" description="Your contact card changes have not been saved." confirmText="Discard changes" cancelText="Keep editing" type="warning" onConfirm={unsaved.handleDiscard} onCancel={() => unsaved.setShowWarning(false)} />
 
       <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
         <DialogContent>

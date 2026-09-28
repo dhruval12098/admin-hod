@@ -7,17 +7,9 @@ import { TablePagination } from '@/components/table-pagination'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { useToast } from '@/hooks/use-toast'
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes'
+import type { InventoryDataItem } from '@/lib/inventory-data'
 
-export type InventoryItem = {
-  id: string
-  name: string
-  slug: string
-  sku: string
-  stockQuantity: number
-  status: 'in-stock' | 'low-stock' | 'out-of-stock'
-  categoryPath: string
-  updatedAt: string
-}
+export type InventoryItem = InventoryDataItem
 
 async function authedFetch(url: string, options: RequestInit = {}) {
   const { data } = await supabase.auth.getSession()

@@ -32,6 +32,18 @@ type SalesBarPoint = {
   orders: number
 }
 
+type RevenueRow = { total_amount: number | string | null; status: string | null }
+type RecentOrderRow = {
+  id: string
+  order_number: string | null
+  customer_first_name: string | null
+  customer_last_name: string | null
+  customer_email: string | null
+  total_amount: number | string | null
+  status: string | null
+  created_at: string
+}
+
 function formatCurrency(value: number) {
   return formatUsd(value)
 }
@@ -77,15 +89,15 @@ async function getDashboardData() {
 
   const customers = await getAdminCustomerUsers()
 
-  const revenueRows = revenueResult.data ?? []
+  const revenueRows = (revenueResult.data ?? []) as unknown as RevenueRow[]
   const paidStatuses = new Set(['paid', 'confirmed', 'processing', 'shipped', 'delivered'])
-  const totalRevenue = revenueRows.reduce((sum, row: any) => {
+  const totalRevenue = revenueRows.reduce((sum, row) => {
     const status = String(row.status ?? '').toLowerCase()
     if (paidStatuses.size > 0 && status && !paidStatuses.has(status)) return sum
     return sum + Number(row.total_amount ?? 0)
   }, 0)
 
-  const recentOrders: RecentOrder[] = (recentOrdersResult.data ?? []).map((order: any) => ({
+  const recentOrders: RecentOrder[] = ((recentOrdersResult.data ?? []) as unknown as RecentOrderRow[]).map((order) => ({
     id: order.id,
     orderNumber: order.order_number || 'Order',
     customer:

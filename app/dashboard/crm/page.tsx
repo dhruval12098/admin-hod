@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Search, Plus, MessageCircle, Calendar, Trash2 } from 'lucide-react'
+import { Search, Plus, Calendar, Trash2 } from 'lucide-react'
 
 interface CRMInteraction {
   id: number

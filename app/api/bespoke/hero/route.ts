@@ -8,9 +8,8 @@ export async function GET(request: Request) {
   try {
     const snapshot = await loadBespokeHeroSnapshot(access.adminClient)
     return NextResponse.json(snapshot, { headers: { 'Cache-Control': 'no-store' } })
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unable to load the Bespoke Hero.'
-    return NextResponse.json({ error: message }, { status: message.includes('migration') ? 503 : 500 })
+  } catch {
+    return NextResponse.json({ error: 'Unable to load the Bespoke Hero.' }, { status: 503 })
   }
 }
 

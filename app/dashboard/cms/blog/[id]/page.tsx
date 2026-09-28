@@ -7,7 +7,7 @@ async function getCategories(): Promise<BlogCatalogCategory[]> {
     .select('id, name, slug')
     .eq('status', 'active')
     .order('display_order', { ascending: true })
-  if (error) throw new Error(error.message)
+  if (error) throw new Error('Unable to load blog categories.')
   return data ?? []
 }
 

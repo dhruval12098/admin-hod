@@ -1237,10 +1237,6 @@ function DataTable({ headers, rows }: { headers: string[]; rows: { id: string; c
   const currentPage = Math.min(page, totalPages)
   const visibleRows = rows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
-  useEffect(() => {
-    setPage(1)
-  }, [rows])
-
   return (
     <div className="rounded-lg border border-border bg-white shadow-xs overflow-hidden">
       <div className="overflow-x-auto">

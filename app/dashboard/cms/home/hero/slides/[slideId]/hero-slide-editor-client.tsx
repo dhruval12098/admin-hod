@@ -1,11 +1,14 @@
 'use client'
 
 import Link from 'next/link'
-import { useState, type ChangeEvent } from 'react'
+import { useRouter } from 'next/navigation'
+import { useRef, useState, type ChangeEvent } from 'react'
 import { ArrowLeft, CheckCircle2, Upload } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { prepareHeroImage } from '@/lib/prepare-hero-image'
 import { supabase } from '@/lib/supabase'
+import { useUnsavedChanges } from '@/hooks/use-unsaved-changes'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 
 export type HeroSlide = {
   id: number
@@ -22,12 +25,27 @@ export type HeroSlide = {
 const listHref = '/dashboard/cms/home/hero'
 const inputClassName = 'w-full rounded-lg border border-border bg-white px-3 py-2.5 text-sm outline-none transition-shadow focus:ring-2 focus:ring-primary/20'
 
-export function HeroSlideEditorClient({ initialSlide }: { initialSlide: HeroSlide }) {
+type HeroSection = { slider_enabled: boolean; seo_title: string; seo_description: string }
+type SavePayload = { items?: HeroSlide[]; revision?: string; error?: string }
+
+export function HeroSlideEditorClient({ initialSlide, initialItems, initialSection, initialRevision }: {
+  initialSlide: HeroSlide
+  initialItems: HeroSlide[]
+  initialSection: HeroSection
+  initialRevision: string
+}) {
   const { toast } = useToast()
+  const router = useRouter()
   const [slide, setSlide] = useState<HeroSlide>(initialSlide)
   const [status, setStatus] = useState(`Editing slide ${initialSlide.sort_order}`)
   const [isSaving, setIsSaving] = useState(false)
   const [uploadingField, setUploadingField] = useState<'image_path' | 'mobile_image_path' | null>(null)
+  const [revision, setRevision] = useState(initialRevision)
+  const [savedSlide, setSavedSlide] = useState(initialSlide)
+  const [savedItems, setSavedItems] = useState(initialItems)
+  const pendingSave = useRef<{ fingerprint: string; id: string } | null>(null)
+  const hasChanges = JSON.stringify(slide) !== JSON.stringify(savedSlide)
+  const unsaved = useUnsavedChanges(hasChanges)
 
   const updateField = (field: keyof Pick<HeroSlide, 'headline' | 'subtitle' | 'image_path' | 'mobile_image_path' | 'button_text' | 'button_link'>, value: string) => {
     setSlide((current) => ({ ...current, [field]: value }))
@@ -45,7 +63,7 @@ export function HeroSlideEditorClient({ initialSlide }: { initialSlide: HeroSlid
       const preparedFile = await prepareHeroImage(file)
       const signResponse = await fetch('/api/cms/uploads/hero/sign', {
         method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ contentType: preparedFile.type }),
+        body: JSON.stringify({ contentType: preparedFile.type, declaredSize: preparedFile.size }),
       })
       const signed = await signResponse.json().catch(() => null) as { bucket?: string; path?: string; token?: string; error?: string } | null
       if (!signResponse.ok || !signed?.bucket || !signed.path || !signed.token) throw new Error(signed?.error ?? 'Unable to prepare upload.')
@@ -70,26 +88,59 @@ export function HeroSlideEditorClient({ initialSlide }: { initialSlide: HeroSlid
     if (!token) { setStatus('You are not signed in.'); return }
     setIsSaving(true)
     setStatus('Saving slide...')
-    const response = await fetch(`/api/cms/home/hero/slides/${slide.id}`, {
-      method: 'PATCH',
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-      body: JSON.stringify({
-        headline: slide.headline, subtitle: slide.subtitle, image_path: slide.image_path,
-        mobile_image_path: slide.mobile_image_path, button_text: slide.button_text, button_link: slide.button_link,
-      }),
-    })
-    const payload = await response.json().catch(() => null) as { slide?: HeroSlide; error?: string } | null
-    setIsSaving(false)
-    if (!response.ok || !payload?.slide) { setStatus(payload?.error ?? 'Unable to save hero slide.'); return }
-    setSlide(payload.slide)
-    setStatus('Hero slide saved successfully')
-    toast({ title: 'Slide saved', description: 'This hero slide was updated successfully.' })
+    const items = savedItems.map((item) => item.id === slide.id ? slide : item)
+    const saveBody = {
+      ...initialSection,
+      items,
+      expected_revision: revision,
+      deleted_ids: [],
+    }
+    const fingerprint = JSON.stringify(saveBody)
+    if (pendingSave.current?.fingerprint !== fingerprint) {
+      pendingSave.current = { fingerprint, id: crypto.randomUUID() }
+    }
+    try {
+      const response = await fetch('/api/cms/home/hero', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ ...saveBody, request_id: pendingSave.current.id }),
+      })
+      const payload = await response.json().catch(() => null) as SavePayload | null
+      if (!response.ok || !Array.isArray(payload?.items) || typeof payload.revision !== 'string') {
+        setStatus(payload?.error ?? 'Unable to save hero slide.')
+        return
+      }
+      const nextItems = payload.items.map((item) => ({
+        ...item,
+        id: Number(item.id),
+        hero_id: Number(item.hero_id),
+        sort_order: Number(item.sort_order),
+      }))
+      const nextSlide = nextItems.find((item) => item.id === slide.id)
+      if (!nextSlide) { setStatus('The saved slide could not be reloaded. Return to the Hero editor.'); return }
+      setSlide(nextSlide)
+      setSavedSlide(nextSlide)
+      setSavedItems(nextItems)
+      setRevision(payload.revision)
+      pendingSave.current = null
+      setStatus('Hero slide saved successfully')
+      toast({ title: 'Slide saved', description: 'This hero slide was updated successfully.' })
+    } catch {
+      setStatus('Unable to reach the server. Your changes are still here; try saving again.')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const navigateBack = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault()
+    unsaved.confirmNavigation(() => router.push(listHref))
   }
 
   return (
     <main className="min-h-screen bg-background p-4 sm:p-8">
       <div className="max-w-4xl">
-        <Link href={listHref} className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:text-primary/80">
+        <Link href={listHref} onClick={navigateBack} className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:text-primary/80">
           <ArrowLeft size={16} /> Back to Hero Slides
         </Link>
         <header className="mb-8 mt-8">
@@ -113,10 +164,20 @@ export function HeroSlideEditorClient({ initialSlide }: { initialSlide: HeroSlid
             </div>
             <div className="flex flex-wrap gap-3 border-t border-border pt-6">
               <button type="button" onClick={() => void save()} disabled={isSaving || Boolean(uploadingField)} className="rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60">{isSaving ? 'Saving...' : 'Save Changes'}</button>
-              <Link href={listHref} className="rounded-lg border border-border px-5 py-2.5 text-sm font-semibold text-foreground hover:bg-secondary">Cancel</Link>
+              <Link href={listHref} onClick={navigateBack} className="rounded-lg border border-border px-5 py-2.5 text-sm font-semibold text-foreground hover:bg-secondary">Cancel</Link>
             </div>
         </section>
       </div>
+      <ConfirmDialog
+        isOpen={unsaved.showWarning}
+        title="Discard unsaved slide changes?"
+        description="Your changes to this Hero slide have not been saved."
+        confirmText="Discard changes"
+        cancelText="Keep editing"
+        type="warning"
+        onConfirm={unsaved.handleDiscard}
+        onCancel={() => unsaved.setShowWarning(false)}
+      />
     </main>
   )
 }

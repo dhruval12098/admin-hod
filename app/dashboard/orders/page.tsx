@@ -2,6 +2,28 @@ import { createSupabaseAdminClient } from '@/lib/admin-supabase'
 import { OrdersClient, type OrdersResponse } from './orders-client'
 
 const PAGE_SIZE = 20
+type OrderDatabaseRow = {
+  id: string
+  order_number: string | null
+  customer_first_name: string | null
+  customer_last_name: string | null
+  customer_email: string
+  total_amount: number | string | null
+  status: string
+  created_at: string
+}
+
+function normalizeOrderStatus(value: string): OrdersResponse['items'][number]['status'] {
+  switch (value) {
+    case 'processing':
+    case 'shipped':
+    case 'delivered':
+    case 'cancelled':
+      return value
+    default:
+      return 'pending'
+  }
+}
 
 async function getOrdersPage(page: number): Promise<OrdersResponse> {
   const adminClient = createSupabaseAdminClient()
@@ -20,16 +42,17 @@ async function getOrdersPage(page: number): Promise<OrdersResponse> {
   ])
 
   if (ordersResult.error) {
-    throw new Error(ordersResult.error.message)
+    throw new Error('Unable to load orders.')
   }
 
-  const ids = (ordersResult.data ?? []).map((order: any) => order.id)
+  const orderRows = (ordersResult.data ?? []) as unknown as OrderDatabaseRow[]
+  const ids = orderRows.map((order) => order.id)
   const itemsResult = ids.length
     ? await adminClient.from('order_items').select('order_id').in('order_id', ids)
     : { data: [], error: null }
 
   if (itemsResult.error) {
-    throw new Error(itemsResult.error.message)
+    throw new Error('Unable to load order items.')
   }
 
   const itemCountMap = new Map<string, number>()
@@ -38,13 +61,13 @@ async function getOrdersPage(page: number): Promise<OrdersResponse> {
   }
 
   return {
-    items: (ordersResult.data ?? []).map((order: any) => ({
+    items: orderRows.map((order) => ({
       id: order.id,
-      orderNumber: order.order_number,
+      orderNumber: order.order_number || 'Order',
       customer: [order.customer_first_name, order.customer_last_name].filter(Boolean).join(' ') || order.customer_email,
       customerEmail: order.customer_email,
       total: Number(order.total_amount || 0),
-      status: order.status,
+      status: normalizeOrderStatus(order.status),
       createdAt: order.created_at,
       items: itemCountMap.get(order.id) ?? 0,
     })),

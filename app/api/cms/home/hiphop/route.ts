@@ -77,7 +77,7 @@ export async function GET(request: Request) {
     .eq('section_key', sectionKey)
     .maybeSingle()
 
-  if (error && !isMissingTableError(error.message)) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error && !isMissingTableError(error.message)) return NextResponse.json({ error: 'Unable to load Hip Hop content.' }, { status: 503 })
 
   if (isMissingTableError(error?.message)) {
     const { data: legacySection, error: legacyError } = await adminClient
@@ -87,7 +87,7 @@ export async function GET(request: Request) {
       .maybeSingle()
 
     if (legacyError && !isMissingTableError(legacyError.message)) {
-      return NextResponse.json({ error: legacyError.message }, { status: 500 })
+      return NextResponse.json({ error: 'Unable to load the Hip Hop fallback content.' }, { status: 503 })
     }
 
     if (!legacySection) {
@@ -133,7 +133,7 @@ export async function GET(request: Request) {
     .eq('hero_id', section.id)
     .order('sort_order', { ascending: true })
 
-  if (itemsError) return NextResponse.json({ error: itemsError.message }, { status: 500 })
+  if (itemsError) return NextResponse.json({ error: 'Unable to load Hip Hop slides.' }, { status: 503 })
 
   return NextResponse.json({
     section: {
@@ -143,7 +143,7 @@ export async function GET(request: Request) {
       slider_enabled: section.slider_enabled ?? false,
     },
     items: items ?? [],
-  })
+  }, { headers: { 'Cache-Control': 'no-store' } })
 }
 
 export async function POST(request: Request) {
@@ -208,16 +208,16 @@ export async function POST(request: Request) {
     )
 
     if (legacySaveError) {
-      return NextResponse.json({ error: legacySaveError.message }, { status: 500 })
+      return NextResponse.json({ error: 'Unable to save the Hip Hop fallback content.' }, { status: 500 })
     }
 
     return NextResponse.json({ ok: true, mode: 'legacy' })
   }
 
-  if (error || !section) return NextResponse.json({ error: error?.message ?? 'Unable to save hero.' }, { status: 500 })
+  if (error || !section) return NextResponse.json({ error: 'Unable to save the Hip Hop hero.' }, { status: 500 })
 
   const { error: deleteError } = await adminClient.from('hiphop_hero_slider_items').delete().eq('hero_id', section.id)
-  if (deleteError) return NextResponse.json({ error: deleteError.message }, { status: 500 })
+  if (deleteError) return NextResponse.json({ error: 'Unable to replace the Hip Hop slides.' }, { status: 500 })
 
   const items = body.items
     .filter((item: any) => typeof item.image_path === 'string' && typeof item.button_text === 'string' && typeof item.button_link === 'string')
@@ -232,7 +232,7 @@ export async function POST(request: Request) {
 
   if (items.length > 0) {
     const { error: insertError } = await adminClient.from('hiphop_hero_slider_items').insert(items)
-    if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 })
+    if (insertError) return NextResponse.json({ error: 'Unable to finish saving the Hip Hop slides.' }, { status: 500 })
   }
 
   return NextResponse.json({ ok: true })

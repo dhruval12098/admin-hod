@@ -6,7 +6,11 @@ import { cmsContentListSchemas } from '@/lib/cms-content-list-schemas'
 export async function GET(request: Request) {
   const access = await assertAdmin(request)
   if ('error' in access) return access.error
-  return NextResponse.json(await loadCmsContentListSnapshot(access.adminClient, 'about_timeline'), { headers: { 'Cache-Control': 'no-store' } })
+  try {
+    return NextResponse.json(await loadCmsContentListSnapshot(access.adminClient, 'about_timeline'), { headers: { 'Cache-Control': 'no-store' } })
+  } catch {
+    return NextResponse.json({ error: 'Unable to load Timeline.' }, { status: 503 })
+  }
 }
 
 export async function POST(request: Request) {

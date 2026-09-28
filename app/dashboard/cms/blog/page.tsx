@@ -8,9 +8,7 @@ async function getBlogRows(): Promise<BlogListItem[]> {
     .select('id, slug, title, category, author, date_label, read_time, is_published, sort_order, updated_at')
     .order('sort_order', { ascending: true })
 
-  if (error) {
-    throw new Error(error.message)
-  }
+  if (error) throw new Error('Unable to load blog posts.')
 
   return (data ?? []) as BlogListItem[]
 }
