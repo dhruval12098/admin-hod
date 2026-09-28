@@ -18,9 +18,11 @@ export async function GET(request: Request) {
   }
   const parsedPage = z.coerce.number().int().min(1).max(100_000).safeParse(searchParams.get('page') ?? '1')
   if (!parsedPage.success) return NextResponse.json({ error: 'Invalid page number.' }, { status: 400 })
+  const parsedSearch = z.string().trim().max(100).refine((value) => !/[(),]/.test(value), 'Invalid product search.').safeParse(searchParams.get('q') ?? '')
+  if (!parsedSearch.success) return NextResponse.json({ error: 'Invalid product search.' }, { status: 400 })
 
   try {
-    return NextResponse.json(await getProductRows(lane, parsedPage.data), { headers: { 'Cache-Control': 'no-store' } })
+    return NextResponse.json(await getProductRows(lane, parsedPage.data, parsedSearch.data), { headers: { 'Cache-Control': 'no-store' } })
   } catch {
     return NextResponse.json(
       { error: 'Unable to load products.' },

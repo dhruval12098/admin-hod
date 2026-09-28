@@ -56,7 +56,7 @@ export type ProductListPage = {
   totalPages: number
 }
 
-export async function getProductRows(lane: ProductLane | undefined, page = 1): Promise<ProductListPage> {
+export async function getProductRows(lane: ProductLane | undefined, page = 1, search = ''): Promise<ProductListPage> {
   const adminClient = createSupabaseAdminClient()
   let query = adminClient
     .from('products')
@@ -67,6 +67,7 @@ export async function getProductRows(lane: ProductLane | undefined, page = 1): P
   if (lane) {
     query = query.eq('product_lane', lane)
   }
+  if (search) query = query.or(`name.ilike.%${search}%,sku.ilike.%${search}%`)
 
   const safePage = Math.max(1, page)
   const from = (safePage - 1) * PRODUCT_PAGE_SIZE

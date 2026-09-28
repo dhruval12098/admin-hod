@@ -101,12 +101,12 @@ export function ProductsClient({
   const [bulkDeleteRequestId, setBulkDeleteRequestId] = useState<string | null>(null)
   const [bulkPriceDialogOpen, setBulkPriceDialogOpen] = useState(false)
 
-  const loadProducts = async (nextPage = 1) => {
+  const loadProducts = async (nextPage = 1, nextSearch = search) => {
     setLoading(true)
     try {
       const accessToken = await getAccessToken()
       if (!accessToken) return
-      const response = await fetch(`/api/products/list?lane=${encodeURIComponent(lane)}&page=${nextPage}`, {
+      const response = await fetch(`/api/products/list?lane=${encodeURIComponent(lane)}&page=${nextPage}&q=${encodeURIComponent(nextSearch)}`, {
         headers: { authorization: `Bearer ${accessToken}` },
       })
       const payload = await response.json().catch(() => null)
@@ -429,8 +429,9 @@ export function ProductsClient({
             placeholder="Search by name, SKU, or category..."
             value={search}
             onChange={(e) => {
-              setSearch(e.target.value)
-              setPage(1)
+              const nextSearch = e.target.value
+              setSearch(nextSearch)
+              void loadProducts(1, nextSearch)
             }}
             className="w-full rounded-lg border border-border bg-white py-2.5 pl-10 pr-4 text-sm transition-colors hover:border-input focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
           />
