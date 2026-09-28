@@ -48,6 +48,7 @@ declare
   v_payload jsonb;
   v_before jsonb;
   v_after jsonb;
+  v_gemstone text;
   v_slug text := 'atomic-rollback-' || replace(gen_random_uuid()::text,'-','');
 begin
   select id into v_actor from public.profiles where role='admin' order by id limit 1;
@@ -78,6 +79,22 @@ begin
   end;
   v_after := pg_temp.product_save_state(v_product_a);
   if v_after is distinct from v_before then raise exception 'Edit rollback did not restore the complete product aggregate.'; end if;
+
+  -- Match the pre-RPC compatibility behavior when this optional products column
+  -- exists. Dynamic SQL keeps the same test runnable on older schemas.
+  if exists (
+    select 1 from pg_catalog.pg_attribute
+    where attrelid = 'public.products'::regclass
+      and attname = 'gemstone_value'
+      and not attisdropped
+  ) then
+    v_payload := pg_temp.product_save_payload(v_product_a) || jsonb_build_object('gemstone_value','Atomic gemstone regression check');
+    perform public.admin_product_save_v1(v_actor,v_product_a,null,v_payload);
+    execute 'select gemstone_value from public.products where id = $1' into v_gemstone using v_product_a;
+    if v_gemstone is distinct from 'Atomic gemstone regression check' then
+      raise exception 'gemstone_value was not persisted.';
+    end if;
+  end if;
 
   -- Master preservation: establish a shared shape relationship, remove it only from A,
   -- and prove the shape master and B relationship survive. The outer transaction rolls back.

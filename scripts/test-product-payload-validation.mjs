@@ -1,6 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { productPayloadSchema } from '../lib/product-payload-validation.ts'
+import { normalizeProductCustomDropdowns } from '../lib/product-custom-dropdowns.ts'
 
 const id = (suffix) => `00000000-0000-4000-8000-${String(suffix).padStart(12, '0')}`
 
@@ -43,6 +45,22 @@ test('accepts variants, media, FAQs, custom dropdowns, and temporary purity IDs'
   value.custom_dropdowns_enabled = true
   value.custom_dropdowns = [{ id: id(3), name: 'chain', label: 'Chain', is_enabled: true, is_required: false, display_order: 0, options: [{ id: id(4), label: 'Short', value: 'short', is_enabled: true, display_order: 0 }] }]
   assert.equal(productPayloadSchema.safeParse(value).success, true)
+})
+
+test('prepares custom dropdown names and option values before the RPC save', () => {
+  const value = payload()
+  value.custom_dropdowns = [{ id: id(3), name: '', label: 'Select chain', is_enabled: true, is_required: false, display_order: 99, options: [{ id: id(4), label: 'Short', value: '', is_enabled: true, display_order: 99 }] }]
+  const parsed = productPayloadSchema.parse(value)
+  const prepared = { ...parsed, custom_dropdowns: normalizeProductCustomDropdowns(parsed.custom_dropdowns).map((group, groupIndex) => ({
+    ...group,
+    display_order: groupIndex,
+    options: group.options.map((option, optionIndex) => ({ ...option, display_order: optionIndex })),
+  })) }
+  assert.equal(prepared.custom_dropdowns[0].name, 'select_chain')
+  assert.equal(prepared.custom_dropdowns[0].display_order, 0)
+  assert.equal(prepared.custom_dropdowns[0].options[0].value, 'short')
+  assert.equal(prepared.custom_dropdowns[0].options[0].display_order, 0)
+  assert.match(readFileSync(new URL('../lib/product-save.ts', import.meta.url), 'utf8'), /normalizeProductCustomDropdowns\(payload\.custom_dropdowns\)/)
 })
 
 for (const [name, mutate] of [

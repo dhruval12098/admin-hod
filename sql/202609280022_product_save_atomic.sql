@@ -130,6 +130,18 @@ begin
     updated_at = now()
   where id = v_product_id;
 
+  -- Older deployments do not yet have this column. Preserve the previous route
+  -- behavior: write it when present, while keeping saves compatible when absent.
+  if exists (
+    select 1 from pg_catalog.pg_attribute
+    where attrelid = 'public.products'::regclass
+      and attname = 'gemstone_value'
+      and not attisdropped
+  ) then
+    execute 'update public.products set gemstone_value = $1 where id = $2'
+      using p_payload->>'gemstone_value', v_product_id;
+  end if;
+
   delete from public.product_metal_selections where product_id = v_product_id;
   for v_row in select value from jsonb_array_elements(p_payload->'metal_ids') loop
     insert into public.product_metal_selections(product_id, metal_id, sort_order)

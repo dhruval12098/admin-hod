@@ -4,7 +4,7 @@ import { validateProductCustomDropdowns } from '@/lib/product-custom-dropdowns'
 import { loadProductEditorItem } from '@/lib/product-editor-data'
 import { validateProductMasterReferences } from '@/lib/product-master-validation'
 import { productPayloadErrorMessage, productPayloadSchema, safeProductSaveError } from '@/lib/product-payload-validation'
-import { saveProductAtomically } from '@/lib/product-save'
+import { prepareProductSavePayload, saveProductAtomically } from '@/lib/product-save'
 
 function productSaveFailure(error: { code?: string | null } | null | undefined) {
   console.error('Product save failed.', { code: error?.code })
@@ -75,16 +75,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ sl
     return NextResponse.json({ error: 'Base price must be greater than 0. Add a price to the default metal option before saving.' }, { status: 400 })
   }
 
-  const atomicPayload = {
-    ...body,
-    base_price: Number(resolvedBasePrice),
-    metal_ids: resolvedMetalIds,
-    custom_dropdowns: body.custom_dropdowns.map((group, groupIndex) => ({
-      ...group,
-      display_order: groupIndex,
-      options: group.options.map((option, optionIndex) => ({ ...option, display_order: optionIndex })),
-    })),
-  }
+  const atomicPayload = prepareProductSavePayload(body, Number(resolvedBasePrice), resolvedMetalIds)
   const atomicResult = await saveProductAtomically(adminClient, {
     actorId: access.user.id,
     productId: id,
