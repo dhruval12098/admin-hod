@@ -46,18 +46,31 @@ function buildDisplayCategoryPath(args: {
   return `${args.primaryPath} | Linked: ${linkedParts.join(', ')}`
 }
 
-export async function getProductRows(lane?: ProductLane): Promise<ProductRow[]> {
+export const PRODUCT_PAGE_SIZE = 20
+
+export type ProductListPage = {
+  items: ProductRow[]
+  page: number
+  pageSize: number
+  total: number
+  totalPages: number
+}
+
+export async function getProductRows(lane: ProductLane | undefined, page = 1): Promise<ProductListPage> {
   const adminClient = createSupabaseAdminClient()
   let query = adminClient
     .from('products')
-    .select('id, slug, name, sku, product_lane, detail_template, main_category_id, subcategory_id, option_id, base_price, stock_quantity, featured, status, created_at')
+    .select('id, slug, name, sku, product_lane, detail_template, main_category_id, subcategory_id, option_id, base_price, stock_quantity, featured, status, created_at', { count: 'exact' })
     .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
 
   if (lane) {
     query = query.eq('product_lane', lane)
   }
 
-  const { data: products, error } = await query
+  const safePage = Math.max(1, page)
+  const from = (safePage - 1) * PRODUCT_PAGE_SIZE
+  const { data: products, error, count } = await query.range(from, from + PRODUCT_PAGE_SIZE - 1)
 
   if (error) {
     throw new Error(error.message)
@@ -104,7 +117,7 @@ export async function getProductRows(lane?: ProductLane): Promise<ProductRow[]> 
     linkedOptionMap.set(row.product_id, [...(linkedOptionMap.get(row.product_id) ?? []), optionName])
   }
 
-  return ((products ?? []) as ProductListRecord[]).map((product) => {
+  const items = ((products ?? []) as ProductListRecord[]).map((product) => {
     const category = categories.find((item) => item.id === product.main_category_id)
     const subcategory = subcategories.find((item) => item.id === product.subcategory_id)
     const option = options.find((item) => item.id === product.option_id)
@@ -137,4 +150,6 @@ export async function getProductRows(lane?: ProductLane): Promise<ProductRow[]> 
       metals: metalMap.get(product.id) ?? [],
     } as ProductRow & { metals?: string[] }
   })
+  const total = count ?? 0
+  return { items, page: safePage, pageSize: PRODUCT_PAGE_SIZE, total, totalPages: Math.max(1, Math.ceil(total / PRODUCT_PAGE_SIZE)) }
 }

@@ -2,11 +2,11 @@ import { ProductsClient } from '../products/products-client'
 import { getProductRows } from '../products/product-list'
 
 export default async function CollectionProductsPage() {
-  const initialProducts = await getProductRows('collection')
+  const initialData = await getProductRows('collection')
 
   return (
     <ProductsClient
-      initialProducts={initialProducts}
+      initialData={initialData}
       lane="collection"
       title="Collection Products"
       description="Review collection-only products that stay enquiry-first and never go to checkout."

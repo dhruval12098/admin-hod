@@ -7,6 +7,7 @@ import { Search, Plus, Edit2, Trash2, CheckCircle2, Circle, Copy, MoreHorizontal
 import { supabase } from '@/lib/supabase'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { TablePagination } from '@/components/table-pagination'
+import type { ProductListPage } from './product-list'
 import { BulkPriceDialog } from '@/components/bulk-price-dialog'
 import {
   DropdownMenu,
@@ -59,7 +60,7 @@ function getDuplicatedProductEditHref(product: { slug: string; lane: ProductRow[
 }
 
 export function ProductsClient({
-  initialProducts,
+  initialData,
   lane,
   title,
   description,
@@ -68,7 +69,7 @@ export function ProductsClient({
   editBaseHref,
   emptyMessage,
 }: {
-  initialProducts: ProductRow[]
+  initialData: ProductListPage
   lane: 'standard' | 'hiphop' | 'collection'
   title: string
   description: string
@@ -79,7 +80,7 @@ export function ProductsClient({
 }) {
   const router = useRouter()
   const { toast } = useToast()
-  const [products, setProducts] = useState<ProductRow[]>(initialProducts)
+  const [products, setProducts] = useState<ProductRow[]>(initialData.items)
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<ProductRow | null>(null)
@@ -89,7 +90,8 @@ export function ProductsClient({
   const [duplicateLoading, setDuplicateLoading] = useState(false)
   const [draftTarget, setDraftTarget] = useState<ProductRow | null>(null)
   const [draftLoading, setDraftLoading] = useState(false)
-  const [page, setPage] = useState(1)
+  const [page, setPage] = useState(initialData.page)
+  const [total, setTotal] = useState(initialData.total)
   const [activatingDrafts, setActivatingDrafts] = useState(false)
   const [activateDialogOpen, setActivateDialogOpen] = useState(false)
   const [activateRequestId, setActivateRequestId] = useState<string | null>(null)
@@ -99,18 +101,19 @@ export function ProductsClient({
   const [bulkDeleteRequestId, setBulkDeleteRequestId] = useState<string | null>(null)
   const [bulkPriceDialogOpen, setBulkPriceDialogOpen] = useState(false)
 
-  const loadProducts = async () => {
+  const loadProducts = async (nextPage = 1) => {
     setLoading(true)
     try {
       const accessToken = await getAccessToken()
       if (!accessToken) return
-      const response = await fetch(`/api/products/list?lane=${encodeURIComponent(lane)}`, {
+      const response = await fetch(`/api/products/list?lane=${encodeURIComponent(lane)}&page=${nextPage}`, {
         headers: { authorization: `Bearer ${accessToken}` },
       })
       const payload = await response.json().catch(() => null)
       if (response.ok && payload?.items) {
         setProducts(payload.items.filter((product: ProductRow) => matchesLane(product, lane)))
-        setPage(1)
+        setPage(payload.page)
+        setTotal(payload.total)
         setSelectedProductIds([])
       }
     } finally {
@@ -128,10 +131,7 @@ export function ProductsClient({
       ),
     [products, search]
   )
-  const visibleProducts = useMemo(() => {
-    const start = (page - 1) * PAGE_SIZE
-    return filteredProducts.slice(start, start + PAGE_SIZE)
-  }, [filteredProducts, page])
+  const visibleProducts = filteredProducts
   const selectedProducts = useMemo(
     () => products.filter((product) => selectedProductIds.includes(product.id)),
     [products, selectedProductIds]
@@ -428,7 +428,10 @@ export function ProductsClient({
             type="text"
             placeholder="Search by name, SKU, or category..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              setSearch(e.target.value)
+              setPage(1)
+            }}
             className="w-full rounded-lg border border-border bg-white py-2.5 pl-10 pr-4 text-sm transition-colors hover:border-input focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
           />
         </div>
@@ -540,8 +543,8 @@ export function ProductsClient({
           <p className="text-sm text-muted-foreground">{emptyMessage}</p>
         </div>
       ) : null}
-      {filteredProducts.length > PAGE_SIZE ? (
-        <TablePagination page={page} totalItems={filteredProducts.length} pageSize={PAGE_SIZE} onPageChange={setPage} />
+      {total > PAGE_SIZE ? (
+        <TablePagination page={page} totalItems={total} pageSize={PAGE_SIZE} onPageChange={(nextPage) => void loadProducts(nextPage)} />
       ) : null}
 
       <BulkPriceDialog

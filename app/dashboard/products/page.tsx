@@ -2,10 +2,10 @@ import { ProductsClient } from './products-client'
 import { getProductRows } from './product-list'
 
 export default async function ProductsPage() {
-  const initialProducts = await getProductRows('standard')
+  const initialData = await getProductRows('standard')
   return (
     <ProductsClient
-      initialProducts={initialProducts}
+      initialData={initialData}
       lane="standard"
       title="Products"
       description="Manage your product catalog and inventory"
