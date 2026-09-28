@@ -1247,6 +1247,7 @@ export function ProductForm({
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
+    if (saving) return
     setSaving(true)
     let shouldRedirect = false
 

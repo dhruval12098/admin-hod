@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { productPayloadSchema } from '../lib/product-payload-validation.ts'
-import { normalizeProductCustomDropdowns } from '../lib/product-custom-dropdowns.ts'
+import { normalizeProductCustomDropdowns, validateProductCustomDropdowns } from '../lib/product-custom-dropdowns.ts'
 
 const id = (suffix) => `00000000-0000-4000-8000-${String(suffix).padStart(12, '0')}`
 
@@ -63,12 +63,25 @@ test('prepares custom dropdown names and option values before the RPC save', () 
   assert.match(readFileSync(new URL('../lib/product-save.ts', import.meta.url), 'utf8'), /normalizeProductCustomDropdowns\(payload\.custom_dropdowns\)/)
 })
 
+test('ProductForm ignores a repeated submit while a save is in flight', () => {
+  const formSource = readFileSync(new URL('../components/product-form.tsx', import.meta.url), 'utf8')
+  assert.match(formSource, /event\.preventDefault\(\)\s+if \(saving\) return\s+setSaving\(true\)/)
+})
+
 for (const [name, mutate] of [
+  ['missing required field', (value) => { delete value.name }],
   ['malformed UUID', (value) => { value.main_category_id = 'bad-id' }],
+  ['invalid enum', (value) => { value.status = 'published' }],
+  ['wrong primitive type', (value) => { value.stock_quantity = 'zero' }],
   ['negative base price', (value) => { value.base_price = -1 }],
+  ['zero base price', (value) => { value.base_price = 0 }],
   ['invalid variant price', (value) => { value.metal_variants = [{ metal_id: id(2), price: 0, is_default: true, sort_order: 1 }] }],
+  ['invalid purity price', (value) => { value.purity_prices = [{ purity_label: '18K', price: 0, sort_order: 0 }] }],
+  ['non-finite price', (value) => { value.base_price = Infinity }],
   ['malformed relationship ID', (value) => { value.shape_ids = ['not-a-uuid'] }],
+  ['duplicate relationship ID', (value) => { value.shape_ids = [id(2), id(2)] }],
   ['incorrect nested type', (value) => { value.faq_items = 'not-an-array' }],
+  ['unknown field', (value) => { value.unexpected = true }],
 ]) {
   test(`rejects ${name}`, () => {
     const value = payload()
@@ -76,3 +89,10 @@ for (const [name, mutate] of [
     assert.equal(productPayloadSchema.safeParse(value).success, false)
   })
 }
+
+test('rejects an invalid enabled custom dropdown', () => {
+  const value = payload()
+  value.custom_dropdowns_enabled = true
+  value.custom_dropdowns = [{ id: id(3), name: 'chain', label: 'Chain', is_enabled: true, is_required: false, display_order: 0, options: [] }]
+  assert.equal(validateProductCustomDropdowns(value.custom_dropdowns), '“Chain” needs at least one enabled option.')
+})
