@@ -1,0 +1,60 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { productPayloadSchema } from '../lib/product-payload-validation.ts'
+
+const id = (suffix) => `00000000-0000-4000-8000-${String(suffix).padStart(12, '0')}`
+
+function payload() {
+  return {
+    name: 'Atomic Test Product', sku: 'ATOMIC-TEST', product_lane: 'standard', detail_template: 'standard',
+    featured: false, description: null, tag_line: null, seo_title: null, seo_description: null, h1_title: null,
+    base_price: 100, discount_price: null, gst_slab_id: null, stock_quantity: 0, allow_checkout: false,
+    status: 'active', main_category_id: id(1), subcategory_id: null, option_id: null,
+    linked_subcategory_ids: [], linked_option_ids: [], style_id: null, metal_ids: [], metal_variants: [],
+    default_variant_media_items: [], purity_values: [], purity_prices: [], default_purity_price_id: null,
+    metal_media: [], certificate_ids: [], ring_size_ids: [], ring_enabled: false, ring_category_id: null,
+    fit_options: [], fit_label: null, gemstone_label: null, gemstone_value: null, material_value_ids: [],
+    shapes_enabled: false, shape_ids: [], show_purity: false, engraving_enabled: false, engraving_label: null,
+    custom_dropdowns_enabled: false, custom_dropdowns: [], shipping_enabled: false, care_warranty_enabled: false,
+    shipping_override_enabled: false, care_warranty_override_enabled: false, shipping_rule_id: null,
+    care_warranty_rule_id: null, shipping_title_override: null, shipping_body_override: null,
+    care_warranty_title_override: null, care_warranty_body_override: null, features: [], specifications: [],
+    product_details: [], detail_sections: [], faq_items: [], image_1_path: null, image_2_path: null,
+    image_3_path: null, image_4_path: null, image_1_alt: null, image_2_alt: null, image_3_alt: null,
+    image_4_alt: null, video_path: null, model_3d_url: null, show_image_1: true, show_image_2: true,
+    show_image_3: true, show_image_4: true, show_video: true, custom_order_enabled: false, ready_to_ship: false,
+    hiphop_badges: [], chain_length_options: [], hiphop_carat_label: null, hiphop_carat_values: [],
+    gram_weight_label: null, gram_weight_value: null,
+  }
+}
+
+test('accepts the current simple ProductForm payload', () => {
+  assert.equal(productPayloadSchema.safeParse(payload()).success, true)
+})
+
+test('accepts variants, media, FAQs, custom dropdowns, and temporary purity IDs', () => {
+  const value = payload()
+  value.metal_ids = [id(2)]
+  value.metal_variants = [{ metal_id: id(2), price: 120, is_default: true, sort_order: 1, media_items: [{ media_type: 'image', media_path: 'products/a.webp', sort_order: 1 }] }]
+  value.default_variant_media_items = [{ media_type: 'video', media_path: 'https://example.test/video.mp4', sort_order: 1, is_default_fallback: true }]
+  value.purity_prices = [{ id: 'test-18k', purity_label: '18K', price: 120, compare_at_price: null, sort_order: 1 }]
+  value.default_purity_price_id = 'test-18k'
+  value.faq_items = [{ question: 'Question?', answer: 'Answer.', sort_order: 1, is_active: true, source: 'admin' }]
+  value.custom_dropdowns_enabled = true
+  value.custom_dropdowns = [{ id: id(3), name: 'chain', label: 'Chain', is_enabled: true, is_required: false, display_order: 0, options: [{ id: id(4), label: 'Short', value: 'short', is_enabled: true, display_order: 0 }] }]
+  assert.equal(productPayloadSchema.safeParse(value).success, true)
+})
+
+for (const [name, mutate] of [
+  ['malformed UUID', (value) => { value.main_category_id = 'bad-id' }],
+  ['negative base price', (value) => { value.base_price = -1 }],
+  ['invalid variant price', (value) => { value.metal_variants = [{ metal_id: id(2), price: 0, is_default: true, sort_order: 1 }] }],
+  ['malformed relationship ID', (value) => { value.shape_ids = ['not-a-uuid'] }],
+  ['incorrect nested type', (value) => { value.faq_items = 'not-an-array' }],
+]) {
+  test(`rejects ${name}`, () => {
+    const value = payload()
+    mutate(value)
+    assert.equal(productPayloadSchema.safeParse(value).success, false)
+  })
+}
