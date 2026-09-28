@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { assertAdmin } from '@/lib/cms-auth'
 import { sendOrderStatusUpdateEmail } from '@/lib/email'
+import { sanitizeLoveLetterHtml } from '@/lib/love-letter-html'
 import { adminMutationError, orderStatusUpdateSchema } from '@/lib/order-inventory-validation'
 
 type RouteContext = { params: Promise<{ id: string }> }
@@ -24,7 +25,10 @@ export async function GET(request: Request, context: RouteContext) {
   ])
   if (orderResult.error || itemsResult.error || loveLetterResult.error) return NextResponse.json({ error: 'Unable to load order details.' }, { status: 500 })
   if (!orderResult.data) return NextResponse.json({ error: 'Order not found.' }, { status: 404 })
-  return NextResponse.json({ order: orderResult.data, items: itemsResult.data ?? [], loveLetter: loveLetterResult.data ?? null }, { headers: { 'Cache-Control': 'no-store' } })
+  const loveLetter = loveLetterResult.data
+    ? { ...loveLetterResult.data, final_letter_html: sanitizeLoveLetterHtml(loveLetterResult.data.final_letter_html) }
+    : null
+  return NextResponse.json({ order: orderResult.data, items: itemsResult.data ?? [], loveLetter }, { headers: { 'Cache-Control': 'no-store' } })
 }
 
 export async function PATCH(request: Request, context: RouteContext) {

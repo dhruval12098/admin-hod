@@ -6,6 +6,7 @@ import { useToast } from '@/hooks/use-toast'
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { escapeHtmlText } from '@/lib/html-escape'
 import { supabase } from '@/lib/supabase'
 
 type OrderDetailPageProps = {
@@ -104,15 +105,6 @@ const OCCASION_LABELS: Record<NonNullable<OrderLoveLetter['occasion_key']>, stri
   apology: 'A reconciliation',
   mother: 'A gift for her mother',
   newchapter: 'A new chapter',
-}
-
-function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
 }
 
 async function getAccessToken() {
@@ -252,6 +244,12 @@ export default function OrderDetailPage({ params }: OrderDetailPageProps) {
   const shippingCityLine =
     [order?.shipping_city, order?.shipping_state, order?.shipping_postal_code].filter(Boolean).join(', ') || '-'
   const showShippingFields = status === 'shipped' || Boolean(order?.courier_name || order?.courier_awb_number)
+  const paymentCurrency = order?.payment_currency?.trim().toUpperCase() || null
+  const formatOrderAmount = (value: number | null | undefined) => {
+    const amount = Number(value ?? 0)
+    const formattedAmount = Number.isFinite(amount) ? amount.toLocaleString() : '—'
+    return `${paymentCurrency ?? 'Currency unavailable'} ${formattedAmount}`
+  }
   const statusBadgeClass =
     status === 'delivered'
       ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
@@ -267,7 +265,7 @@ export default function OrderDetailPage({ params }: OrderDetailPageProps) {
     (loveLetter?.final_letter_text
       ? loveLetter.final_letter_text
           .split(/\n\n+/)
-          .map((entry) => `<p>${escapeHtml(entry)}</p>`)
+          .map((entry) => `<p>${escapeHtmlText(entry)}</p>`)
           .join('')
       : '<p>No printable letter body saved.</p>')
 
@@ -279,7 +277,7 @@ export default function OrderDetailPage({ params }: OrderDetailPageProps) {
     printWindow.document.write(`
       <html>
         <head>
-          <title>${order.order_number} Love Letter</title>
+          <title>${escapeHtmlText(order.order_number)} Love Letter</title>
           <style>
             * { box-sizing: border-box; }
             body { font-family: Manrope, Arial, sans-serif; background: #f6f1e8; color: #0a1628; margin: 0; padding: 32px; }
@@ -304,15 +302,15 @@ export default function OrderDetailPage({ params }: OrderDetailPageProps) {
                 <div class="wordmark">House of Diams</div>
                 <div class="submark">Fine Jewellery</div>
               </div>
-              <div class="meta">Order ${order.order_number}</div>
+              <div class="meta">Order ${escapeHtmlText(order.order_number)}</div>
             </div>
             <div class="paper">
-              <div class="dear">Dear <em>${loveLetter.recipient_name || 'Her'}</em>,</div>
+              <div class="dear">Dear <em>${escapeHtmlText(loveLetter.recipient_name || 'Her')}</em>,</div>
               <div class="divider"></div>
               <div class="body">${printableLetterHtml}</div>
               <div class="divider"></div>
               <div class="sign">Yours, always</div>
-              <div class="name">${loveLetter.sender_name || '-'}</div>
+              <div class="name">${escapeHtmlText(loveLetter.sender_name || '-')}</div>
             </div>
           </div>
         </body>
@@ -463,7 +461,7 @@ export default function OrderDetailPage({ params }: OrderDetailPageProps) {
                   </div>
                   <div className="text-right">
                     <div className="text-sm text-muted-foreground">Qty {item.quantity}</div>
-                    <div className="mt-1 text-sm font-bold text-foreground">{item.item_type === 'free_gift' ? <><span className="mr-2 font-normal text-muted-foreground line-through">${Number(item.original_unit_price || 0).toLocaleString()}</span><span className="text-emerald-700">Free</span></> : `$${Number(item.line_total || 0).toLocaleString()}`}</div>
+                    <div className="mt-1 text-sm font-bold text-foreground">{item.item_type === 'free_gift' ? <><span className="mr-2 font-normal text-muted-foreground line-through">{formatOrderAmount(item.original_unit_price)}</span><span className="text-emerald-700">Free</span></> : formatOrderAmount(item.line_total)}</div>
                   </div>
                 </div>
               ))}
@@ -486,12 +484,12 @@ export default function OrderDetailPage({ params }: OrderDetailPageProps) {
             <div className="mt-5 grid grid-cols-2 gap-3">
               <div className="rounded-2xl border border-border bg-secondary/20 px-4 py-3">
                 <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Base Total</div>
-                <div className="mt-2 text-base font-semibold text-foreground">${Number(order.total_amount || 0).toLocaleString()}</div>
+                <div className="mt-2 text-base font-semibold text-foreground">{formatOrderAmount(order.total_amount)}</div>
               </div>
               <div className="rounded-2xl border border-border bg-secondary/20 px-4 py-3">
                 <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Charged</div>
                 <div className="mt-2 text-sm font-semibold text-foreground">
-                  {(order.payment_currency || 'USD')} {Number(order.payment_amount || order.total_amount || 0).toLocaleString()}
+                  {formatOrderAmount(order.payment_amount ?? order.total_amount)}
                 </div>
               </div>
               <div className="rounded-2xl border border-border bg-secondary/20 px-4 py-3">
@@ -528,7 +526,7 @@ export default function OrderDetailPage({ params }: OrderDetailPageProps) {
 
                 <div className="mt-3 space-y-2 text-sm text-muted-foreground">
                   <div><span className="font-semibold text-foreground">Gateway status:</span> {order.gateway_payment_status || order.gateway_order_status || '-'}</div>
-                  <div><span className="font-semibold text-foreground">Payment amount:</span> {order.payment_currency || 'INR'} {Number(order.payment_amount || order.total_amount || 0).toLocaleString()}</div>
+                  <div><span className="font-semibold text-foreground">Payment amount:</span> {formatOrderAmount(order.payment_amount ?? order.total_amount)}</div>
                   {order.payment_captured_at ? <div><span className="font-semibold text-foreground">Captured at:</span> {new Date(order.payment_captured_at).toLocaleString()}</div> : null}
                   {order.payment_failed_at ? <div><span className="font-semibold text-foreground">Failed at:</span> {new Date(order.payment_failed_at).toLocaleString()}</div> : null}
                   {order.razorpay_error_description ? <div><span className="font-semibold text-foreground">Failure note:</span> {order.razorpay_error_description}</div> : null}
