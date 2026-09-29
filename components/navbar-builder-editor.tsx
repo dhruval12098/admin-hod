@@ -26,7 +26,7 @@ async function getAccessToken() {
   return data.session?.access_token ?? null
 }
 
-type CatalogPayload = Omit<NavbarBuilderPayload, 'items' | 'revision'>
+type CatalogPayload = Omit<NavbarBuilderPayload, 'items' | 'revision' | 'itemRevisions'>
 
 type NavbarBuilderInitialData = {
   revision: string
