@@ -55,6 +55,14 @@ import { deleteCachedQueryData, fetchCachedQuery, getCachedQueryData, setCachedQ
 import type { ProductCustomDropdown } from '@/lib/product-custom-dropdowns'
 import { validateProductCustomDropdowns } from '@/lib/product-custom-dropdowns'
 import {
+  serializeProductCustomDropdowns,
+  serializeProductFaqItems,
+  serializeProductMetalMedia,
+  serializeProductMetalVariants,
+  serializeProductPurityPrices,
+  serializeProductVariantMediaItems,
+} from '@/lib/product-save-payload'
+import {
   getProductEditorCacheKey,
   normalizeProductEditorItem,
   type ProductEditorItem,
@@ -325,19 +333,6 @@ function sanitizeSections(sections: ProductDetailSection[]) {
       rows: sanitizeRows(section.rows),
     }))
     .filter((section) => section.title && section.rows.length > 0)
-}
-
-function sanitizeFaqItems(items: ProductFaqItem[]) {
-  return items
-    .map((item, index) => ({
-      ...item,
-      question: item.question.trim(),
-      answer: item.answer.trim(),
-      sort_order: index + 1,
-      is_active: item.is_active !== false,
-      source: item.source || 'admin',
-    }))
-    .filter((item) => item.question && item.answer)
 }
 
 function toStoragePreviewUrl(path: string | null | undefined) {
@@ -1288,32 +1283,12 @@ export function ProductForm({
           linked_option_ids: linkedOptionIds,
           style_id: styleId || null,
           metal_ids: selectedMetalIds,
-          metal_variants: metalVariants.map((entry, index) => ({
-            ...entry,
-            sort_order: index + 1,
-            media_items: (entry.media_items ?? [])
-              .filter((item) => item.media_path?.trim())
-              .map((item, itemIndex) => ({
-                ...item,
-                media_path: item.media_path.trim(),
-                sort_order: itemIndex + 1,
-              })),
-          })),
-          default_variant_media_items: defaultVariantMediaItems
-            .filter((item) => item.media_path?.trim())
-            .map((item, index) => ({
-              ...item,
-              media_path: item.media_path.trim(),
-              sort_order: index + 1,
-              is_default_fallback: true,
-            })),
+          metal_variants: serializeProductMetalVariants(metalVariants),
+          default_variant_media_items: serializeProductVariantMediaItems(defaultVariantMediaItems, true),
           purity_values: selectedPurities,
-          purity_prices: purityPrices.map((entry, index) => ({
-            ...entry,
-            sort_order: index + 1,
-          })),
+          purity_prices: serializeProductPurityPrices(purityPrices),
           default_purity_price_id: defaultPurityPriceId || null,
-          metal_media: metalMedia,
+          metal_media: serializeProductMetalMedia(metalMedia),
           certificate_ids: selectedCertificateIds,
             ring_size_ids: [],
             ring_enabled: ringSizesEnabled,
@@ -1329,7 +1304,7 @@ export function ProductForm({
             engraving_enabled: engravingEnabled,
             engraving_label: engravingEnabled ? engravingLabel || null : null,
             custom_dropdowns_enabled: customDropdownsEnabled,
-            custom_dropdowns: customDropdowns,
+            custom_dropdowns: serializeProductCustomDropdowns(customDropdowns),
             shipping_enabled: shippingEnabled,
             care_warranty_enabled: careWarrantyEnabled,
             shipping_override_enabled: shippingEnabled ? shippingOverrideEnabled : false,
@@ -1344,7 +1319,7 @@ export function ProductForm({
           specifications: sanitizeRows(specifications),
           product_details: sanitizeRows(productDetails),
           detail_sections: sanitizeSections(detailSections),
-          faq_items: sanitizeFaqItems(faqItems),
+          faq_items: serializeProductFaqItems(faqItems),
           image_1_path: imagePaths[0],
           image_2_path: imagePaths[1],
           image_3_path: imagePaths[2],

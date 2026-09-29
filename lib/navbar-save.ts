@@ -22,9 +22,16 @@ const envelope = z.object({
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 function unique(values: string[]) { return new Set(values).size === values.length }
-function errorResponse(error: { code?: string; message?: string }) {
+export function navbarSaveErrorResponse(error: { code?: string; message?: string }) {
   if (error.code === 'PGRST202' || error.code === '42883') return NextResponse.json({ error: 'The navbar editor is awaiting its database update. Existing navigation was not changed.' }, { status: 503 })
+  // Keep production errors non-enumerable, but make local development failures
+  // actionable instead of collapsing every unexpected database error into one toast.
+  if (process.env.NODE_ENV !== 'production' && error.code && error.message) {
+    console.error('Navbar save failed:', error)
+    return NextResponse.json({ error: `Navbar save failed (${error.code}): ${error.message}` }, { status: 500 })
+  }
   if (error.code === '40001') return NextResponse.json({ error: 'The navbar changed after you opened it. Reload before saving again.' }, { status: 409 })
+  if (error.code === '23503') return NextResponse.json({ error: 'A selected navbar value no longer exists. Reload and try again.' }, { status: 400 })
   if (['22023', '22P02', '23502', '23503', '23505', '23514'].includes(error.code ?? '')) return NextResponse.json({ error: 'The navbar contains invalid or conflicting data.' }, { status: 400 })
   return NextResponse.json({ error: 'Unable to save the navbar. No partial changes were committed.' }, { status: 500 })
 }
@@ -66,6 +73,41 @@ export async function saveNavbar(access: Access, input: unknown) {
   }
 
   const { data, error } = await access.adminClient.rpc('navbar_save_v1', { p_actor_id: access.user.id, p_request_id: parsed.data.request_id, p_expected_revision: parsed.data.expected_revision, p_items: items, p_sections: sections, p_links: links, p_source_items: sourceItems, p_featured_cards: featuredCards, p_deleted_section_ids: deleted.sections, p_deleted_link_ids: deleted.links, p_deleted_source_item_ids: deleted.source_items.map(Number), p_deleted_featured_card_ids: deleted.featured_cards })
-  if (error) return errorResponse(error)
+  if (error) return navbarSaveErrorResponse(error)
+  return NextResponse.json({ ok: true, revision: (data as { revision?: string } | null)?.revision }, { headers: { 'Cache-Control': 'no-store' } })
+}
+
+const itemEnvelope = z.object({
+  request_id: uuid,
+  expected_revision: z.string().regex(/^[a-f0-9]{32}$/),
+  item,
+  deleted_ids: z.object({ sections: z.array(uuid).max(500), links: z.array(uuid).max(2_000), source_items: z.array(z.string().regex(/^[1-9][0-9]*$/)).max(5_000), featured_cards: z.array(uuid).max(10) }).strict(),
+}).strict()
+
+/** Saves one navbar item only. Other menu items are intentionally outside this transaction. */
+export async function saveNavbarItem(access: Access, itemId: string, input: unknown) {
+  if (!uuidPattern.test(itemId)) return NextResponse.json({ error: 'Invalid navbar item.' }, { status: 400 })
+  const parsed = itemEnvelope.safeParse(input)
+  if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message ?? 'Invalid navbar save request.' }, { status: 400 })
+  if (parsed.data.item.id !== itemId) return NextResponse.json({ error: 'Navbar item does not match this edit route.' }, { status: 400 })
+  const deleted = parsed.data.deleted_ids
+  if (![deleted.sections, deleted.links, deleted.source_items, deleted.featured_cards].every(unique)) return NextResponse.json({ error: 'Deleted navbar IDs must be unique.' }, { status: 400 })
+
+  const navItem = normalizeNavbarItemForSave(parsed.data.item)
+  const sections: Record<string, unknown>[] = []
+  const links: Record<string, unknown>[] = []
+  const sourceItems: Record<string, unknown>[] = []
+  for (const [sectionIndex, navSection] of (navItem.type === 'mega' ? navItem.sections ?? [] : []).entries()) {
+    const sectionKey = navSection.id
+    const sectionType = mapSectionTypeToDb(navSection.type)
+    sections.push({ key: sectionKey, id: uuidPattern.test(navSection.id) ? navSection.id : null, title: navSection.title, icon_svg_path: navSection.iconSvgPath ?? null, section_type: sectionType, source_subcategory_id: sectionType === 'category_list' ? navSection.sourceSubcategoryId : null, source_category_slug: sectionType === 'category_link' ? navSection.sourceCategorySlug ?? null : null, enable_category_link: navSection.enableCategoryLink ?? false, linked_category_id: navSection.linkedCategoryId ?? null, column_number: Math.max(1, navSection.column), show_as_filter: navSection.showAsFilter ?? false, display_order: sectionIndex + 1, status: navItem.visible ? 'active' : 'hidden' })
+    for (const [linkIndex, navLink] of navSection.links.entries()) links.push({ id: navLink.id ?? null, section_key: sectionKey, label: navLink.label, url: navLink.url, display_order: linkIndex + 1, status: navItem.visible ? 'active' : 'hidden' })
+    for (const [sourceIndex, navSource] of (navSection.selectedSourceItems ?? []).entries()) sourceItems.push({ id: navSource.id ?? null, section_key: sectionKey, source_kind: navSource.sourceKind, source_item_id: navSource.sourceItemId, sort_order: navSource.sortOrder || sourceIndex + 1, is_active: navSource.isActive })
+  }
+  const itemRow = { id: itemId, label: navItem.label, slug: navItem.slug, item_type: navItem.type === 'mega' ? 'mega_menu' : 'direct_link', linked_category_id: navItem.type === 'mega' ? navItem.linkedCategoryId ?? null : null, direct_link_url: navItem.type === 'direct' ? navItem.url ?? '/' : null, status: navItem.visible ? 'active' : 'hidden' }
+  const card = navItem.featuredImage ?? { enabled: false, imageUrl: '', buttonLabel: '', buttonUrl: '', imageAlt: navItem.label }
+  const featured = { id: card.id ?? null, image_path: card.imageUrl || null, image_alt: card.imageAlt || navItem.label, button_label: card.buttonLabel || null, button_url: card.buttonUrl || null, enabled: card.enabled }
+  const { data, error } = await access.adminClient.rpc('navbar_item_save_v1', { p_actor_id: access.user.id, p_request_id: parsed.data.request_id, p_expected_revision: parsed.data.expected_revision, p_item_id: itemId, p_item: itemRow, p_sections: sections, p_links: links, p_source_items: sourceItems, p_featured_card: featured, p_deleted_section_ids: deleted.sections, p_deleted_link_ids: deleted.links, p_deleted_source_item_ids: deleted.source_items.map(Number), p_deleted_featured_card_ids: deleted.featured_cards })
+  if (error) return navbarSaveErrorResponse(error)
   return NextResponse.json({ ok: true, revision: (data as { revision?: string } | null)?.revision }, { headers: { 'Cache-Control': 'no-store' } })
 }

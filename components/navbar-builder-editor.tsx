@@ -17,7 +17,7 @@ import {
   type NavbarSection,
   type NavbarSectionType,
 } from '@/lib/navbar'
-import { navbarSaveBody } from '@/lib/navbar-client'
+import { navbarItemSaveBody } from '@/lib/navbar-client'
 
 const SECTION_TYPE_OPTIONS: NavbarSectionType[] = ['Subcategory Options', 'Category Link', 'Metal Swatches', 'Stone Shapes', 'Ring Sizes', 'Certificates', 'Styles', 'Manual Links']
 
@@ -30,6 +30,7 @@ type CatalogPayload = Omit<NavbarBuilderPayload, 'items' | 'revision'>
 
 type NavbarBuilderInitialData = {
   revision: string
+  itemRevisions: Record<string, string>
   items: NavbarItem[]
   categories: NavbarBuilderPayload['categories']
   subcategories: NavbarBuilderPayload['subcategories']
@@ -45,6 +46,7 @@ type NavbarBuilderState = {
   items: NavbarItem[]
   originalItems: NavbarItem[]
   revision: string
+  itemRevisions: Record<string, string>
   catalog: CatalogPayload
   setItems: Dispatch<SetStateAction<NavbarItem[]>>
   reload: () => Promise<NavbarItem[]>
@@ -55,6 +57,7 @@ function useNavbarBuilderState(initialData: NavbarBuilderInitialData): NavbarBui
   const [items, setItems] = useState<NavbarItem[]>(initialData.items)
   const [originalItems, setOriginalItems] = useState<NavbarItem[]>(initialData.items)
   const [revision, setRevision] = useState(initialData.revision)
+  const [itemRevisions, setItemRevisions] = useState(initialData.itemRevisions)
   const [catalog, setCatalog] = useState<CatalogPayload>({
     categories: initialData.categories,
     subcategories: initialData.subcategories,
@@ -84,6 +87,7 @@ function useNavbarBuilderState(initialData: NavbarBuilderInitialData): NavbarBui
       setItems(payload.items)
       setOriginalItems(payload.items)
       setRevision(payload.revision)
+      setItemRevisions(payload.itemRevisions ?? {})
       setCatalog({
         categories: payload.categories,
         subcategories: payload.subcategories,
@@ -109,6 +113,7 @@ function useNavbarBuilderState(initialData: NavbarBuilderInitialData): NavbarBui
     items,
     originalItems,
     revision,
+    itemRevisions,
     catalog,
     setItems,
     reload: loadNavbar,
@@ -238,7 +243,7 @@ export function NavbarBuilderOverview({ initialData }: { initialData: NavbarBuil
 export function NavbarItemEditor({ itemId, initialData }: { itemId: string; initialData: NavbarBuilderInitialData }) {
   const router = useRouter()
   const { toast } = useToast()
-  const { items, originalItems, revision, catalog, setItems, reload } = useNavbarBuilderState(initialData)
+  const { items, originalItems, itemRevisions, catalog, setItems, reload } = useNavbarBuilderState(initialData)
   const [saving, setSaving] = useState(false)
   const [sectionSaving, setSectionSaving] = useState(false)
   const [featuredImageUploading, setFeaturedImageUploading] = useState(false)
@@ -391,17 +396,21 @@ export function NavbarItemEditor({ itemId, initialData }: { itemId: string; init
   const saveNavbar = async () => {
     setSaving(true)
     try {
+      if (!selectedItem) throw new Error('Navbar item not found.')
+      const originalItem = originalItems.find((item) => item.id === itemId)
+      const itemRevision = itemRevisions[itemId]
+      if (!originalItem || !itemRevision) throw new Error('Reload this navbar item before saving.')
       const currentSlug = selectedItem?.slug ?? null
       const accessToken = await getAccessToken()
       if (!accessToken) throw new Error('Missing access token.')
 
-      const response = await fetch('/api/navbar', {
+      const response = await fetch(`/api/navbar/${itemId}`, {
         method: 'PUT',
         headers: {
           'content-type': 'application/json',
           authorization: `Bearer ${accessToken}`,
         },
-        body: navbarSaveBody(items, originalItems, revision),
+        body: navbarItemSaveBody(selectedItem, originalItem, itemRevision),
       })
 
       const payload = await response.json().catch(() => null)

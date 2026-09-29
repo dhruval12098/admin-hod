@@ -42,3 +42,21 @@ export function navbarSaveBody(items: NavbarItem[], originalItems: NavbarItem[],
     },
   })
 }
+
+/** Builds an intentionally item-scoped save request for the dedicated edit route. */
+export function navbarItemSaveBody(item: NavbarItem, originalItem: NavbarItem, expectedRevision: string) {
+  const original = collectIds([originalItem])
+  const normalizedItem = normalizeNavbarItemForSave(item)
+  const current = collectIds([normalizedItem])
+  return JSON.stringify({
+    request_id: crypto.randomUUID(),
+    expected_revision: expectedRevision,
+    item: normalizedItem,
+    deleted_ids: {
+      sections: removed(original.sectionIds, current.sectionIds),
+      links: removed(original.linkIds, current.linkIds),
+      source_items: removed(original.sourceItemIds, current.sourceItemIds),
+      featured_cards: removed(original.featuredCardIds, current.featuredCardIds),
+    },
+  })
+}

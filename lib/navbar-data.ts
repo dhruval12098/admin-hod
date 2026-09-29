@@ -14,6 +14,7 @@ type Snapshot = {
   source_items: Parameters<typeof buildNavbarItemsFromRows>[0]['sectionSourceItems']
   featured_cards: Parameters<typeof buildNavbarItemsFromRows>[0]['featuredCards']
   revision: string
+  item_revisions?: Record<string, string>
 }
 
 export async function loadNavbarBuilderData(client: SupabaseClient): Promise<NavbarBuilderPayload> {
@@ -62,8 +63,21 @@ export async function loadNavbarBuilderData(client: SupabaseClient): Promise<Nav
       })
     : buildFallbackNavbarItems(categories, subcategories, options)
 
+  const itemRevisionResults = await Promise.all(
+    snapshot.items.map((entry) => client.rpc('navbar_item_snapshot_v1', { p_item_id: entry.id }))
+  )
+  const itemRevisionError = itemRevisionResults.find((entry) => entry.error)?.error
+  if (itemRevisionError) {
+    if (itemRevisionError.code === 'PGRST202' || itemRevisionError.code === '42883') throw new Error('The navbar editor is awaiting its database migration.')
+    throw new Error('Unable to load the navbar editor.')
+  }
+  const itemRevisions = Object.fromEntries(
+    snapshot.items.map((entry, index) => [entry.id, ((itemRevisionResults[index].data as { revision?: string } | null)?.revision ?? '')])
+  )
+
   return {
     revision: snapshot.revision,
+    itemRevisions,
     items: syncNavbarItemsWithCatalog(builtItems, categories, subcategories, options),
     categories,
     subcategories,

@@ -45,8 +45,11 @@ before(async () => {
     create table navbar_featured_cards(id uuid primary key default gen_random_uuid(),navbar_item_id uuid not null unique references navbar_items,image_path text,image_alt text,button_label text,button_url text,enabled boolean not null default false,created_at timestamptz default now(),updated_at timestamptz default now());
   `)
   const migration = await readFile(new URL('../sql/202609250014_navbar_atomic_save.sql', import.meta.url), 'utf8')
+  const sourceIntegrityMigration = await readFile(new URL('../sql/202609290023_navbar_source_item_integrity.sql', import.meta.url), 'utf8')
   await db.exec(migration)
   await db.exec(migration)
+  await db.exec(sourceIntegrityMigration)
+  await db.exec(sourceIntegrityMigration)
 })
 
 beforeEach(async () => {
@@ -104,6 +107,17 @@ test('supports ring-size sections without converting them to another source type
   const result = await save(before, data)
   assert.equal(result.sections[0].section_type, 'ring_sizes')
   assert.equal(result.source_items[0].source_kind, 'ring_size')
+})
+
+test('database guard rejects a source kind that does not match its section type', async () => {
+  const ids = await seed()
+  await db.query("update navbar_sections set section_type='stone_shapes', source_subcategory_id=null where id=$1", [ids.section])
+  await db.query('delete from navbar_section_source_items where section_id=$1', [ids.section])
+
+  await assert.rejects(
+    db.query("insert into navbar_section_source_items(section_id,source_kind,source_item_id,sort_order,is_active) values($1,'metal',$2,1,true)", [ids.section, metal]),
+    /does not match its section type/
+  )
 })
 
 test('requires explicit deletions and deletes a section atomically with its children', async () => {

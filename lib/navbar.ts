@@ -9,6 +9,7 @@ import {
   type CatalogStyle,
   type CatalogSubcategory,
 } from '@/lib/product-catalog'
+import { filterNavbarSectionSourceItems } from './navbar-source-items'
 
 export type NavbarItemType = 'mega' | 'direct'
 export type NavbarSectionType =
@@ -76,6 +77,7 @@ export type NavbarItem = {
 
 export type NavbarBuilderPayload = {
   revision: string
+  itemRevisions: Record<string, string>
   items: NavbarItem[]
   categories: CatalogCategory[]
   subcategories: CatalogSubcategory[]
@@ -470,8 +472,7 @@ export function normalizeNavbarItemForSave(item: NavbarItem): NavbarItem {
       showAsFilter: Boolean(section.showAsFilter),
       enableCategoryLink: Boolean(section.enableCategoryLink),
       linkedCategoryId: section.linkedCategoryId ?? null,
-      selectedSourceItems: (section.selectedSourceItems ?? [])
-        .filter((entry) => entry.sourceItemId)
+      selectedSourceItems: filterNavbarSectionSourceItems(section.type, section.selectedSourceItems ?? [])
         .sort((left, right) => left.sortOrder - right.sortOrder),
       id: section.id || `section-${index + 1}`,
     })),
