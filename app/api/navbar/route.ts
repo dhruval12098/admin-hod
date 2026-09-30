@@ -2,7 +2,6 @@ import { unstable_noStore as noStore } from 'next/cache'
 import { NextResponse } from 'next/server'
 import { assertAdmin } from '@/lib/cms-auth'
 import { loadNavbarBuilderData } from '@/lib/navbar-data'
-import { saveNavbar } from '@/lib/navbar-save'
 
 export async function GET(request: Request) {
   noStore()
@@ -16,8 +15,14 @@ export async function GET(request: Request) {
   }
 }
 
-export async function PUT(request: Request) {
-  const access = await assertAdmin(request)
-  if ('error' in access) return access.error
-  return saveNavbar(access, await request.json().catch(() => null))
+/**
+ * The original whole-navbar writer was replaced by the item-scoped editor.
+ * Reject obsolete whole-navbar saves before authentication or any database work.
+ * The current editor saves through PUT /api/navbar/[id] instead.
+ */
+export async function PUT() {
+  return NextResponse.json(
+    { error: 'This navbar editor session is outdated. Reload the page before saving.' },
+    { status: 410, headers: { 'Cache-Control': 'no-store' } },
+  )
 }
