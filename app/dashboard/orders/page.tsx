@@ -9,6 +9,7 @@ type OrderDatabaseRow = {
   customer_last_name: string | null
   customer_email: string
   total_amount: number | string | null
+  payment_status: string | null
   status: string
   created_at: string
 }
@@ -34,7 +35,7 @@ async function getOrdersPage(page: number): Promise<OrdersResponse> {
   const [ordersResult, countResult] = await Promise.all([
     adminClient
       .from('orders')
-      .select('id, order_number, customer_first_name, customer_last_name, customer_email, total_amount, status, created_at')
+      .select('id, order_number, customer_first_name, customer_last_name, customer_email, total_amount, payment_status, status, created_at')
       .order('created_at', { ascending: false })
       .range(from, to),
     adminClient.from('orders').select('id', { count: 'exact', head: true }),
@@ -66,6 +67,7 @@ async function getOrdersPage(page: number): Promise<OrdersResponse> {
       customer: [order.customer_first_name, order.customer_last_name].filter(Boolean).join(' ') || order.customer_email,
       customerEmail: order.customer_email,
       total: Number(order.total_amount || 0),
+      paymentStatus: order.payment_status || 'pending',
       status: normalizeOrderStatus(order.status),
       createdAt: order.created_at,
       items: itemCountMap.get(order.id) ?? 0,

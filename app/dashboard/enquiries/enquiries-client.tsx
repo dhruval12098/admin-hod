@@ -1,8 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { useMemo } from 'react'
-import { Mail, Phone, Sparkles, MessageSquareText, ShoppingBag, Newspaper, ExternalLink, Gift } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Mail, Phone, Sparkles, MessageSquareText, ShoppingBag, Newspaper, ExternalLink, Gift, Eye, X } from 'lucide-react'
 import { useSearchParams } from 'next/navigation'
 import type { AdminEnquiryItem, EnquiriesPageData, EnquiryTab } from '@/lib/enquiries'
 
@@ -38,6 +38,7 @@ function normalizeTab(value: string | null): EnquiryTab {
 export function EnquiriesClient({ initialData }: { initialData: EnquiriesPageData }) {
   const searchParams = useSearchParams()
   const activeTab = normalizeTab(searchParams.get('tab'))
+  const [selectedPromotionLead, setSelectedPromotionLead] = useState<Extract<AdminEnquiryItem, { source: 'promotion' }> | null>(null)
 
   const filteredItems = useMemo(() => {
     if (activeTab === 'all') return initialData.items
@@ -89,7 +90,15 @@ export function EnquiriesClient({ initialData }: { initialData: EnquiriesPageDat
         </div>
       ) : null}
 
-      <div className="space-y-4">
+      {activeTab === 'promotion' ? (
+        <div className="overflow-hidden rounded-xl border border-border bg-white shadow-xs">
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-border bg-secondary/35 text-xs font-semibold text-muted-foreground"><tr><th className="px-5 py-3">Email</th><th className="px-5 py-3">Coupon</th><th className="px-5 py-3">Submitted</th><th className="px-5 py-3 text-right">Answers</th></tr></thead>
+            <tbody className="divide-y divide-border">{filteredItems.map((item) => item.source === 'promotion' ? <tr key={item.id} className="hover:bg-secondary/20"><td className="px-5 py-4 font-medium text-foreground">{item.email}</td><td className="px-5 py-4"><span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${item.coupon_revealed ? 'bg-emerald-50 text-emerald-700' : 'bg-secondary text-muted-foreground'}`}>{item.coupon_revealed ? 'Revealed' : 'Not revealed'}</span></td><td className="px-5 py-4 text-muted-foreground">{new Date(item.created_at).toLocaleString()}</td><td className="px-5 py-4 text-right"><button type="button" onClick={() => setSelectedPromotionLead(item)} className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-xs font-semibold text-foreground hover:bg-secondary"><Eye size={14} />View</button></td></tr> : null)}</tbody>
+          </table>
+          {filteredItems.length === 0 ? <p className="px-6 py-10 text-center text-sm text-muted-foreground">No promotion leads yet.</p> : null}
+        </div>
+      ) : <div className="space-y-4">
         {filteredItems.map((item) => {
           const Icon = getTabIcon(item.source)
 
@@ -165,7 +174,9 @@ export function EnquiriesClient({ initialData }: { initialData: EnquiriesPageDat
             No enquiries found for this tab yet.
           </div>
         ) : null}
-      </div>
+      </div>}
+
+      {selectedPromotionLead ? <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4" role="dialog" aria-modal="true" aria-labelledby="promotion-lead-title"><div className="max-h-[85vh] w-full max-w-xl overflow-y-auto rounded-xl border border-border bg-white shadow-2xl"><div className="flex items-start justify-between border-b border-border px-6 py-5"><div><h2 id="promotion-lead-title" className="font-jakarta text-lg font-semibold text-foreground">Promotion lead</h2><p className="mt-1 text-sm text-muted-foreground">{selectedPromotionLead.email}</p></div><button type="button" onClick={() => setSelectedPromotionLead(null)} className="rounded-md border border-border p-2 text-muted-foreground hover:bg-secondary" aria-label="Close"><X size={16}/></button></div><dl className="divide-y divide-border px-6">{selectedPromotionLead.answers.map((answer) => <div key={answer.label} className="grid gap-1 py-3 sm:grid-cols-[minmax(0,0.45fr)_1fr] sm:gap-5"><dt className="text-sm text-muted-foreground">{answer.label}</dt><dd className="break-words text-sm font-medium text-foreground">{answer.value || '—'}</dd></div>)}{selectedPromotionLead.answers.length === 0 ? <p className="py-6 text-sm text-muted-foreground">No additional answers were submitted.</p> : null}<div className="grid gap-1 py-3 sm:grid-cols-[minmax(0,0.45fr)_1fr] sm:gap-5"><dt className="text-sm text-muted-foreground">Coupon</dt><dd className="text-sm font-medium text-foreground">{selectedPromotionLead.coupon_revealed ? `Revealed${selectedPromotionLead.revealed_at ? ` · ${new Date(selectedPromotionLead.revealed_at).toLocaleString()}` : ''}` : 'Not revealed'}</dd></div></dl><div className="flex justify-end border-t border-border px-6 py-4"><button type="button" onClick={() => setSelectedPromotionLead(null)} className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">Close</button></div></div></div> : null}
     </div>
   )
 }

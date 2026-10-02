@@ -56,6 +56,9 @@ export type PromotionEnquiry = {
   status: string
   created_at: string
   href: string
+  answers: Array<{ label: string; value: string }>
+  coupon_revealed: boolean
+  revealed_at: string | null
 }
 
 export type AdminEnquiryItem = BespokeEnquiry | ContactEnquiry | NewsletterEnquiry | PromotionEnquiry
@@ -79,7 +82,7 @@ function toProductTitle(topic: string | null, fallback: string) {
 export async function getEnquiriesPageData(): Promise<EnquiriesPageData> {
   const adminClient = createSupabaseAdminClient()
 
-  const [bespokeResult, contactResult, newsletterResult, promotionResult] = await Promise.all([
+  const [bespokeResult, contactResult, newsletterResult, promotionResult, promotionQuestionsResult] = await Promise.all([
     adminClient
       .from('bespoke_submissions')
       .select('id, full_name, email, phone, piece_type, country, message, status, created_at')
@@ -93,9 +96,12 @@ export async function getEnquiriesPageData(): Promise<EnquiriesPageData> {
       .select('id, email, source, status, created_at')
       .order('created_at', { ascending: false }),
     adminClient
-      .from('promotion_popup_submissions')
-      .select('id, email, action_type, coupon_id, submitted_at, coupons(code, title)')
-      .order('submitted_at', { ascending: false }),
+      .from('promotion_popup_responses')
+      .select('id, promotion_id, email, answers, coupon_revealed, revealed_at, created_at')
+      .order('created_at', { ascending: false }),
+    adminClient
+      .from('promotion_popup_questions')
+      .select('promotion_id, field_key, question'),
   ])
 
   const bespokeItems: BespokeEnquiry[] = (bespokeResult.error ? [] : bespokeResult.data ?? []).map((item) => ({
@@ -169,24 +175,27 @@ export async function getEnquiriesPageData(): Promise<EnquiriesPageData> {
     promotionResult.error || !promotionLeadsEnabled
       ? []
       : (promotionResult.data ?? []).map((item) => {
-          const coupon = Array.isArray(item.coupons) ? item.coupons[0] : item.coupons
-          const revealsCoupon = item.action_type === 'reveal_coupon'
+          const questions = (promotionQuestionsResult.error ? [] : promotionQuestionsResult.data ?? []).filter((question) => question.promotion_id === item.promotion_id)
+          const answers = item.answers && typeof item.answers === 'object' && !Array.isArray(item.answers) ? item.answers as Record<string, string | string[]> : {}
+          const answerRows = Object.entries(answers).map(([key, value]) => ({
+            label: questions.find((question) => question.field_key === key)?.question || key,
+            value: Array.isArray(value) ? value.join(', ') : String(value),
+          }))
           return {
             id: `promotion-${item.id}`,
             source: 'promotion',
             full_name: 'Promotion Lead',
             email: item.email,
             phone: null,
-            title: revealsCoupon ? 'Promotion Coupon Reveal' : 'Promotion Redirect',
-            summary: revealsCoupon
-              ? `Coupon revealed${coupon?.code ? `: ${coupon.code}` : ''}`
-              : 'Email collected before redirect',
-            message: revealsCoupon
-              ? `The shopper submitted their email and revealed ${coupon?.title || coupon?.code || 'the selected coupon'}.`
-              : 'The shopper submitted their email and continued to the configured destination.',
+            title: item.coupon_revealed ? 'Promotion Coupon Reveal' : 'Promotion Lead',
+            summary: item.coupon_revealed ? 'Coupon revealed after submitting answers' : 'Answers submitted',
+            message: '',
             status: 'new',
-            created_at: item.submitted_at,
+            created_at: item.created_at,
             href: '/dashboard/enquiries?tab=promotion',
+            answers: answerRows,
+            coupon_revealed: Boolean(item.coupon_revealed),
+            revealed_at: item.revealed_at ?? null,
           }
         })
 

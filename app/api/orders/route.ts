@@ -9,6 +9,7 @@ type OrderListRow = {
   customer_last_name: string | null
   customer_email: string
   total_amount: number | null
+  payment_status: string | null
   status: string
   created_at: string
 }
@@ -27,7 +28,7 @@ export async function GET(request: Request) {
   const to = from + PAGE_SIZE - 1
 
   const [ordersResult, countResult] = await Promise.all([
-    access.adminClient.from('orders').select('id, order_number, customer_first_name, customer_last_name, customer_email, total_amount, status, created_at').order('created_at', { ascending: false }).range(from, to),
+    access.adminClient.from('orders').select('id, order_number, customer_first_name, customer_last_name, customer_email, total_amount, payment_status, status, created_at').order('created_at', { ascending: false }).range(from, to),
     access.adminClient.from('orders').select('id', { count: 'exact', head: true }),
   ])
   if (ordersResult.error || countResult.error) return NextResponse.json({ error: 'Unable to load orders.' }, { status: 500 })
@@ -45,6 +46,7 @@ export async function GET(request: Request) {
     customer: [order.customer_first_name, order.customer_last_name].filter(Boolean).join(' ') || order.customer_email,
     customerEmail: order.customer_email,
     total: Number(order.total_amount || 0),
+    paymentStatus: order.payment_status || 'pending',
     status: order.status,
     createdAt: order.created_at,
     items: itemCountMap.get(order.id) ?? 0,

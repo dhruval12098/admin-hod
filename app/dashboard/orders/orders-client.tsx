@@ -12,6 +12,7 @@ export type OrderRow = {
   customer: string
   customerEmail: string
   total: number
+  paymentStatus: string
   status: 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled'
   createdAt: string
   items: number
@@ -87,6 +88,16 @@ export function OrdersClient({ initialData }: { initialData: OrdersResponse }) {
     }
   }
 
+  const getPaymentColor = (paymentStatus: string) => {
+    switch (paymentStatus.toLowerCase()) {
+      case 'paid': return 'bg-green-100 text-green-700'
+      case 'failed': return 'bg-red-100 text-red-700'
+      default: return 'bg-yellow-100 text-yellow-700'
+    }
+  }
+
+  const formatStoreAmount = (amount: number) => `USD ${amount.toLocaleString()}`
+
   return (
     <div className="p-8">
       <div className="mb-10 flex items-center justify-between">
@@ -140,6 +151,7 @@ export function OrdersClient({ initialData }: { initialData: OrdersResponse }) {
                 <th className="px-6 py-3 text-left text-xs font-medium text-foreground">Date</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-foreground">Items</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-foreground">Total</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-foreground">Payment</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-foreground">Status</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-foreground">Action</th>
               </tr>
@@ -155,7 +167,8 @@ export function OrdersClient({ initialData }: { initialData: OrdersResponse }) {
                     </td>
                     <td className="px-6 py-4 text-sm text-muted-foreground">{new Date(order.createdAt).toLocaleDateString()}</td>
                     <td className="px-6 py-4 text-sm text-foreground">{order.items}</td>
-                    <td className="px-6 py-4 text-sm font-medium text-foreground">${order.total.toLocaleString()}</td>
+                    <td className="px-6 py-4 text-sm font-medium text-foreground">{formatStoreAmount(order.total)}</td>
+                    <td className="px-6 py-4 text-sm"><span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${getPaymentColor(order.paymentStatus)}`}>{order.paymentStatus.charAt(0).toUpperCase() + order.paymentStatus.slice(1)}</span></td>
                     <td className="px-6 py-4 text-sm">
                       <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${getStatusColor(order.status)}`}>
                         {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
@@ -170,7 +183,7 @@ export function OrdersClient({ initialData }: { initialData: OrdersResponse }) {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={7} className="px-6 py-10 text-center text-sm text-muted-foreground">No orders found.</td>
+                  <td colSpan={8} className="px-6 py-10 text-center text-sm text-muted-foreground">No orders found.</td>
                 </tr>
               )}
             </tbody>
