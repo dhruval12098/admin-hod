@@ -52,13 +52,6 @@ function getProductEditHref(product: ProductRow, editBaseHref: string) {
   return `${editBaseHref}/${encodeURIComponent(product.id)}`
 }
 
-function getDuplicatedProductEditHref(product: { slug: string; lane: ProductRow['productLane'] }) {
-  const encodedSlug = encodeURIComponent(product.slug)
-  if (product.lane === 'hiphop') return `/dashboard/hiphop-products/edit/${encodedSlug}`
-  if (product.lane === 'collection') return `/dashboard/collection-products/edit/${encodedSlug}`
-  return `/dashboard/products/edit/${encodedSlug}`
-}
-
 export function ProductsClient({
   initialData,
   lane,
@@ -166,7 +159,9 @@ export function ProductsClient({
 
       const deletedName = deleteTarget?.name
       setDeleteTarget(null)
-      await loadProducts()
+      setProducts((current) => current.filter((product) => product.id !== id))
+      setTotal((current) => Math.max(0, current - 1))
+      setSelectedProductIds((current) => current.filter((productId) => productId !== id))
       toast({
         title: 'Product deleted',
         description: deletedName ? `“${deletedName}” was removed successfully.` : 'The product was removed successfully.',
@@ -221,11 +216,10 @@ export function ProductsClient({
         return
       }
 
-      const editHref = getDuplicatedProductEditHref(payload.item)
-      toast({ title: 'Draft created', description: 'The product copy is ready for review with stock and checkout disabled.' })
+      toast({ title: 'Draft created', description: 'The product copy is now listed as a draft with stock and checkout disabled.' })
       setDuplicateTarget(null)
       setDuplicateRequestId(null)
-      router.push(editHref)
+      await loadProducts()
     } catch (error) {
       toast({
         title: 'Duplication failed',

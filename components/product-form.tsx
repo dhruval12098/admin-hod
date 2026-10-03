@@ -696,6 +696,18 @@ export function ProductForm({
     void Promise.all(missingScopes.map((scope) => loadBootstrapScope(scope)))
   }, [activeStep, loadedBootstrapScopes])
 
+  useEffect(() => {
+    // Keep the initial editor light, but warm the next likely scopes once it is usable.
+    const schedule = window.requestIdleCallback ?? ((callback: IdleRequestCallback) => window.setTimeout(callback, 1) as unknown as number)
+    const cancel = window.cancelIdleCallback ?? window.clearTimeout
+    const handle = schedule(() => {
+      void loadBootstrapScope('pricing').then(() => loadBootstrapScope('attributes'))
+      void loadBootstrapScope('content')
+      router.prefetch(backHref)
+    })
+    return () => cancel(handle)
+  }, [])
+
   const prepareDirectImageUpload = async (file: File) => {
     if (!['image/jpeg', 'image/png', 'image/webp', 'image/avif'].includes(file.type)) {
       throw new Error('Unsupported image type.')
@@ -1368,9 +1380,7 @@ export function ProductForm({
 
       shouldRedirect = true
       setRedirecting(true)
-      window.setTimeout(() => {
-        router.push(backHref)
-      }, 700)
+      router.push(backHref)
     } catch (error) {
       toast({
         title: 'Save failed',
@@ -1427,6 +1437,15 @@ export function ProductForm({
           steps={PRODUCT_FORM_STEPS}
           activeStep={activeStep}
           onStepChange={setActiveStep}
+          onStepIntent={(step) => {
+            const scopes: Partial<Record<ProductFormStepId, CatalogBootstrapScope[]>> = {
+              pricing: ['pricing'],
+              attributes: ['pricing', 'attributes'],
+              content: ['content'],
+              media: ['pricing'],
+            }
+            void Promise.all((scopes[step] ?? []).map((scope) => loadBootstrapScope(scope)))
+          }}
         />
 
         {activeStep === 'basics' ? (
@@ -2151,6 +2170,7 @@ export function ProductForm({
           isFirstStep={isFirstStep}
           isLastStep={isLastStep}
           saving={saving}
+          canSaveOnCurrentStep={Boolean(productId || productSlug)}
           backHref={backHref}
           submitLabel={productId || productSlug ? 'Update Product' : 'Create Product'}
           onPrevious={() => setActiveStep(PRODUCT_FORM_STEPS[Math.max(0, activeStepIndex - 1)].id)}

@@ -88,12 +88,13 @@ export function ConfirmDialog({
   }
 
   const handleCancel = () => {
+    if (loading) return
     setFallbackLoading(false)
     onCancel()
   }
 
   return (
-    <AlertDialog open={isOpen} onOpenChange={(open) => (!open ? handleCancel() : undefined)}>
+    <AlertDialog open={isOpen} onOpenChange={(open) => (!open && !loading ? handleCancel() : undefined)}>
       <AlertDialogContent className="z-[90] max-w-sm border-0 bg-transparent p-0 shadow-none">
         <div className={`${bgColor} mx-4 rounded-lg border ${borderColor} p-6 shadow-lg`}>
           <div className="flex items-start gap-4">

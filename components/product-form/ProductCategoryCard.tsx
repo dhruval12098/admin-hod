@@ -114,7 +114,7 @@ export function ProductCategoryCard({
           />
         ) : null}
 
-        {subcategoryId ? (
+        {subcategoryId && subcategoryOptions.length > 0 ? (
           <FormField label="Option">
             <Select value={optionId} onValueChange={setOptionId}>
               <SelectTrigger className="w-full">
@@ -127,6 +127,12 @@ export function ProductCategoryCard({
               </SelectContent>
             </Select>
           </FormField>
+        ) : null}
+
+        {subcategoryId && subcategoryOptions.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-border bg-secondary/20 px-4 py-3 text-sm text-muted-foreground">
+            No options configured for this subcategory. Manage options under Catalog.
+          </div>
         ) : null}
 
         {linkedOptionCandidates.length > 0 ? (

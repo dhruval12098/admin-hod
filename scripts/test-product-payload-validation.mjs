@@ -47,6 +47,28 @@ test('accepts variants, media, FAQs, custom dropdowns, and temporary purity IDs'
   assert.equal(productPayloadSchema.safeParse(value).success, true)
 })
 
+test('requires exactly one default metal variant when variants are present', () => {
+  const value = payload()
+  value.metal_ids = [id(2), id(3)]
+  value.metal_variants = [
+    { metal_id: id(2), price: 120, is_default: false, sort_order: 1 },
+    { metal_id: id(3), price: 140, is_default: false, sort_order: 2 },
+  ]
+  assert.equal(productPayloadSchema.safeParse(value).success, false)
+  value.metal_variants[1].is_default = true
+  assert.equal(productPayloadSchema.safeParse(value).success, true)
+})
+
+test('the editor hydrates relation-backed product data before an edit save is available', () => {
+  const source = readFileSync(new URL('../components/product-form.tsx', import.meta.url), 'utf8')
+  const loader = readFileSync(new URL('../lib/product-editor-data.ts', import.meta.url), 'utf8')
+  assert.match(source, /\(loading \|\| !productHydrated\)/)
+  assert.match(loader, /metalVariantBundle/)
+  assert.match(loader, /loadProductFaqItems/)
+  assert.match(loader, /loadProductCustomDropdowns/)
+  assert.match(loader, /loadProductLinkSelections/)
+})
+
 test('prepares custom dropdown names and option values before the RPC save', () => {
   const value = payload()
   value.custom_dropdowns = [{ id: id(3), name: '', label: 'Select chain', is_enabled: true, is_required: false, display_order: 99, options: [{ id: id(4), label: 'Short', value: '', is_enabled: true, display_order: 99 }] }]

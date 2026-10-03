@@ -9,10 +9,12 @@ export function ProductFormStepBar({
   steps,
   activeStep,
   onStepChange,
+  onStepIntent,
 }: {
   steps: ProductFormStep[]
   activeStep: ProductFormStepId
   onStepChange: (step: ProductFormStepId) => void
+  onStepIntent?: (step: ProductFormStepId) => void
 }) {
   const activeStepIndex = steps.findIndex((step) => step.id === activeStep)
 
@@ -38,6 +40,8 @@ export function ProductFormStepBar({
               key={step.id}
               type="button"
               onClick={() => onStepChange(step.id)}
+              onMouseEnter={() => onStepIntent?.(step.id)}
+              onFocus={() => onStepIntent?.(step.id)}
               className={`rounded-xl border px-3 py-3 text-left transition-colors ${
                 isActive
                   ? 'border-foreground bg-foreground text-white shadow-md'
@@ -69,6 +73,7 @@ export function ProductFormStepActions({
   isFirstStep,
   isLastStep,
   saving,
+  canSaveOnCurrentStep,
   backHref,
   submitLabel,
   onPrevious,
@@ -77,6 +82,7 @@ export function ProductFormStepActions({
   isFirstStep: boolean
   isLastStep: boolean
   saving: boolean
+  canSaveOnCurrentStep: boolean
   backHref: string
   submitLabel: string
   onPrevious: () => void
@@ -103,6 +109,7 @@ export function ProductFormStepActions({
 
         <div className="flex items-center gap-3">
           {!isLastStep ? (
+            <>
             <button
               type="button"
               onClick={onNext}
@@ -110,6 +117,12 @@ export function ProductFormStepActions({
             >
               Continue
             </button>
+            {canSaveOnCurrentStep ? (
+              <button type="submit" disabled={saving} className="rounded bg-primary px-6 py-2.5 text-sm font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-60">
+                {saving ? 'Saving...' : submitLabel}
+              </button>
+            ) : null}
+            </>
           ) : (
             <>
               <Link href={backHref} className="rounded border border-border px-5 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary">

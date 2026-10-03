@@ -109,8 +109,9 @@ export const productPayloadSchema = z.object({
     if (new Set(variants.map((variant) => variant.metal_id)).size !== variants.length) {
       context.addIssue({ code: z.ZodIssueCode.custom, message: 'Metal variants must use unique metals.' })
     }
-    if (variants.filter((variant) => variant.is_default).length > 1) {
-      context.addIssue({ code: z.ZodIssueCode.custom, message: 'Only one metal variant can be the default.' })
+    const defaultCount = variants.filter((variant) => variant.is_default).length
+    if (variants.length > 0 && defaultCount !== 1) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: 'Exactly one metal variant must be the default.' })
     }
   }),
   default_variant_media_items: z.array(variantMediaSchema),

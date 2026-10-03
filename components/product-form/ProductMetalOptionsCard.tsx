@@ -31,7 +31,6 @@ export function ProductMetalOptionsCard({
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [draftMetalId, setDraftMetalId] = useState('')
   const [draftPrice, setDraftPrice] = useState('')
-  const [inactiveMetalIds, setInactiveMetalIds] = useState<string[]>([])
   const [addDialogOpen, setAddDialogOpen] = useState(false)
 
   const openEdit = (index: number) => {
@@ -66,12 +65,11 @@ export function ProductMetalOptionsCard({
       }
       return next
     })
-    setInactiveMetalIds((prev) => prev.filter((metalId) => metalId !== metalVariants[index]?.metal_id))
     if (metalVariants[index]) onMetalRemove(metalVariants[index].metal_id)
   }
 
-  const toggleActive = (metalId: string) => {
-    setInactiveMetalIds((prev) => prev.includes(metalId) ? prev.filter((id) => id !== metalId) : [...prev, metalId])
+  const setDefault = (index: number) => {
+    setMetalVariants((prev) => prev.map((entry, rowIndex) => ({ ...entry, is_default: rowIndex === index })))
   }
 
   return (
@@ -90,11 +88,10 @@ export function ProductMetalOptionsCard({
       {metalVariants.length > 0 ? (
         <div className="mt-5 overflow-hidden rounded-lg border border-border">
           <div className="hidden grid-cols-[minmax(0,1fr)_160px_130px_170px] gap-4 bg-secondary/30 px-4 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground md:grid">
-            <span>Metal</span><span>Price</span><span>Status</span><span className="text-right">Actions</span>
+            <span>Metal</span><span>Price</span><span>Storefront</span><span className="text-right">Actions</span>
           </div>
           <div className="divide-y divide-border">
             {metalVariants.map((entry, index) => {
-              const isActive = !inactiveMetalIds.includes(entry.metal_id)
               return (
                 <div key={`${entry.metal_id}-${index}`} className="grid grid-cols-1 gap-3 bg-white px-4 py-4 md:grid-cols-[minmax(0,1fr)_160px_130px_170px] md:items-center md:gap-4">
                   <div>
@@ -102,8 +99,8 @@ export function ProductMetalOptionsCard({
                     <p className="mt-1 text-xs text-muted-foreground md:hidden">Metal pricing option</p>
                   </div>
                   <p className="text-sm font-semibold text-foreground">{entry.price > 0 ? `$${Number(entry.price).toLocaleString('en-US', { maximumFractionDigits: 2 })}` : '—'}</p>
-                  <button type="button" onClick={() => toggleActive(entry.metal_id)} className={`w-fit rounded-full border px-3 py-1.5 text-xs font-semibold transition ${isActive ? 'border-foreground bg-foreground text-background' : 'border-border text-muted-foreground hover:bg-secondary'}`}>
-                    {isActive ? 'Active' : 'Inactive'}
+                  <button type="button" onClick={() => setDefault(index)} className={`w-fit rounded-full border px-3 py-1.5 text-xs font-semibold transition ${entry.is_default ? 'border-foreground bg-foreground text-background' : 'border-border text-muted-foreground hover:bg-secondary'}`}>
+                    {entry.is_default ? 'Default' : 'Set as default'}
                   </button>
                   <div className="flex items-center gap-2 md:justify-end">
                     <button type="button" onClick={() => openEdit(index)} className="rounded-md border border-border px-3 py-2 text-xs font-semibold text-foreground hover:bg-secondary">Edit</button>
@@ -137,10 +134,6 @@ export function ProductMetalOptionsCard({
               Price
               <input type="number" min="1" step="0.01" value={draftPrice} onChange={(event) => setDraftPrice(event.target.value)} className={inputClassName} />
             </label>
-            <button type="button" onClick={() => toggleActive(draftMetalId)} className={`flex w-full items-center justify-between rounded-lg border px-4 py-3 text-sm font-semibold ${!inactiveMetalIds.includes(draftMetalId) ? 'border-foreground bg-secondary' : 'border-border'}`}>
-              <span>Set this price active</span>
-              <span>{!inactiveMetalIds.includes(draftMetalId) ? 'On' : 'Off'}</span>
-            </button>
           </div>
           <DialogFooter>
             <button type="button" onClick={closeEdit} className="rounded-md border border-border px-4 py-2 text-sm font-semibold">Cancel</button>
